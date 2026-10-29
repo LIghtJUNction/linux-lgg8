@@ -6,6 +6,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/property.h>
 #include <linux/regulator/consumer.h>
 #include <linux/types.h>
 
@@ -71,10 +72,12 @@ static int sw43410_send_commands(struct sw43410_panel *ctx,
 			    pps_sent || !dsi->dsc)
 				return -EINVAL;
 
-			/* The stock panel requests PPS in HS mode, then returns to LP. */
+			/* Preserve the mode requested by this panel profile. */
 			drm_dsc_pps_payload_pack(&pps, dsi->dsc);
 			mode_flags = dsi->mode_flags;
-			dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
+			if (!device_property_read_bool(&dsi->dev,
+						       "lge,update-pps-in-lp-mode"))
+				dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
 			ret = mipi_dsi_picture_parameter_set(dsi, &pps);
 			dsi->mode_flags = mode_flags;
 			if (ret < 0)

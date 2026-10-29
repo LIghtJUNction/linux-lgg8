@@ -486,6 +486,7 @@
 		vddi-supply = <&vreg_l14a_1p8>;
 		vpnl-supply = <&vreg_l17a_3p0>;
 		reset-gpios = <&tlmm 6 GPIO_ACTIVE_LOW>;
+		lge,update-pps-in-lp-mode;
 
 		port {
 			sw43410_in: endpoint {
@@ -502,6 +503,8 @@
 
 &mdss_dsi0_phy {
 	vdds-supply = <&vreg_l5a_0p8>;
+	qcom,phy-timing-override = <0x00 0x1d 0x07 0x07 0x23 0x22 0x07
+				     0x07 0x05 0x02 0x04 0x00 0x18 0x17>;
 	status = "okay";
 };
 

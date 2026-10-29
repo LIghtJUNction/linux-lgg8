@@ -319,8 +319,16 @@ C172 保持 C171 的 DTB、CPIO、bootargs 和其余启动输入，只把图案�
 
 C172 回收后捕获到 70,388 字节 `console-ramoops-0`，归档传输与源哈希匹配；文本本身严重损坏。仍能辨认到 DSI repeated-TPG pre-enable 信息，以及 DPU frame-done/vblank timeout 的片段。前者说明 bridge/host enable 路径走到调度图案的位置，不等于确认周期工作项发出帧；后者也不能在损坏日志中确定时间因果。用户确认 C172 仍为全屏花屏，重复 TPG 没有带来可见改善。显示修复和 DSI/DSC 根因都未验收。
 
-### 面板时钟差异线索（待验证）
+### 面板时钟与 PHY 时序实验
 
 从 Android runtime device tree 只读取得 SW43410 MP DSC timing：1440×3120@60 Hz、水平 porch 168/4/88、垂直 porch 9/1/10，DSC 8 bpc/8 bpp、SCR 1、两片 720×60、每包两片；与主线面板模式和主要 DSC 参数一致。原厂 `qcom,mdss-dsi-panel-clockrate` 属性长度为 4 字节，值为 920,145,600 Hz。Qualcomm 解析器在 u64 读取溢出时回退读 u32；下游时钟代码随后用 `clk_rate / 8` 设置 byte clock（[解析器](https://android.googlesource.com/kernel/msm/%2B/ccc65019619064cafef389aeb100606292186753/drivers/video/fbdev/msm/mdss_dsi_panel.c)、[时钟设置](https://android.googlesource.com/kernel/msm/%2B/d92068af0333a7e8d93dd7102aadc5e0a0b7f853/drivers/video/msm/mdss/msm_mdss_io_8974.c)），因此 920,145,600 Hz 是原厂面板配置的 lane bit rate。按当前主线 DSI host 源码的压缩时钟算法（压缩活动宽度 480、水平总宽 740，再按 RGB888/4 lanes 换算），请求 bit clock 为 836,496,000 Hz，低约 9.1%。主线面板驱动现向 DSI host 提供原厂 lane rate，host 仅在该值非零时用其计算 byte clock；其余设备保持原算法。
 
-同一原厂 MP timing 还给出 14 字节 PHY timing `001d070723220707050204001817`。主线 7 nm D-PHY 计算代码仍标有需要与下游实现核对的 TODO；该数组尚未逐字段映射。Candidate 173 先只验证 lane rate；若画面无改善，再针对 PHY timing 做独立比较。
+同一原厂 MP timing 还给出 14 字节 PHY timing `001d070723220707050204001817`。Candidate 173 只改变 lane rate 为 920,145,600 Hz；用户后来澄清没有看到 Linux 阶段画面，因此显示结果未知。Android USB 于 136.291 秒返回，ADB 于 136.482 秒上线，总运行 146.783 秒，比 C172 快约 42.3 秒；Android 完整启动、slot `_b`，两槽 boot 哈希不变。pstore 为空，未提供 Linux 阶段日志。**lane rate 修正缩短了回收时间，但无法据此判断显示是否改善。**
+
+源码对照进一步确认，SM8150 使用 `qcom,dsi-phy-7nm-8150`，主线 7 nm PHY 将 D-PHY 的 14 个值写入 timing control 0–13 寄存器；高通下游的 v4 PHY 接口也接受长度恰为 14 的面板 timing 数组并按顺序写入这 14 个寄存器（[下游 PHY 接口](https://android.googlesource.com/kernel/msm/%2B/51cfd1adbc3cdaab6c4cbfc32b675a5322f0bd57/drivers/gpu/drm/msm/dsi-staging/dsi_phy_hw_v4_0.c)、[主线 SM8150 PHY](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/gpu/drm/msm/dsi/phy/dsi_phy_7nm.c)）。这把原厂数组与主线寄存器顺序直接对应起来。
+
+按 920,145,600 Hz 请求重算，主线当前寄存器数组为 `00 1f 08 09 24 22 08 08 05 02 04 00 1d 18`；原厂为 `00 1d 07 07 23 22 07 07 05 02 04 00 18 17`。两者差异集中在 HS/clock timing 和 clock pre/post；主线算法仍有“需与下游核对”的 TODO。
+
+Candidate 174 保留 C173 全部输入，只增加原厂 14 项 PHY timing override。用户观察到全屏花屏；USB 于 176.799 秒返回 Android，ADB 于 177.227 秒上线，总运行 187.381 秒。`boot_completed=1`，slot `_b`，boot ID 轮转，两槽 boot 哈希不变；无分区写入或 ttyACM 输入。pstore 为空，Android recovery `last_kmsg` 损坏，无法从日志确认 override 是否执行；当前只能结论为该轮可见画面仍花屏。
+
+随后对 Android MP profile 节点只读核对：`qcom,mdss-dsi-panel-type` 为 `dsi_cmd_mode`，且 `lge,update-pps-in-lp-mode` 布尔属性存在（0 字节）。这支持保留命令模式，也暴露出一个待验证差异：当前主线 SW43410 驱动发送生成的 PPS 前会清除 `MIPI_DSI_MODE_LPM`，因此实际以 HS 模式发送；属性名则指向 LP 模式。Candidate 175 只切换 PPS 到 LP 发送，其他输入沿用 C174。此处把属性语义作为待真机验证的假设，不当作已确认的厂商实现结论。C175 镜像 SHA-256 为 `1018afcfdeb2d835f10342d810ce3d55a48b5bb104b655d97c3fa86ef2624ab5`，离线验证通过；RAM-only 真机启动被接受，USB 于 16.093 秒断开、136.405 秒返回 Android，ADB 于 136.784 秒上线。`boot_completed=1`、slot `_b`、boot ID 轮转，两槽哈希不变；没有分区写入或 ttyACM 输入。pstore 为空；本轮屏幕观察仍待用户确认，因此暂不判断 LP PPS 是否改善画面。

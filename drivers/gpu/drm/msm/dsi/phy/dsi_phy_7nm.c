@@ -8,6 +8,7 @@
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/iopoll.h>
+#include <linux/of.h>
 
 #include "dsi_phy.h"
 #include "dsi.xml.h"
@@ -957,6 +958,46 @@ static void dsi_phy_hw_v4_0_lane_settings(struct msm_dsi_phy *phy)
 	}
 }
 
+static int dsi_7nm_phy_apply_timing_override(struct msm_dsi_phy *phy)
+{
+	static const u32 timing_regs[] = {
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_0,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_1,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_2,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_3,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_4,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_5,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_6,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_7,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_8,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_9,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_10,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_11,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_12,
+		REG_DSI_7nm_PHY_CMN_TIMING_CTRL_13,
+	};
+	u32 timing[ARRAY_SIZE(timing_regs)];
+	int i, ret;
+
+	if (!of_find_property(phy->pdev->dev.of_node,
+			      "qcom,phy-timing-override", NULL))
+		return 0;
+
+	ret = of_property_read_u32_array(phy->pdev->dev.of_node,
+					"qcom,phy-timing-override", timing,
+					ARRAY_SIZE(timing));
+	if (ret)
+		return dev_err_probe(&phy->pdev->dev, ret,
+				     "invalid PHY timing override\n");
+
+	for (i = 0; i < ARRAY_SIZE(timing_regs); i++)
+		writel(timing[i], phy->base + timing_regs[i]);
+
+	dev_info(&phy->pdev->dev, "applied %zu PHY timing override values\n",
+		 ARRAY_SIZE(timing));
+	return 1;
+}
+
 static int dsi_7nm_phy_enable(struct msm_dsi_phy *phy,
 			      struct msm_dsi_phy_clk_request *clk_req)
 {
@@ -1183,6 +1224,10 @@ static int dsi_7nm_phy_enable(struct msm_dsi_phy *phy,
 		writel(timing->shared_timings.clk_post,
 		       base + REG_DSI_7nm_PHY_CMN_TIMING_CTRL_13);
 	}
+
+	ret = dsi_7nm_phy_apply_timing_override(phy);
+	if (ret < 0)
+		return ret;
 
 	/* DSI lane settings */
 	dsi_phy_hw_v4_0_lane_settings(phy);

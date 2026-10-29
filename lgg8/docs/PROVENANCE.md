@@ -37,6 +37,10 @@ BSD-3-Clause 许可，驱动遵循文件头的 GPL-2.0-only，启动 shim 使用
   面板复位的 10/2/10 ms 等待使用 usleep_range，避免短 msleep 被时钟节拍放大。
   SCR1 之外的现有面板仍走原有参数路径。这项显示实现尚未取得真机正常画面。
 - 固定构建配置、ARM64 MMU 关闭交接 shim、诊断 initramfs、boot v0 打包与离线验证。
+- 为 LG G8 bring-up 撤回上游 09d99ff7 引入的 regulator 自动状态读回，
+  恢复原缓存策略。只涉及 `qcom-rpmh-regulator.c`；公共 RPMh 读写 API 和 RSC
+  实现不变。该回退影响驱动的全部 PMIC，底层原因和正式窄修复仍待验证；
+  不是把旧 Image 的 12 字节 API 错误注入固化进源码。
 
 不把历史诊断代码当成主线修复：没有移入强制晚期重启、跳过 BCM 投票、
 跳过异步初始化等待/释放 init 内存的代码，也没有默认禁用

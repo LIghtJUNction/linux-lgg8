@@ -61,19 +61,48 @@ if [ "$backend" = drm ]; then
         sleep 1
     done
     stage 5
-    selected=
+    first_status=
+    dsi_status=
+    first_card=
+    dsi_card=
+    connected_statuses=
     for f in /sys/class/drm/card*-*/status; do
         [ -f "$f" ] || continue
         [ "$(cat "$f")" = connected ] || continue
         connector=${f%/status}; connector=${connector##*/}; connector=${connector#card*-}
         echo "LGG8_CONNECTED_OUTPUT $connector"
-        if [ -z "$selected" ]; then
-            selected=$connector
-            card=${f#/sys/class/drm/}; card=${card%%-*}
-            set -- "--drm-device=$card"
-            printf '\n[output]\nname=%s\nmode=preferred\n' "$connector" >> /run/weston.ini
+        card=${f#/sys/class/drm/}; card=${card%%-*}
+        connected_statuses="$connected_statuses $f"
+        if [ -z "$first_status" ]; then
+            first_status=$f
+            first_card=$card
         fi
+        case "$connector" in
+            DSI-*)
+                if [ -z "$dsi_status" ]; then
+                    dsi_status=$f
+                    dsi_card=$card
+                fi
+                ;;
+        esac
     done
+    selected_status=$dsi_status
+    selected_card=$dsi_card
+    [ -n "$selected_status" ] || {
+        selected_status=$first_status
+        selected_card=$first_card
+    }
+    if [ -n "$selected_status" ]; then
+        set -- "--drm-device=$selected_card"
+        for f in $connected_statuses; do
+            connector=${f%/status}; connector=${connector##*/}; connector=${connector#card*-}
+            mode=off
+            [ "$f" = "$selected_status" ] && mode=preferred
+            printf '\n[output]\nname=%s\nmode=%s\n' "$connector" "$mode" >> /run/weston.ini
+            [ "$mode" = preferred ] && echo "LGG8_SELECTED_OUTPUT $connector"
+        done
+    fi
+    selected=${selected_status%/status}; selected=${selected##*/}; selected=${selected#card*-}
     [ -n "$selected" ] || echo "LGG8_NO_CONNECTED_DRM_OUTPUT"
 fi
 

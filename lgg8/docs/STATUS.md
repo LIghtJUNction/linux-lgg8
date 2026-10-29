@@ -307,3 +307,14 @@ CAL0/CAL15 的 USB 断开至 Android 返回分别为 **49.898 秒**与 **79.721 
 是否成功绑定/拉起 D+ 尚未确认。connector 数量、fb0、阶段 8、Weston 存活和屏幕花屏共同说明
 显示栈已明显越过“没有设备/没有用户态”的阶段，**不等于正确画面、可交互桌面或
 USB shell 已经可用**。C164 的异常时序和 C167 边缘容差均保留，不能从其结果过度外推。
+
+
+## C170–C172：DSI 路由与面板测试图案诊断
+
+C170 只把 Weston 目标输出固定为 DSI、关闭其他已连接输出；用户仍观察到全屏花屏。RAM-only 启动后 Android 于 135.449 秒首次回到 USB，完整恢复且两槽 boot 哈希未变。Android runtime 也显示 DSI-1 connected、DP-1 disconnected、Virtual-1 connected，因此“Weston 选错物理输出”没有得到支持。
+
+C171 增加 `lgg8_dsi_tpg=1`，在面板初始化后请求 DSI host command-mode 测试图案一帧。用户仍报告全屏花屏。Android 于 175.922 秒回到 ADB，`boot_completed=1`，slot `_b`，两槽哈希不变。该轮没有可用的 Linux pstore 日志，不能确认测试图案工作项是否执行，也不能据此定位 DSI/DSC/面板故障。
+
+C172 保持 C171 的 DTB、CPIO、bootargs 和其余启动输入，只把图案触发改为 DSI bridge 活跃时每 16 ms 重发，并在关闭 host 前同步取消。内核 SHA-256 为 `0beab1bc…b9ddb223`，boot.img SHA-256 为 `2a2df706…3f03d7ce`。RAM-only `fastboot boot` 被接受；USB 于 15.907 秒断开、178.907 秒恢复为 Android，ADB 于 179.390 秒上线。`boot_completed=1`、slot `_b`、boot ID 轮转，`boot_a` 与 `boot_b` 哈希均不变；没有分区写入或 ttyACM 输入。USB 状态变化中未出现 Linux gadget `18d1:4ee7`。
+
+C172 回收后捕获到 70,388 字节 `console-ramoops-0`，归档传输与源哈希匹配；文本本身严重损坏。仍能辨认到 DSI repeated-TPG pre-enable 信息，以及 DPU frame-done/vblank timeout 的片段。前者说明 bridge/host enable 路径走到调度图案的位置，不等于确认周期工作项发出帧；后者也不能在损坏日志中确定时间因果。用户对 C172 屏幕是否出现棋盘格的观察尚待记录。显示修复和 DSI/DSC 根因都未验收。

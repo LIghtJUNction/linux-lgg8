@@ -3,6 +3,12 @@
  * Copyright (c) 2015, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/init.h>
+#include <linux/compiler.h>
+#include <linux/kstrtox.h>
+#include <linux/jiffies.h>
+#include <linux/workqueue.h>
+
 #include "drm/drm_bridge_connector.h"
 
 #include "msm_kms.h"
@@ -19,6 +25,35 @@
  */
 #define DSI_ENCODER_MASTER	DSI_1
 #define DSI_ENCODER_SLAVE	DSI_0
+
+/* RAM-only panel diagnostic: repeatedly emit the DSI host command-mode TPG. */
+#define LGG8_DSI_TPG_REPEAT_MS	16
+
+static bool lgg8_dsi_tpg;
+static bool lgg8_dsi_tpg_active;
+static void lgg8_dsi_tpg_work(struct work_struct *work);
+static DECLARE_DELAYED_WORK(lgg8_dsi_tpg_work_item, lgg8_dsi_tpg_work);
+
+static int __init lgg8_dsi_tpg_setup(char *value)
+{
+	if (kstrtobool(value, &lgg8_dsi_tpg))
+		return 0;
+
+	return 1;
+}
+__setup("lgg8_dsi_tpg=", lgg8_dsi_tpg_setup);
+
+static void lgg8_dsi_tpg_work(struct work_struct *work)
+{
+	if (!READ_ONCE(lgg8_dsi_tpg_active))
+		return;
+
+	msm_dsi_manager_tpg_enable();
+
+	if (READ_ONCE(lgg8_dsi_tpg_active))
+		schedule_delayed_work(&lgg8_dsi_tpg_work_item,
+				     msecs_to_jiffies(LGG8_DSI_TPG_REPEAT_MS));
+}
 
 struct msm_dsi_manager {
 	struct msm_dsi *dsi[DSI_MAX];
@@ -311,6 +346,13 @@ static void dsi_mgr_bridge_pre_enable(struct drm_bridge *bridge,
 		}
 	}
 
+	if (lgg8_dsi_tpg) {
+		WRITE_ONCE(lgg8_dsi_tpg_active, true);
+		pr_info("LGG8 DSI repeated command-mode test pattern enabled\n");
+		schedule_delayed_work(&lgg8_dsi_tpg_work_item,
+				     msecs_to_jiffies(2000));
+	}
+
 	return;
 
 host1_en_fail:
@@ -351,6 +393,11 @@ static void dsi_mgr_bridge_post_disable(struct drm_bridge *bridge,
 	 */
 	if (is_bonded_dsi && !IS_MASTER_DSI_LINK(id))
 		goto disable_phy;
+
+	if (lgg8_dsi_tpg) {
+		WRITE_ONCE(lgg8_dsi_tpg_active, false);
+		cancel_delayed_work_sync(&lgg8_dsi_tpg_work_item);
+	}
 
 	ret = msm_dsi_host_disable(host);
 	if (ret)

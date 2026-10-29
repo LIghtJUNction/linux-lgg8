@@ -6,8 +6,8 @@
 
 | 层次 | 产物或操作 | 通过后能说明什么 |
 | --- | --- | --- |
-| 源码构建 | ARM64 `Image`、板级 DTB、静态诊断 initramfs | 本仓 Image 已通过 C119 七秒原生控制；全套新 DTB/参数仍待真机验收 |
-| RAM 桌面用户态 | Alpine / Weston / pixman / 终端 | QEMU headless 会话与画面提交通过；手机 DRM 和可见桌面仍待验收 |
+| 源码构建 | ARM64 `Image`、板级 DTB、静态诊断 initramfs | GPIO 保护后的完整默认无 blacklist 镜像已 RAM 启动；A/B 分区哈希保持 |
+| RAM 桌面用户态 | Alpine / Weston / pixman / 终端 | QEMU 画面提交通过；C167 手机回传到终端派生阶段，用户看到花屏 |
 | 离线打包/校验 | `boot.img` 与 manifest | 格式、输入哈希、布局和分区容量符合工具检查范围 |
 | RAM 临时启动 | 人工 `fastboot boot` | 仅在取得可归属到本镜像的真机证据后，确认实际运行到的阶段 |
 | 持久刷入 | 人工写入明确的 `boot_b` | 需要另外验证刷后冷启动、回读哈希和恢复；目前未通过 |
@@ -73,4 +73,4 @@ TEMPLATE_DIR="$PWD/private/template" PARTITION_SIZE='<BOOT_B_BYTES>' \
 约 48 MiB 的未压缩 CPIO 已实际运行 headless 桌面会话，
 确认同一 surface 的 buffer、damage、commit 和帧回调完成。
 手机镜像明确走 DRM；headless 仅用于本机测试，不会作为手机显示失败的自动替代。
-当前手机仍会在开启延期设备重试后提前复位，不能据此把本机桌面结果称为手机桌面通过。
+最新真机 C162–168 已用默认无 blacklist 参数进入主线桌面栈；状态回传确认 2 个 connected connector、fb0、终端派生阶段和 1 个 UDC。用户看到全屏花屏，主机仍未见 Linux USB `18d1:4ee7`，因此正常显示、可交互桌面和 USB shell 仍未通过。详见 [逐轮状态与限制](docs/STATUS.md#c162c168ram-桌面阶段回传与真实设备状态)。

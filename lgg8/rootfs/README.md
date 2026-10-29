@@ -64,7 +64,7 @@ guest 20 秒结束，QEMU 进程另有 45 秒主机等待上限。测试检查 P
 
 `supervisor.c` 以现有 GNU AArch64 编译器生成静态 ET_EXEC：`-static -fno-pie -no-pie -Wl,--build-id=none`。非 PID1 立即返回 91；没有使用 qemu-user 执行特权挂载逻辑。
 
-PID1 在任何挂载、console/kmsg 打开等 I/O 前 fork 独立的 90 秒单调时钟复位进程。随后只建立 proc、sysfs、devtmpfs、devpts 和 RAM `/run`，启动 guest `/bin/sh` 脚本并回收子进程。复位先写 SysRq-b，再尝试 reboot 作为后备；这个用户态计时器不保证能处理任意内核硬卡死。没有 Android 分区访问、块分区挂载、gadget 配置、网络取包或主机终端访问。
+PID1 在任何挂载、console/kmsg 打开等 I/O 前 fork 独立的 90 秒单调时钟复位进程。随后只建立 proc、sysfs、devtmpfs、devpts 和 RAM `/run`，启动 guest `/bin/sh` 脚本并回收子进程。复位先写 SysRq-b，再尝试 reboot 作为后备；这个用户态计时器不保证能处理任意内核硬卡死。没有 Android 分区访问、块分区挂载、网络取包或主机终端访问。默认不配置 gadget；下面的 USB 状态 beacon 需要明确开启。
 
 手机默认始终是 `drm`，不自动转入 headless。脚本启动真实 `/sbin/udevd`，仅触发 DRM/input 子系统；存储、网络和模块加载相关规则不进入该根。随后启动 seatd，检查其进程和 `/run/seatd.sock`，约 3 秒内未就绪则记录明确错误并停止启动 Weston。seatd 0.9.3 的 socket 路径是编译期设置，不能传不存在的 `-s` 参数。
 
@@ -72,7 +72,33 @@ PID1 在任何挂载、console/kmsg 打开等 I/O 前 fork 独立的 90 秒单�
 
 RAM 日志有 `desktop-events.log`、`weston.log`、`client.log`、`seatd.log`、`udev.log`。PID1 同时转发到 console 和 kmsg；每次 kmsg 写入含路径前缀及换行不超过 960 字节，fd 为非阻塞，超长文本分段。console 自身的写入不等于 printk，因此两条路径必须保留。kmsg 限流、EAGAIN、内核状态及 ramoops/Android 的保留行为都可能丢日志；**没有保证完整日志或跨重启保留**。QEMU 使用 loglevel=7，使 INFO 镜像也可在串口中核验。
 
-## 当前交付
+## 可选 USB 状态 beacon（默认关闭）
+
+仅当命令行明确包含 `lgg8.usb_beacon=1` 时启用；重复该键时最后一个值决定，其他值均关闭。guardian90 已建立、桌面脚本已 fork 后，主循环在 PID1 启动约 8 秒时只派生一次 beacon 工作进程。它有 3 秒 alarm、有限目录扫描和短读取；无 UDC、多 UDC 或任一步失败就有限记录日志并结束，不阻塞桌面主循环、不重试或修改已有 gadget。若 UDC 写入卡在不可中断内核路径，alarm 不保证能中止，仍依靠独立 90 秒 guardian 和平台复位路径。
+
+仅对 `/sys/class/udc` 中唯一的实际控制器创建 configfs ACM：VID:PID 为 `18d1:4ee7`，匿名 serial 为 `LGG8-RAM`，最多写一次 UDC 绑定。没有 ACM shell，不打开 `/dev/ttyGS0`，不导出网络或存储，不访问持久分区。configfs 状态和阶段文件都只在 RAM。真实 USB 绑定和主机看到描述符仍须真机证明。
+
+产品字符串示例：
+
+```text
+LGG8-RAM DRM=1 CON=1 FB0=1 SEATSOCK=1 WPROC=1 ST=8
+```
+
+- `DRM`：`/sys/class/drm/cardN` 的卡数量；`CON`：该目录中 connector 的 status 恰为 connected 的数量。目录读取出错或扫描超限时两项均为 -1；单个 status 读取失败时 CON 为 -1。每次 readdir 前清零 errno，区分正常目录结束与读取错误；UDC 目录读取出错直接结束尝试，绝不使用部分列表绑定。
+- `FB0`：`/sys/class/graphics/fb0` 是否存在，不打开 framebuffer，也不代表 scanout 正常。
+- `SEATSOCK`：`/run/seatd.sock` 是否是 socket，不代表协议握手成功。
+- `WPROC`：脚本记录的 Weston PID 当前仍为名叫 weston 的非僵尸活进程。**进程存在不等于 socket、帧提交、可见显示或桌面成功。**
+- `ST`：`/run/desktop-stage` 的采样值：1 脚本入口，2 配置已写，3 进入 udev 阶段，4 等待 seatd，5 seatd socket 就绪，6 Weston 已派生，7 Wayland socket 就绪，8 终端已派生。90/91 为 seatd 退出/超时，92/93 为 Weston 提前退出/socket 超时，94 为终端退出；缺失或无法读取为 -1。阶段只说明脚本到达位置，不代替帧证据。
+
+`lgg8.desktop_timeout=20` 现可用于显式 DRM 诊断及 headless 测试，默认仍为 0（仅 guardian90）。DRM 超时会记录 `LGG8_DESKTOP_TIMEOUT`；headless 另保留已有 QEMU 超时标记。没有因 DRM 失败而转用 headless 的路径。
+
+可选复位时长回传：同时设置 `lgg8.usb_beacon=1 lgg8.desktop_timeout=20 lgg8.ram_field=字段`，字段仅支持 `DRM|CON|FB0|SEATSOCK|WPROC|ST|UDC|CAL0|CAL15`，默认关闭。beacon 将完整产品快照写入 RAM `/run/usb-beacon-snapshot`，初始 `UDC=-1`；完成有界 UDC 枚举后，先原子替换文件中的 UDC 数量，再尝试 configfs。枚举出错保留 -1，不把部分结果当完整数量。可设置 `lgg8.usb_beacon_delay=12` 将采样从默认约 8 秒延后至约 12 秒，仍使用 3 秒工作进程 alarm。
+
+PID1 约 16 秒只读取一次该快照：字段值 0..15 对应启动后 `20+2*值` 秒的主复位截止；读取/解析失败、负数或越界统一用码 16，即 52 秒。ST 的 1..8 保持原值，90..94 映射为 9..13，其余 ST 为未知码 16。CAL0/CAL15 固定为 20/50 秒，不依赖快照是否可用，供硬件校准使用，不能推测 USB 空窗基线。主截止比较包含纳秒部分；独立 guardian90 保持不变。数值只代表当次状态快照，不证明出帧。
+
+v3 CPIO `5065ed41…d05b59` 已通过默认桌面和延迟 12 秒采样的真实 QEMU 测试。使用固定 96 MiB 容量及私有、SHA 固定的 boot 模板，C162–168 均完成完整 boot.img 打包、通用 verify 和 RAM-only 手机测试；候选镜像和私有 runner 保存在主实验仓的 `out/`，不提交本仓。C162/C163 校准的 USB 空窗差为 29.823 秒；C165–168 的回传分别显示 2 个 connected connector、fb0 存在、ST 阶段 8（终端已派生，靠近解码容差边缘）及 1 个 UDC。C162 用户报告全屏花屏，所有轮次都未观察到 Linux `18d1:4ee7`；C164 DRM 样本超出编码范围。Android 均完整回收，两槽 boot 哈希不变。以上状态不代表正常显示、桌面交互或 gadget 已枚举；逐轮数据见 [设备状态](../docs/STATUS.md#c162c168ram-桌面阶段回传与真实设备状态)。
+
+## 首次冻结交付（历史基准，不是新 beacon CPIO）
 
 | 项目 | 结果 |
 | --- | --- |

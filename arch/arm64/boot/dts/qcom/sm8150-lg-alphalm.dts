@@ -461,7 +461,8 @@
 };
 
 &i2c7 {
-	status = "okay";
+	/* GPIO98/99 are firmware-owned; this board declares no bus clients. */
+	status = "disabled";
 };
 
 /* SW42000 touch uses QUP SE17 I2C at 0xc80000, not SE18 SPI.

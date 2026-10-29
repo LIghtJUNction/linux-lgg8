@@ -15,7 +15,7 @@ BSD-3-Clause 许可，驱动遵循文件头的 GPL-2.0-only，启动 shim 使用
 
 | 文件 | SHA-256 |
 | --- | --- |
-| `arch/arm64/boot/dts/qcom/sm8150-lg-alphalm.dts` | `5dd2d2bab1403f0a6757a680db50a67d0921d52110b3a50c663c98fba7506ede` |
+| `arch/arm64/boot/dts/qcom/sm8150-lg-alphalm.dts` | `7143663d8aebd90ffc078cd270622e014ab43820fa034fac3733fc3a60a8bbf7` |
 | `drivers/gpu/drm/panel/panel-lg-sw43410.c` | `1aed567d888dcda7ec30e960968b63bfb25fd8cca601f96c4879451f435da203` |
 | `drivers/gpu/drm/panel/panel-lg-sw43410-cmds.h` | `08fa4b54c4e9fa5ad6dc8de21be8f43a25f5f8932ad4e7c94463b0053844153e` |
 | `lgg8/boot/shim-mmu-off.S` | `fc159aab0a67037b96979618d1062aae56a991f2a1e5064b81b41a682bbf1ec4` |

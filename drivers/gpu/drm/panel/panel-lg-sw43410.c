@@ -19,6 +19,8 @@
 
 #include "panel-lg-sw43410-cmds.h"
 
+#define SW43410_HS_RATE_HZ	920145600UL
+
 static const struct regulator_bulk_data sw43410_supplies[] = {
 	{ .supply = "vddi", .init_load_uA = 62000 },
 	{ .supply = "vpnl", .init_load_uA = 857000 },
@@ -237,6 +239,7 @@ static int sw43410_probe(struct mipi_dsi_device *dsi)
 			  MIPI_DSI_MODE_DSC_ALL_SLICES_IN_PKT;
 	dsi->format = MIPI_DSI_FMT_RGB888;
 	dsi->lanes = 4;
+	dsi->hs_rate = SW43410_HS_RATE_HZ;
 
 	ctx->dsc.dsc_version_major = 1;
 	ctx->dsc.dsc_version_minor = 1;

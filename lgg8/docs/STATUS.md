@@ -321,4 +321,6 @@ C172 回收后捕获到 70,388 字节 `console-ramoops-0`，归档传输与源�
 
 ### 面板时钟差异线索（待验证）
 
-从 Android runtime device tree 只读取得 SW43410 MP DSC timing：1440×3120@60 Hz、水平 porch 168/4/88、垂直 porch 9/1/10，DSC 8 bpc/8 bpp、SCR 1、两片 720×60、每包两片；与主线面板模式和主要 DSC 参数一致。原厂 `qcom,mdss-dsi-panel-clockrate` 节点为 16 字节，首个 32 位值是 920,145,600 Hz。按当前主线 DSI host 源码的压缩时钟算法（压缩活动宽度 480、水平总宽 740，再按 RGB888/4 lanes 换算），请求的 bit clock 为 836,496,000 Hz，低约 9.1%。旧 Qualcomm 面板解析器对该属性先尝试 u64，长度超出时回退读首个 u32；这使差异值得追查，但尚不能证明该值就是原厂实际 PHY bit clock，也不能证明其导致花屏。下一步应先确认原厂运行时 PHY/byte clock 或对应 vendor 驱动如何消费此字段，再决定是否做单变量时钟实验。
+从 Android runtime device tree 只读取得 SW43410 MP DSC timing：1440×3120@60 Hz、水平 porch 168/4/88、垂直 porch 9/1/10，DSC 8 bpc/8 bpp、SCR 1、两片 720×60、每包两片；与主线面板模式和主要 DSC 参数一致。原厂 `qcom,mdss-dsi-panel-clockrate` 属性长度为 4 字节，值为 920,145,600 Hz。Qualcomm 解析器在 u64 读取溢出时回退读 u32；下游时钟代码随后用 `clk_rate / 8` 设置 byte clock（[解析器](https://android.googlesource.com/kernel/msm/%2B/ccc65019619064cafef389aeb100606292186753/drivers/video/fbdev/msm/mdss_dsi_panel.c)、[时钟设置](https://android.googlesource.com/kernel/msm/%2B/d92068af0333a7e8d93dd7102aadc5e0a0b7f853/drivers/video/msm/mdss/msm_mdss_io_8974.c)），因此 920,145,600 Hz 是原厂面板配置的 lane bit rate。按当前主线 DSI host 源码的压缩时钟算法（压缩活动宽度 480、水平总宽 740，再按 RGB888/4 lanes 换算），请求 bit clock 为 836,496,000 Hz，低约 9.1%。主线面板驱动现向 DSI host 提供原厂 lane rate，host 仅在该值非零时用其计算 byte clock；其余设备保持原算法。
+
+同一原厂 MP timing 还给出 14 字节 PHY timing `001d070723220707050204001817`。主线 7 nm D-PHY 计算代码仍标有需要与下游实现核对的 TODO；该数组尚未逐字段映射。Candidate 173 先只验证 lane rate；若画面无改善，再针对 PHY timing 做独立比较。

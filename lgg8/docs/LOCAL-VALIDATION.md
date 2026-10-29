@@ -74,3 +74,26 @@ QEMU 使用 `virt,gic-version=3`、Cortex-A76、512 MiB、单 CPU 与 TCG，
 新内核 LG G8 RAM 启动、正常显示、USB 枚举/shell、触控、桌面及持久刷入均未验证。
 旧 C109 约 52 秒回收且未出现预期七秒信号的结果，不能升级为本镜像启动通过。
 下一步首先需要可靠的真机 PID 1 入口证据；具体状态见 [STATUS.md](STATUS.md)。
+
+## 撤回自动 RPMh 读回后的增量与真机控制（2026-10-29）
+
+源码提交 `c0cfe9a` 单独恢复 regulator 缓存策略，没有固定 XO 旁路或全局
+`rpmh_read()` 错误注入。复用同一构建缓存，以 `JOBS=1` 增量构建成功；
+46 项测试在 1.250 秒内通过，日志保存在忽略目录
+`out/lgg8/validation/readback-revert-tests.log`。
+
+| 产物 | SHA-256 |
+| --- | --- |
+| Image | `3f2487cb0710d38fbb3856318ed32cc3529bd33478572104ffd34a545eea2bca` |
+| resolved .config | `41dbae047ff67689ab25f9975dd089e3bd3e15f2f31c70ce961316b6d7090ca9` |
+| 全套源码默认诊断 boot.img | `b0f785295be3b5d7a733c52519dfe4a119715a482a97c0e864cff3f7697712af` |
+
+新默认 boot.img 为 11,853,824 字节，位于 `out/lgg8/boot-readback-revert`，
+独立 verify 为 PASSED。它包含本树 DTB、默认 45 秒诊断 init 和无 initcall
+blacklist 的默认参数；该完整组合尚未真机验收。本次不重复通用 QEMU 测试来
+替代具体板子的电源、USB 或显示证据。
+
+C119 从已测旧候选只替换成上面的新 Image，保留旧 DTB 与七秒原生控制。
+USB 空窗为 29.433 秒，Android 完整回收，两槽 boot 哈希不变。
+它为源码内核执行到原生用户态控制提供设备证据；新 DTB、默认 init/参数与
+Linux gadget、显示、桌面需分别验收，详见 [STATUS.md](STATUS.md)。

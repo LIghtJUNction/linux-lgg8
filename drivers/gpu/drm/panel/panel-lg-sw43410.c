@@ -45,7 +45,7 @@ static int sw43410_send_commands(struct sw43410_panel *ctx,
 				 const u8 *commands, size_t length)
 {
 	struct mipi_dsi_device *dsi = ctx->dsi;
-	bool pps_sent = false;
+	bool compression_mode_sent = false;
 
 	while (length) {
 		u8 type, wait_ms;
@@ -65,27 +65,15 @@ static int sw43410_send_commands(struct sw43410_panel *ctx,
 
 		payload = commands + 7;
 		if (type == MIPI_DSI_COMPRESSION_MODE) {
-			struct drm_dsc_picture_parameter_set pps;
-			unsigned long mode_flags;
-
 			if (payload_len != 2 || payload[0] != 0x11 || payload[1] ||
-			    pps_sent || !dsi->dsc)
+			    compression_mode_sent || !dsi->dsc)
 				return -EINVAL;
-
-			/* The stock panel profile sends its initial PPS in HS mode. */
-			drm_dsc_pps_payload_pack(&pps, dsi->dsc);
-			mode_flags = dsi->mode_flags;
-			dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
-			ret = mipi_dsi_picture_parameter_set(dsi, &pps);
-			dsi->mode_flags = mode_flags;
-			if (ret < 0)
-				return ret;
 
 			ret = mipi_dsi_compression_mode_ext(dsi, true,
 							    MIPI_DSI_COMPRESSION_DSC, 1);
 			if (ret < 0)
 				return ret;
-			pps_sent = true;
+			compression_mode_sent = true;
 		} else if ((type == MIPI_DSI_DCS_SHORT_WRITE && payload_len == 1) ||
 			   (type == MIPI_DSI_DCS_SHORT_WRITE_PARAM && payload_len == 2) ||
 			   (type == MIPI_DSI_DCS_LONG_WRITE && payload_len >= 3)) {
@@ -106,6 +94,26 @@ static int sw43410_send_commands(struct sw43410_panel *ctx,
 	}
 
 	return 0;
+}
+
+static int sw43410_send_initial_pps(struct sw43410_panel *ctx)
+{
+	struct mipi_dsi_device *dsi = ctx->dsi;
+	struct drm_dsc_picture_parameter_set pps;
+	unsigned long mode_flags;
+	int ret;
+
+	if (!dsi->dsc)
+		return -EINVAL;
+
+	/* The stock driver sends PPS after the full on-command list, in HS mode. */
+	drm_dsc_pps_payload_pack(&pps, dsi->dsc);
+	mode_flags = dsi->mode_flags;
+	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
+	ret = mipi_dsi_picture_parameter_set(dsi, &pps);
+	dsi->mode_flags = mode_flags;
+
+	return ret;
 }
 
 static void sw43410_reset(struct sw43410_panel *ctx)
@@ -134,6 +142,10 @@ static int sw43410_prepare(struct drm_panel *panel)
 
 	ret = sw43410_send_commands(ctx, sw43410_on_commands,
 				   sizeof(sw43410_on_commands));
+	if (ret < 0)
+		goto power_off;
+
+	ret = sw43410_send_initial_pps(ctx);
 	if (ret < 0)
 		goto power_off;
 

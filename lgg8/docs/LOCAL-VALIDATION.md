@@ -1,9 +1,10 @@
 # 本地验证记录
 
 日期：2026-10-29。当前实验源码已完成本机从源码到 `boot.img` 的流程。
-**这份新内核没有在 LG G8 上启动，也没有刷入分区。**
+**撤回自动 RPMh 读回后的新 Image 已做真机控制；全套新 DTB 与默认参数尚未通过，未刷入分区。**
 
-可重现源码提交：`af449a8872c64be85703982ac3843160e0cf7afb`（后续提交仅更新文档）。
+下方首轮制品对应源码提交 `af449a8872c64be85703982ac3843160e0cf7afb`。
+后续 regulator 读回回退、增量制品和真机控制另列在文末，首轮哈希不代表当前 Image。
 
 ## 已完成的检查
 
@@ -71,9 +72,9 @@ QEMU 使用 `virt,gic-version=3`、Cortex-A76、512 MiB、单 CPU 与 TCG，
 
 ## 本轮未完成的硬件条件
 
-新内核 LG G8 RAM 启动、正常显示、USB 枚举/shell、触控、桌面及持久刷入均未验证。
+首轮制品的完整组合，以及正常显示、USB 枚举/shell、触控、桌面及持久刷入均未验证。
 旧 C109 约 52 秒回收且未出现预期七秒信号的结果，不能升级为本镜像启动通过。
-下一步首先需要可靠的真机 PID 1 入口证据；具体状态见 [STATUS.md](STATUS.md)。
+后续 Image 控制已取得原生用户态时序证据；具体范围和当前停点见 [STATUS.md](STATUS.md)。
 
 ## 撤回自动 RPMh 读回后的增量与真机控制（2026-10-29）
 
@@ -97,3 +98,24 @@ C119 从已测旧候选只替换成上面的新 Image，保留旧 DTB 与七秒�
 USB 空窗为 29.433 秒，Android 完整回收，两槽 boot 哈希不变。
 它为源码内核执行到原生用户态控制提供设备证据；新 DTB、默认 init/参数与
 Linux gadget、显示、桌面需分别验收，详见 [STATUS.md](STATUS.md)。
+
+## RAM 桌面用户态与全套离线封装
+
+`lgg8/rootfs/` 使用 Alpine 3.24.3 固定输入、74 个已验证签名 APK 的所选文件，
+保留 Weston 14.0.2、pixman、desktop-shell、终端、seatd/eudev 及所需字体与数据。
+171 个保留 ELF 的依赖和 15 项关键运行文件通过实际检查；没有伪造完整 APK 安装闭包。
+
+| 产物 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| 桌面 CPIO | 50051584 | `e8593c38b5e2e24aeccf294b2530c8524c69b3bf3ba2d4d0145fdec414a6bb27` |
+| 桌面 boot.img | 29712384 | `e32f2299646bd15126ba01d44d1c77ab4689e5efe16ea53948e85e74b155ae55` |
+
+同一维护内核 `3f2487cb…` 和该 CPIO 在 QEMU 系统模拟中实际运行约 22.07 秒，
+退出码 0。PID 1、Wayland socket、桌面壳、终端 shell、两条同 surface 的
+buffer/damage/commit/frame callback 链及 guest/Weston 的 printk 镜像均通过。
+这不是手机显示测试，也没有生成截图。
+
+桌面 boot.img 使用本仓 DTB 和默认无 blacklist 的 DRM 参数；离线 build/verify
+通过，原始 RAM 载荷末端为 `0xaea17720`，通过 bank 与保留区检查。
+本机另通过新增 shell 的 ShellCheck、supervisor 的 `-Wall -Wextra -Werror`
+语法检查及 Python AST 解析。真机完整组合结果仍须单独记录，不能由本节推导。

@@ -6,7 +6,8 @@
 
 | 层次 | 产物或操作 | 通过后能说明什么 |
 | --- | --- | --- |
-| 源码构建 | ARM64 `Image`、板级 DTB、静态诊断 initramfs | 当前源码能生成对应文件；新内核尚未通过真机验证 |
+| 源码构建 | ARM64 `Image`、板级 DTB、静态诊断 initramfs | 本仓 Image 已通过 C119 七秒原生控制；全套新 DTB/参数仍待真机验收 |
+| RAM 桌面用户态 | Alpine / Weston / pixman / 终端 | QEMU headless 会话与画面提交通过；手机 DRM 和可见桌面仍待验收 |
 | 离线打包/校验 | `boot.img` 与 manifest | 格式、输入哈希、布局和分区容量符合工具检查范围 |
 | RAM 临时启动 | 人工 `fastboot boot` | 仅在取得可归属到本镜像的真机证据后，确认实际运行到的阶段 |
 | 持久刷入 | 人工写入明确的 `boot_b` | 需要另外验证刷后冷启动、回读哈希和恢复；目前未通过 |
@@ -22,6 +23,7 @@
 | `lgg8/boot/cmdline.txt` | 候选内核命令行；修改后重新打包并验证 |
 | `lgg8/boot/shim-mmu-off.S` | 启动交接 shim 源码，具体布局由打包工具维护 |
 | `lgg8/initramfs/` | 原生诊断 PID 1 及最小 initramfs 输入 |
+| `lgg8/rootfs/` | 可选 RAM 桌面构建、签名与 ELF 依赖核验、QEMU 会话检查 |
 | `lgg8/build.sh` | `kernel`、`dtb`、`initramfs`、`boot`、`test`、`verify` 入口 |
 | `lgg8/tools/bootimg.py` | `prepare-template`、`build`、`verify` 离线工具 |
 | `lgg8/tests/` | 打包工具离线回归测试 |
@@ -50,7 +52,7 @@ TEMPLATE_DIR="$PWD/private/template" PARTITION_SIZE='<BOOT_B_BYTES>' \
 
 ## 源码维护边界
 
-基线为官方 `v7.3` / `c03c1a14507dfaf8b856c2608f9ac216021fc222`。本轮维护板级 DTS 与实验性面板/DSC 改动，USB1 明确采用 USB2 配置以避免引用被禁用的 USB3 PHY；`sm8150.dtsi` 的 SHA-256 为 `82887c779c9425ca23e49a81fe3ff8d8c7eec4d073edb305e6a9270371f3b7bc`，与旧实验输入对应文件精确一致。完整来源与迁入文件指纹见 [PROVENANCE.md](docs/PROVENANCE.md)。
+基线为官方 `v7.3` / `c03c1a14507dfaf8b856c2608f9ac216021fc222`。本轮维护板级 DTS、实验性面板/DSC 与 regulator 自动读回回退，USB1 明确采用 USB2 配置以避免引用被禁用的 USB3 PHY；`sm8150.dtsi` 的 SHA-256 为 `82887c779c9425ca23e49a81fe3ff8d8c7eec4d073edb305e6a9270371f3b7bc`，与旧实验输入对应文件精确一致。完整来源与迁入文件指纹见 [PROVENANCE.md](docs/PROVENANCE.md)。
 
 新树刻意不移入旧实验的 `late_initcall_limit`、强制 restart、BCM 投票 bypass、async/initmem bypass 和 DWC3 runtime-PM 补丁。上游 `dwc3_gadget_pullup()` 中 `pm_runtime_get_sync()` 返回 0 时，成功恢复后的连接由 runtime resume 回调处理；返回正数表示设备原本已活跃，随后继续本函数的连接流程。不能把 `if (!ret)` 直接称为已证明的 bug，更不能把删除它称为已验证修复。
 
@@ -62,4 +64,13 @@ TEMPLATE_DIR="$PWD/private/template" PARTITION_SIZE='<BOOT_B_BYTES>' \
 
 45 秒是用户态诊断策略，不是从 `fastboot boot` 开始计时的硬件复位保证。早期内核挂起、PID 1 未运行、复位路径失效都可能使该策略无法执行。当前 USB/shell、显示、触控与桌面仍未通过，不能依赖候选提供恢复入口。
 
-完整内核、DTB、boot.img 离线核验和 46 项本地测试已通过；QEMU virt 已运行同一内核及诊断 PID 1 并按期复位。新内核尚未通过真机验证。具体记录见 [LOCAL-VALIDATION.md](docs/LOCAL-VALIDATION.md)，C108/C109 及功能状态见 [STATUS.md](docs/STATUS.md)。
+完整内核、DTB、boot.img 离线核验和 46 项本地测试已通过；QEMU virt 已运行诊断 PID 1 并按期复位。本仓 Image 的真机阶段控制与当前延期探测异常，详见 [STATUS.md](docs/STATUS.md)；首轮和增量制品分开记录在 [LOCAL-VALIDATION.md](docs/LOCAL-VALIDATION.md)。
+
+## 可选 RAM 桌面
+
+[桌面构建说明](rootfs/README.md) 提供固定版本 Alpine 输入、签名 APK 文件选择、
+原生 PID 1、Weston/pixman 与终端，以及独立的 QEMU 和打包命令。
+约 48 MiB 的未压缩 CPIO 已实际运行 headless 桌面会话，
+确认同一 surface 的 buffer、damage、commit 和帧回调完成。
+手机镜像明确走 DRM；headless 仅用于本机测试，不会作为手机显示失败的自动替代。
+当前手机仍会在开启延期设备重试后提前复位，不能据此把本机桌面结果称为手机桌面通过。

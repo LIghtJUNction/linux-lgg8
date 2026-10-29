@@ -7,10 +7,14 @@
 - 仓库：`linux-lgg8`，独立维护完整内核源码、LG 板级设备树与构建工具。
 - 官方上游：`v7.3`，提交 `c03c1a14507dfaf8b856c2608f9ac216021fc222`。
 - 板级输出目标：`sm8150-lg-alphalm.dtb`；完整配置：`lgg8/configs/lgg8.config`。
-- 本轮内核改动范围为板级 DTS（含 USB2 PHY 依赖修正）与实验性面板/DSC，未把旧诊断绕过作为修复移入。`sm8150.dtsi` SHA-256 为 `82887c779c9425ca23e49a81fe3ff8d8c7eec4d073edb305e6a9270371f3b7bc`，与旧实验输入对应文件精确一致。
+- 本轮内核改动包括板级 DTS（含 USB2 PHY 依赖修正）、实验性面板/DSC，以及下文单列的 regulator 自动读回回退。未把旧诊断绕过作为修复移入。`sm8150.dtsi` SHA-256 为 `82887c779c9425ca23e49a81fe3ff8d8c7eec4d073edb305e6a9270371f3b7bc`，与旧实验输入对应文件精确一致。
 - 默认内核走干净 init 路径，命令行无 initcall blacklist。没有 `late_initcall_limit`、强制 restart、BCM bypass、async/initmem bypass 或 DWC3 runtime-PM 旧补丁。
 
 上游 `dwc3_gadget_pullup()` 的 `pm_runtime_get_sync()` 返回 0 表示成功恢复，连接交由 resume 回调处理；正值表示原本已活跃。旧说法“`if (!ret)` 就是 bug”没有成立证据，本仓不以该说法引入补丁。
+
+旧记录的“QSCRATCH 二次偏移”也不适用于当前节点：`qcom,dwc3` 绑定
+`dwc3-qcom-legacy.c`，直接映射 wrapper 的 `0x0a6f8800`。
+加 `0xf8800` 的代码属于 `qcom,snps-dwc3` 的另一套布局，不能据此移动 legacy reg。
 
 ## 验收状态
 
@@ -22,6 +26,7 @@
 | 默认诊断 PID 1 | **QEMU virt 实际运行通过** | 同一内核进入 PID 1 并按期复位；非 PID 1 返回 91 保护也通过；不代表手机通过 |
 | 原生 initramfs | **GNU cpio 解析通过** | 说明归档可解析，不证明真机能启动 |
 | 本仓新内核真机启动 | **阶段通过** | C119 新 Image + 旧 DTB 的七秒用户态控制；新 DTB 与默认无 blacklist 路径仍待验收 |
+| RAM 桌面用户态 | **QEMU headless 通过** | Weston/pixman、桌面壳、终端及同 surface 帧回调；手机 DRM 仍待验收 |
 | Linux USB 枚举和 shell | **未通过** | 默认 init 也不配置 gadget 或提供 shell |
 | 正常显示与触控 | **未通过** | 面板/DSC 原型及花屏不是可用显示证明 |
 | 桌面/Omarchy | **未通过** | 不能由源码编译或通用 QEMU 推导 |
@@ -155,3 +160,82 @@ C119 只把 C115 的内核区替换为维护源码编译的 Image
 
 C117 boot.img SHA-256：`1b363fcfc998cd5415fbd0a470ff8b2bc31f786ee7c9481d839ac7750f7f6f24`。
 C119 boot.img SHA-256：`945926193872c32e173688e63b2f63960fca35d2895bf83a00be8afa3a5edf29`。
+
+## C120–C126：延期探测开启后出现提前回收
+
+源码审计发现旧 DTB 的 DWC3 同时引用启用的 USB2 PHY 和禁用的 USB3 PHY。
+PHY provider 尚未注册时，直接 PHY 查找可返回 `-EPROBE_DEFER`，
+`fw_devlink=permissive` 不会绕过该查找。本仓 USB2 板树已移除 USB3 引用，
+限制 high-speed，并声明 wrapper 的 UTMI-as-PIPE 路径；这仍需真机枚举验证。
+
+另一处独立限制来自旧命令行：它屏蔽 `deferred_probe_initcall`。
+`drivers/base/dd.c` 仅在该 initcall 中开启重试开关并刷新延期工作，
+所以此前进入用户态不代表延期设备已重试。下表所有空窗均从 fastboot 断开计至 Android USB 返回。
+
+| 候选 | 单个功能变量 | USB 空窗，秒 | 结果 |
+| --- | --- | ---: | --- |
+| C120 | 让 mainline dmesg 区对齐 Android console reader 的 RAM 日志配置 | 52.662 | 无 Linux USB，pstore 为空；保留日志的假设未获支持 |
+| C122 | 从 C120 改为仅引用 USB2 PHY 的配置 | 52.852 | 三十秒回收模式保持；仍无 Linux USB |
+| C123 | 从 blacklist 移除 `deferred_probe_initcall` | 30.830 | 提前回收，不再符合三十秒用户态控制 |
+| C124 | 在 C123 上换为本仓 Image `3f2487cb…` | 30.846 | 相同提前回收 |
+| C125 | 在 C124 上换入 C116 完全相同的十七秒最小用户态 | 31.031 | 提前回收不依赖用户态 gadget 配置 |
+| C126 | 在 C124 上只改 `panic=10` 为 `panic=120` | 30.834 | 没有增加预期的一百一十秒，普通 panic 等待未被证实 |
+
+C121 仅离线组装，未做真机启动，不计为设备实验。
+C120 与 C122–126 均未观察到 Linux USB，pstore 均为空，Android 完整回收，
+两槽 boot 哈希不变。不能从空日志断言没有 panic，也不能把提前复位确定为某个驱动。
+硬件复位、panic 被 watchdog 截断、显式重启等原因尚待区分。
+
+下一步用同一个十七秒控制分别关闭 USB 和 MDSS 子树，以及恢复原 XO 引用，
+定位开启延期重试后出现异常的依赖链。独立 Weston/pixman RAM 根文件系统已完成本地
+headless 会话验证，见 [构建说明](../rootfs/README.md)；手机桌面仍未通过。
+
+| 候选 | boot.img SHA-256 |
+| --- | --- |
+| C120 | `d1830d1d0a49406780180393605bda44323ccfad2f52431c0e38a374bdca7fa6` |
+| C122 | `31dbc5dc8aca53f26ab3bc0916ff3dbfa169f0bc051c4bd4e3940ce5e4ce2056` |
+| C123 | `82a9f89c4f9808a889dd43ccfbbf53e18e21f1aa86285ec1d137d46330830e32` |
+| C124 | `097c34fd9587fdc11eae185bf40528f73f189379796814988f3625d9c2d854b2` |
+| C125 | `9d9ee8636619c565aa01391ae1c9f23b2d039d10ff4a429639872d9746211631` |
+| C126 | `ac21023cf86d2de3d54e0165a0381439eaadca50c67e9cde62ab04bf4eb7acfc` |
+
+## C127–C132：首轮延期工作边界
+
+C127–130 分别在同一个 C125 十七秒控制上改变一个条件。
+仅关闭 USB、仅关闭 MDSS、恢复原 RPMh XO 引用，均没有恢复预期用户态时序。
+这不排除多个独立故障，也不能把父节点禁用等同于禁用所有独立 PHY。
+
+| 候选 | 变量 | USB 空窗，秒 |
+| --- | --- | ---: |
+| C127 | USB1 wrapper 父节点 disabled | 30.841 |
+| C128 | MDSS 父节点 disabled | 30.847 |
+| C129 | 两处 XO 引用恢复原值，保留未引用分频节点 | 30.666 |
+| C130 | console-size 从 0 改为 256 KiB，日志区仍在 `0xb0000000` | 30.857 |
+| C131 | `deferred_probe_initcall` 入口三秒终止检查点 | 25.627 |
+| C132 | 首个 `flush_work` 返回后同类三秒终止检查点 | 31.062 |
+
+C130 的内存分配变为无 dmesg 区、256 KiB 流式 console；源码确认零 dump count
+合法，Android PRZ 头部 ABI 也一致，但实际 pstore 仍为空。后续不继续猜测日志地址。
+DT 可用状态、reserved-memory 专门创建路径、配置及 initcall 顺序均未发现静态阻断；
+这仍不能证明 `ramoops_probe()` 或 `pstore_register()` 在本轮运行成功。
+
+C131/C132 仅各自替换固定 Image 的 72 字节终止检查点，CPIO、DTB、命令行和 shim
+均与 C125 相同。C131 出现短复位信号，支持已到达延期探测入口；C132 未出现该信号，
+支持下一步检查首轮延期工作及其 flush 等待期间。不能据此宣布具体 probe 崩溃，
+也要保留检查点有效性和并行工作调度的限制。两处补丁均按实际 vmlinux、System.map
+和 raw Image 对照；C132 额外保留运行时 LSE alternatives 会改写的位置。
+
+六轮 Android 完整回收，两槽 boot 哈希保持不变，pstore 为空；均为 RAM 实验。
+上述终止式二进制诊断没有进入本仓正常源码。
+
+## C133：首次全套维护源码桌面镜像 RAM 实验
+
+C133 使用已经离线校验和 QEMU 验证的完整桌面 boot.img
+`e32f2299646bd15126ba01d44d1c77ab4689e5efe16ea53948e85e74b155ae55`：
+本仓 Image、板 DTB、shim、无 blacklist 的默认参数和 90 秒后备复位的 Weston 根。
+这是一轮整体集成验收，不是相对 C125 的单变量因果对照。
+
+fastboot boot 接受镜像，USB 空窗 **37.090 秒**后 Android 完整返回，两槽 boot 哈希不变；
+没有 Linux USB，pstore 为空。未出现预期的九十秒用户态时序，
+没有取得手机桌面启动或正常显示证据，屏幕观察反馈尚待收集。
+这轮结果不能把同一根在 QEMU headless 中的通过升级为手机 DRM 验收。

@@ -72,12 +72,10 @@ static int sw43410_send_commands(struct sw43410_panel *ctx,
 			    pps_sent || !dsi->dsc)
 				return -EINVAL;
 
-			/* Preserve the mode requested by this panel profile. */
+			/* The stock panel profile sends its initial PPS in HS mode. */
 			drm_dsc_pps_payload_pack(&pps, dsi->dsc);
 			mode_flags = dsi->mode_flags;
-			if (!device_property_read_bool(&dsi->dev,
-						       "lge,update-pps-in-lp-mode"))
-				dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
+			dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
 			ret = mipi_dsi_picture_parameter_set(dsi, &pps);
 			dsi->mode_flags = mode_flags;
 			if (ret < 0)

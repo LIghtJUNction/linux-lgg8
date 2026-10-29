@@ -478,6 +478,8 @@
 
 &mdss_dsi0 {
 	vdda-supply = <&vreg_l3c_1p2>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&sw43410_te_active>;
 	status = "okay";
 
 	panel@0 {
@@ -493,6 +495,15 @@
 				remote-endpoint = <&mdss_dsi0_out>;
 			};
 		};
+	};
+};
+
+&tlmm {
+	sw43410_te_active: sw43410-te-active-state {
+		pins = "gpio8";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
 	};
 };
 

@@ -549,7 +549,8 @@
 };
 
 &tlmm {
-	gpio-reserved-ranges = <126 4>;
+	/* LG firmware marks GPIOs 92-95 and 98-101 as inaccessible. */
+	gpio-reserved-ranges = <92 4>, <98 4>, <126 4>;
 
 	quat_mi2s_active: quat-mi2s-active-state {
 		pins = "gpio137", "gpio138";

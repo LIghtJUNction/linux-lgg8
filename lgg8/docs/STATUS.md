@@ -25,7 +25,7 @@
 | 封装与本地测试 | **46 项通过，最终 verify 通过** | 使用本仓新 Image/DTB/CPIO，11,853,824 字节 boot.img，未上机 |
 | 默认诊断 PID 1 | **QEMU virt 实际运行通过** | 同一内核进入 PID 1 并按期复位；非 PID 1 返回 91 保护也通过；不代表手机通过 |
 | 原生 initramfs | **GNU cpio 解析通过** | 说明归档可解析，不证明真机能启动 |
-| 本仓新内核真机启动 | **阶段通过** | C119 新 Image + 旧 DTB 的七秒用户态控制；新 DTB 与默认无 blacklist 路径仍待验收 |
+| 本仓新内核真机启动 | **阶段通过** | C158/C159 在 GPIO 保护及保留两项 blacklist 的条件下，通过十七/七秒 PID 1 差分；完整新 DTB 与默认无 blacklist 路径仍待验收 |
 | RAM 桌面用户态 | **QEMU headless 通过** | Weston/pixman、桌面壳、终端及同 surface 帧回调；手机 DRM 仍待验收 |
 | Linux USB 枚举和 shell | **未通过** | 默认 init 也不配置 gadget 或提供 shell |
 | 正常显示与触控 | **未通过** | 面板/DSC 原型及花屏不是可用显示证明 |
@@ -239,3 +239,44 @@ fastboot boot 接受镜像，USB 空窗 **37.090 秒**后 Android 完整返回�
 没有 Linux USB，pstore 为空。未出现预期的九十秒用户态时序，
 没有取得手机桌面启动或正常显示证据，屏幕观察反馈尚待收集。
 这轮结果不能把同一根在 QEMU headless 中的通过升级为手机 DRM 验收。
+
+## C142–C159：延期设备身份与 GPIO 保护后的 PID 1 差分
+
+维护源码 Image 仍为 `3f2487cb…a2bca`；身份时序诊断使用独立 Image
+`3e652ca6…f047d`，不能混同。C142 关闭新身份诊断时，USB 空窗 **31.029 秒**，
+仍提前复位。C143–146 的 1/3/5/7 秒校准通过；C147–151 的五段 FNV 时序
+将 1098 条候选收敛到 `platform:3100000.pinctrl`。C152/C153 的完整 eq
+两次均给出一秒匹配，C154 错名 `pinctrlx` 给出七秒拒绝。同诊断 Image 的
+C155 未观察到 `after:2` 预期信号，空窗 **30.827 秒**。这些证据定位了设备身份
+和延期重试调用边界，不是驱动内具体故障指令的证明。
+
+仅关闭 TLMM 的 C156/C157，十七/七秒用户态空窗分别为 **39.847 / 39.245 秒**，
+没有出现预期十秒差分，**不能算作 PID 1 执行通过**。
+
+实际 Android runtime FDT 的 `/soc/pinctrl@03000000` 带有
+`lge,access-denied-gpios = <92 93 94 95 98 99 100 101>`；主线原来的
+`gpio-reserved-ranges` 只有 `<126 4>`。随后在维护源码 Image 上进行单变量对照：
+
+| 候选 | 变量与条件 | USB 空窗，秒 |
+| --- | --- | ---: |
+| C158 | 从 C125 只把该 TLMM 属性改为 `<92 4>, <98 4>, <126 4>`，TLMM 保持启用；原冻结十七秒 CPIO | 40.238 |
+| C159 | 从 C158 只换入原冻结七秒 CPIO | 30.028 |
+
+两轮相差 **10.210 秒**，符合用户态延迟相差十秒，构成原生 PID 1 实际执行的
+强差分证据。此时 `deferred_probe_initcall` 已启用，但仍屏蔽
+`of_platform_sync_state_init,sync_state_resume_initcall`；**不能据此宣布默认无
+blacklist 路径通过**。上述 RAM 实验的 Android 回收、安全检查和 `boot_a/boot_b`
+哈希保持均通过，没有取得真实 Linux USB 或手机 GUI 验收。
+
+本仓板级 DTS 已加入这八个 GPIO 的保护，DTB 重编与 46 项本地测试通过。
+采用该更新的完整桌面镜像已完成离线核验，真实桌面测试尚未完成；仍需分别验收完整
+启动参数、Linux USB、DRM 可见输出、触控及手机桌面，不能沿用 QEMU headless
+或上述最小 PID 1 控制的结论。
+
+C160 随后对修正后的完整维护源码桌面镜像执行 RAM 启动：默认参数没有
+initcall blacklist，桌面 CPIO 与已通过 QEMU 的版本相同。镜像 SHA-256 为
+`21e42adf58dce4401049ca3ab733ebb77def09dbaf360f5c789b860f3664e03f`。
+USB 空窗为 **119.340 秒**，与九十秒用户态后备复位的时序吻合；Android
+完整返回，两槽 boot 哈希未变。pstore 仍为空，屏幕反馈待收集，不能把该时序
+直接称为正常手机桌面通过。此桌面根不配置 USB gadget，该轮未枚举 Linux USB
+也不能据此判断 UDC 不存在。

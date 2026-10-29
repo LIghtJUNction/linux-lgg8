@@ -1908,11 +1908,39 @@ static int dsi_populate_dsc_params(struct msm_dsi_host *msm_host, struct drm_dsc
 	drm_dsc_set_const_params(dsc);
 	drm_dsc_set_rc_buf_thresh(dsc);
 
-	/* DPU supports only pre-SCR panels */
 	ret = drm_dsc_setup_rc_params(dsc, DRM_DSC_1_1_PRE_SCR);
 	if (ret) {
 		DRM_DEV_ERROR(&msm_host->pdev->dev, "could not find DSC RC parameters\n");
 		return ret;
+	}
+
+	switch (dsc->scr_revision) {
+	case 0:
+		break;
+	case 1: {
+			static const u8 scr1_min_qp[] = {
+				0, 0, 1, 1, 3, 3, 3, 3, 3, 3, 5, 5, 5, 9, 12,
+			};
+			static const u8 scr1_max_qp[] = {
+				4, 4, 5, 6, 7, 7, 7, 8, 9, 10, 10, 11, 11, 12, 13,
+			};
+			int i;
+
+			if (dsc->dsc_version_major != 1 ||
+			    dsc->dsc_version_minor != 1 ||
+			    dsc->bits_per_component != 8 ||
+			    dsc->bits_per_pixel != (8 << 4))
+				return -EOPNOTSUPP;
+
+			dsc->first_line_bpg_offset = 15;
+			for (i = 0; i < ARRAY_SIZE(scr1_min_qp); i++) {
+				dsc->rc_range_params[i].range_min_qp = scr1_min_qp[i];
+				dsc->rc_range_params[i].range_max_qp = scr1_max_qp[i];
+			}
+			break;
+		}
+	default:
+		return -EOPNOTSUPP;
 	}
 
 	dsc->initial_scale_value = drm_dsc_initial_scale_value(dsc);

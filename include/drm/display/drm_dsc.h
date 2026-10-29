@@ -244,6 +244,10 @@ struct drm_dsc_config {
 	 */
 	u8 dsc_version_major;
 	/**
+	 * @scr_revision: DSC 1.1 SCR revision (0: pre-SCR, 1: SCR1)
+	 */
+	u8 scr_revision;
+	/**
 	 * @native_422: True if Native 4:2:2 supported, else false
 	 */
 	bool native_422;

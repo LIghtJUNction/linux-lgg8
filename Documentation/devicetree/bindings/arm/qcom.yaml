@@ -1091,6 +1091,7 @@ properties:
 
       - items:
           - enum:
+              - lge,alphalm
               - microsoft,surface-duo
               - qcom,sm8150-hdk
               - qcom,sm8150-mtp

@@ -542,6 +542,16 @@ config DRM_PANEL_LG_SW43408
 	  pixel. It provides a MIPI DSI interface to the host and has a
 	  built-in LED backlight.
 
+config DRM_PANEL_LG_SW43410
+	tristate "LG SW43410 1440x3120 DSC panel"
+	depends on GPIOLIB && OF && DRM_MIPI_DSI
+	depends on BACKLIGHT_CLASS_DEVICE
+	select DRM_DISPLAY_DSC_HELPER
+	select DRM_DISPLAY_HELPER
+	help
+	  Say Y here to enable the LG G8 ThinQ SW43410 command-mode OLED panel.
+	  It uses a four-lane MIPI DSI link and DSC 1.1 SCR1 at 8 bpc/8 bpp.
+
 config DRM_PANEL_LXD_M9189A
 	tristate "LXD M9189A MIPI-DSI LCD panel"
 	depends on OF

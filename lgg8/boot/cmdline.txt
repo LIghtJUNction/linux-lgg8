@@ -1,0 +1,1 @@
+console=tty0 rdinit=/init loglevel=7 ignore_loglevel panic=10 oops=panic maxcpus=1 nokaslr cpuidle.off=1 clk_ignore_unused pd_ignore_unused regulator_ignore_unused fw_devlink=permissive watchdog.open_timeout=120 lgg8_build=source-v1

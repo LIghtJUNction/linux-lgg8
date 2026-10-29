@@ -194,3 +194,8 @@ sphinx_*/
 
 # bc language scripts (not LLVM bitcode)
 !kernel/time/timeconst.bc
+
+# LG G8 local build inputs and outputs
+/out/
+/private/
+/.cache/

@@ -317,4 +317,8 @@ C171 增加 `lgg8_dsi_tpg=1`，在面板初始化后请求 DSI host command-mode
 
 C172 保持 C171 的 DTB、CPIO、bootargs 和其余启动输入，只把图案触发改为 DSI bridge 活跃时每 16 ms 重发，并在关闭 host 前同步取消。内核 SHA-256 为 `0beab1bc…b9ddb223`，boot.img SHA-256 为 `2a2df706…3f03d7ce`。RAM-only `fastboot boot` 被接受；USB 于 15.907 秒断开、178.907 秒恢复为 Android，ADB 于 179.390 秒上线。`boot_completed=1`、slot `_b`、boot ID 轮转，`boot_a` 与 `boot_b` 哈希均不变；没有分区写入或 ttyACM 输入。USB 状态变化中未出现 Linux gadget `18d1:4ee7`。
 
-C172 回收后捕获到 70,388 字节 `console-ramoops-0`，归档传输与源哈希匹配；文本本身严重损坏。仍能辨认到 DSI repeated-TPG pre-enable 信息，以及 DPU frame-done/vblank timeout 的片段。前者说明 bridge/host enable 路径走到调度图案的位置，不等于确认周期工作项发出帧；后者也不能在损坏日志中确定时间因果。用户对 C172 屏幕是否出现棋盘格的观察尚待记录。显示修复和 DSI/DSC 根因都未验收。
+C172 回收后捕获到 70,388 字节 `console-ramoops-0`，归档传输与源哈希匹配；文本本身严重损坏。仍能辨认到 DSI repeated-TPG pre-enable 信息，以及 DPU frame-done/vblank timeout 的片段。前者说明 bridge/host enable 路径走到调度图案的位置，不等于确认周期工作项发出帧；后者也不能在损坏日志中确定时间因果。用户确认 C172 仍为全屏花屏，重复 TPG 没有带来可见改善。显示修复和 DSI/DSC 根因都未验收。
+
+### 面板时钟差异线索（待验证）
+
+从 Android runtime device tree 只读取得 SW43410 MP DSC timing：1440×3120@60 Hz、水平 porch 168/4/88、垂直 porch 9/1/10，DSC 8 bpc/8 bpp、SCR 1、两片 720×60、每包两片；与主线面板模式和主要 DSC 参数一致。原厂 `qcom,mdss-dsi-panel-clockrate` 节点为 16 字节，首个 32 位值是 920,145,600 Hz。按当前主线 DSI host 源码的压缩时钟算法（压缩活动宽度 480、水平总宽 740，再按 RGB888/4 lanes 换算），请求的 bit clock 为 836,496,000 Hz，低约 9.1%。旧 Qualcomm 面板解析器对该属性先尝试 u64，长度超出时回退读首个 u32；这使差异值得追查，但尚不能证明该值就是原厂实际 PHY bit clock，也不能证明其导致花屏。下一步应先确认原厂运行时 PHY/byte clock 或对应 vendor 驱动如何消费此字段，再决定是否做单变量时钟实验。

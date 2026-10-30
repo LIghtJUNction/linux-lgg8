@@ -473,3 +473,13 @@ C198 在 C197 基础上加入显式开关 `lgg8.usb_shell=1`：仅在 `lgg8.usb_
 真机使用 RAM-only `fastboot boot`，没有分区写入。物理口 1-2：+0.001 秒 Fastboot `18d1:4ee0`，+16.037 秒断开，+38.463 秒出现 Linux Gadget `18d1:4ee7`，iSerial 回执 `T=C198;O=OK;W=OK`；product 快照为 `DRM=1 CON=2 FB0=1 SEATSOCK=1 WPROC=1 ST=8`。+119.441 秒 gadget 断开，+137.263 秒 Android USB `1004:631f` 返回，ADB +137.553 秒上线。首次由普通权限 runner 打开 tty 被系统拒绝（`EACCES`，未发送命令）；随后先核实 tty 的 sysfs parent 正是物理端口 `1-2`、设备 ID `18d1:4ee7`，再用提权探针发送 `echo $((23*31))`，收到 `713`，证明 shell 实际执行命令并回传输出。原始权限失败记录保留在 run result，提权往返证据单独保存在 `out/lgg8-c198-usb-shell-20261031/run-02/physical-shell-roundtrip.json`。
 
 Android 回收为 `LM-G820 / alphalm_lao_com`、slot `_b`、`boot_completed=1`，boot ID 轮转。`boot_a` 和 `boot_b` 前后哈希不变；启动前、早期回连和回收后 pstore 均核验为空。屏幕没有可用观察记录；`ST=8` 和 Weston 进程只说明桌面启动阶段到达终端派生，不能证明 scanout 或可读画面。因此 C198 新增的已验收里程碑是**真机 Linux USB Gadget 枚举并通过 ACM shell 执行/回传命令**；显示花屏、触控与 pstore 读回仍未解决。完整证据摘要见候选目录 `acceptance.json`。
+
+#### C198-R4：ACM shell 只读显示链路采样（2026-10-31）
+
+复用同一 C198 镜像（boot.img SHA-256 `04857cdb56d247ad1da95cecc660095b271c3141cfd9f277ee4d4a9aaf21e02d`、CPIO SHA-256 `0e26a5bcd088b78f7f9a4fe4bbffab942c63a099ed6a8e729b920ae5149fd449`），RAM-only `fastboot boot`，物理口 1-2 被动监视；没有分区写入。经核实的 Linux Gadget `18d1:4ee7`/`ttyACM0` root shell 接收并执行只读采集脚本，完整收到结束标记及退出码 0，回传 127,318 字节。debugfs 仅以只读方式挂载到 RAM 路径 `/run/lgg8-r4-debugfs`；没有读取会触发问题的 per-CRTC `status`/`state` 节点。
+
+采样到 DSI-1 已连接、CRTC 0 active、模式 1440×3120；活动 plane 0 使用 XR24、pitch 5760、SSPP8，并分配 PP0/CTL0。两次 `core_irq` 快照中 PP_TX_DONE 计数均为 0，CTL_START 从 65 增至 74，TE/read-pointer 计数为 2，underrun 为 0。内核同时记录 `frame done timeout`；DPU 诊断快照为 `flush/start=10/10`、`pending=0x208c0`、`busy=0`、PP_DONE/TE/CTL_START/underrun=`0/2/10/0`。这把显示故障收窄到：DPU/CTL 已开始提交并收到 TE/read-pointer 活动，但没有 PP 帧完成；尚不能据此断定面板线上实际波形或画面内容。
+
+同一启动还记录 SMMUv2 translation fault：`SID=0xc20`、`CB=10`、`IOVA=0x9e30a700`。启动日志确认 `ae00000.display-subsystem` 加入 IOMMU group 8；SM8150 MDSS 设备树使用 stream ID/mask `<0x800 0x420>`，主线 SMMU 匹配规则允许该 mask 覆盖 SID `0xc20`。因此这条 fault 已能归属显示子系统的 SMMU stream-match 范围，是 PP_DONE 缺失的强诊断线索；IOVA 是否对应本帧 framebuffer 的具体页表映射仍未确认，不能直接宣称根因已修复或已证明。
+
+本轮安全回收通过：Android `boot_completed=1`、slot `_b`，boot ID 轮转；`boot_a`/`boot_b` SHA 与启动前一致，启动前及回收后 pstore 完整核验为空。真机屏幕没有可靠观察记录，可读显示里程碑仍未达成。原始 ACM 采样和运行结果保留在本机忽略目录 `out/lgg8-c198-usb-shell-20261031/run-04/`；后续应优先只读核对 fault IOVA 与活动 framebuffer DMA 映射，再决定是否需要单变量候选。

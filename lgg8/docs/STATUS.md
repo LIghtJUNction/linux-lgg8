@@ -354,3 +354,11 @@ C177 的启动参数仍启用 `lgg8_dsi_tpg=1`，驱动每 16 ms 重发测试图
 RAM-only `fastboot boot` 被接受。物理 USB 1-2 于 +15.858 秒断开，Android USB 于 +97.770 秒返回，ADB +98.152 秒上线；总运行 108.062 秒。`boot_completed=1`、slot `_b`、boot ID 轮转，`boot_a` 与 `boot_b` 哈希均未变化。用户报告屏幕“花屏5”（原始回复；覆盖范围未说明）。这证明关闭测试图案后屏幕仍花，测试图案不是唯一原因；不能算作 Weston 桌面可见验收。
 
 本轮首次保存到 85,348 字节的 ramoops console，运行器校验了归档与源文件哈希一致。日志中可辨认出 DPU command-mode `failed wait_for_idle`（`ret=-110`）和多次 `frame done timeout`，末尾可见 watchdog 调用栈。原始日志有明显字符损坏，因此这些内容是 DPU/帧完成路径的诊断线索，不足以单独证明 TE、时钟、DSI 或 DPU 中哪一项是根因。等待参数确实缩短了 Linux 观察窗口，但从 USB 断开到 Android USB 返回仍约 98 秒。没有分区写入、ttyACM 打开或终端输入。候选和运行记录见 `android-mainline-port/out/candidate-m3-desktop-direct-20261030-178/` 与相邻 `run-candidate-m3-desktop-direct-20261030-178-attempt1/`。
+
+### Candidate 179：初始 PPS 在 LP 模式发送
+
+C178 的 PPS 在 HS 模式发送。Candidate 179 仅改变初始 128 字节 PPS 传输期间的临时 DSI mode flag：保存原 flags、仅为该消息设置 LPM，传输后恢复；ON → PPS → POST_ON 顺序不变，其余内核配置、DTB、initramfs、bootargs 与 C178 相同。内核对象编译及 ARM64 Image 链接通过，boot.img 离线核验通过。镜像 SHA-256 为 `9c78487c104c6b96f1960559f017e53b18dbee853dbeb7ab15effbb42aed2244`，内核 SHA-256 为 `654b97e3649eba16ab0f2bd12b447c9dc33b97c330cd7b196bb68bbd1ad5c833`。
+
+源码核对确认临时 LPM flag 会被 MIPI DSI helper 转成 `MIPI_DSI_MSG_USE_LPM` 并传至 MSM host；这验证了软件选择的消息模式，不证明面板电气链路已接受 PPS。静态检查还确认最终 DTB 的活动 DSI/panel endpoint 双向连接、GPIO8 配置为 `mdp_vsync`，以及 PPS 的保存/恢复路径。运行时 DPU/PP/CTL 分配、PP_DONE 硬件状态、TE 波形和面板收到的实际数据仍未证实。
+
+RAM-only `fastboot boot` 被接受。USB 1-2 于 +15.834 秒断开、+97.930 秒恢复 Android，ADB 于 +98.239 秒上线，总运行 108.431 秒；与 C178 时序基本相同。用户观察为“花屏5”（覆盖范围未说明），未取得可读画面，LP PPS 没有显示出可见修复。两次 pstore 快照均为空，因此本轮没有新增 PP_DONE 或 DPU timeout 运行证据。`boot_completed=1`、型号/设备/slot 保持 `LM-G820` / `alphalm_lao_com` / `_b`，`boot_a` 与 `boot_b` 哈希不变；无分区写入、ttyACM 打开或终端输入。完整候选及运行证据保存在相邻 `android-mainline-port/out/candidate-m3-desktop-direct-20261030-179/` 与 `run-candidate-m3-desktop-direct-20261030-179-attempt2/`。

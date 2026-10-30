@@ -106,10 +106,10 @@ static int sw43410_send_initial_pps(struct sw43410_panel *ctx)
 	if (!dsi->dsc)
 		return -EINVAL;
 
-	/* The stock driver sends PPS after the full on-command list, in HS mode. */
+	/* Match the downstream LP-mode PPS transfer after the full on-command list. */
 	drm_dsc_pps_payload_pack(&pps, dsi->dsc);
 	mode_flags = dsi->mode_flags;
-	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
+	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 	ret = mipi_dsi_picture_parameter_set(dsi, &pps);
 	dsi->mode_flags = mode_flags;
 

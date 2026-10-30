@@ -136,3 +136,17 @@ buffer/damage/commit/frame callback 链及 guest/Weston 的 printk 镜像均通�
 
 本次没有重编内核，也没有新生成 boot.img；这组检查验证工具与测试夹具，
 不改变既有候选镜像及其真机验收状态。
+
+## C191 DPU pstore 独立记录构建（2026-10-30）
+
+按 6.1-sol 对上一提交的审查修正默认配置编译问题，并避免 driver/KMS 记录提前 seal 掉 encoder 所需的 console 快照。驱动注册与 KMS 状态现在写入独立 ramoops pmsg 区；仅 encoder 快照使用 console。pmsg writer 经 pstore 后端锁串行化，记录写入 errno；探测延迟和 pstore 区未就绪时采用有限重试。新增的 pstore kernel-buffer 写入仅面向 ramoops pmsg 区。
+
+| 构建 | 结果 | SHA-256 |
+| --- | --- | --- |
+| 默认配置 Image | 完整链接；默认诊断关闭 | `9435665265c4157098f809005a5d757509344a4bfbdc1b6a088401ee3123daf2` |
+| diag-pstore Image | 完整链接；`CONFIG_DRM_MSM_DPU_PSTORE_DIAG=y`、`CONFIG_PSTORE_PMSG=y` | `bde85639312b653e5f135adb2de84ac0f2e9497e9a7262336845115a5ea1029f` |
+| 两种配置 DTB | 完整编译且相同 | `88207ff2e9b28cca8d0b98dc4e5ca64552c7023930d51b207a5546ebe71d4ef2` |
+| 本地测试 | **62 项通过，0 跳过** | `PYTHONDONTWRITEBYTECODE=1 ./lgg8/build.sh test` |
+| 其他检查 | 通过 | 默认配置增量复编无警告；`git diff --check`、bash 语法、bootimg CLI |
+
+产物及收据位于 `out/lgg8-c191/`。源码仍有未提交差异；收据将此标为 dirty build 并记录差异指纹。C191 尚未打包 `boot.img`，未做 QEMU pmsg 仿真或真机启动，因此尚无 pmsg 运行记录，也不能宣称屏幕、USB 或 Linux 用户态里程碑变化。

@@ -285,7 +285,7 @@ sha256sum out/boot-TIMESTAMP/boot.img
 
 当前 manifest 文件名为 `manifest.json`；路径应与该次输出目录一致。镜像与 manifest 必须来自同一次构建，不能拿旧报告验证新文件。manifest 本身也是可信输入：若镜像和它一起被替换，仅两者相互匹配不能证明来源。核对 header v0、页尺寸 4096、gzip 完整性、stock DTB 保留、Linux DTB/initrd 布局、输入/输出哈希和分区上限；未实现的检查不能以人工期望冒充工具已验证。
 
-验收记录至少包括上游基线、实际 HEAD/dirty 差异、有效配置 SHA、Image/DTB/initramfs/cmdline SHA、模板来源 SHA、目标分区容量、镜像 SHA、测试数量与退出码、最终 verify 输出。测试和 verify 均通过后只能标记 **离线通过，真机未验收**。当前完整内核/DTB 构建、46 项本地测试、boot.img 打包与最终 verify 均已通过；同一内核和 CPIO 已在 QEMU virt 中进入 PID 1 并按期复位。详见 [LOCAL-VALIDATION.md](LOCAL-VALIDATION.md)。源码基线及迁入文件来源见 [PROVENANCE.md](PROVENANCE.md)。
+验收记录至少包括上游基线、实际 HEAD/dirty 差异、有效配置 SHA、Image/DTB/initramfs/cmdline SHA、模板来源 SHA、目标分区容量、镜像 SHA、测试数量与退出码、最终 verify 输出。测试和 verify 均通过后只能标记 **离线通过，真机未验收**。当前完整内核/DTB 构建、62 项本地测试、boot.img 打包与最终 verify 均已通过；同一内核和 CPIO 已在 QEMU virt 中进入 PID 1 并按期复位。2026-10-30 的 C191 默认及 diag-pstore 内核也完成本地链接，尚未打包或真机启动。详见 [LOCAL-VALIDATION.md](LOCAL-VALIDATION.md)。源码基线及迁入文件来源见 [PROVENANCE.md](PROVENANCE.md)。
 
 ## 更新上游而不覆盖 LG 改动
 

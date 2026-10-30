@@ -110,8 +110,12 @@ static bool dpu_timeout_recorder_enter(struct dpu_timeout_recorder *recorder)
 
 static void dpu_timeout_recorder_exit(struct dpu_timeout_recorder *recorder)
 {
+	unsigned long flags;
+
+	spin_lock_irqsave(&recorder->lock, flags);
 	if (atomic_dec_and_test(&recorder->producers))
 		wake_up_all(&recorder->producer_wait);
+	spin_unlock_irqrestore(&recorder->lock, flags);
 }
 
 static void dpu_timeout_snapshot_capture(struct dpu_encoder_phys *phys_enc,
@@ -189,9 +193,10 @@ static void dpu_timeout_snapshot_work(struct work_struct *work)
 	struct dpu_timeout_snapshot s;
 	unsigned long flags;
 	bool no_prepare;
-	int len, crc_len;
-	int ret;
-	u32 crc;
+	int len, crc_len, result_len, result_crc_len;
+	int ret, pmsg_ret;
+	u32 crc, result_crc;
+	char result[224];
 
 	spin_lock_irqsave(&recorder->lock, flags);
 	if (recorder->stopped ||
@@ -238,10 +243,24 @@ static void dpu_timeout_snapshot_work(struct work_struct *work)
 	len += scnprintf(record + len, sizeof(record) - len,
 			 "crc32=%08x bytes=%d\n", crc, crc_len);
 
+	pmsg_ret = pstore_write_diagnostic_pmsg(record, len);
 	if (len < sizeof(record))
 		ret = pstore_write_console_and_seal(record, len);
 	else
 		ret = -EOVERFLOW;
+	result_len = scnprintf(result, sizeof(result),
+			       "LGG8_DPU_PSTORE_RESULT nonce=%016llx uptime_ns=%llu "
+			       "pmsg_errno=%d console_errno=%d ",
+			       (unsigned long long)s.nonce,
+			       (unsigned long long)ktime_get_ns(), pmsg_ret, ret);
+	result_crc_len = result_len;
+	result_crc = crc32_le(~0U, result, result_crc_len) ^ ~0U;
+	result_len += scnprintf(result + result_len,
+				 sizeof(result) - result_len,
+				 "crc32=%08x bytes=%d\n", result_crc,
+				 result_crc_len);
+	if (pstore_write_diagnostic_pmsg(result, result_len))
+		pr_err("LGG8_DPU_PSTORE_RESULT result record write failed\n");
 	if (ret && ret != -EALREADY)
 		pr_err("LGG8_DPU_DIAG pstore write failed: %d\n", ret);
 
@@ -266,6 +285,9 @@ static void dpu_timeout_recorder_cleanup(struct drm_device *dev, void *data)
 
 	wait_event(recorder->producer_wait,
 		   !atomic_read(&recorder->producers));
+	/* Pair with producer_exit so no producer still touches recorder memory. */
+	spin_lock_irqsave(&recorder->lock, flags);
+	spin_unlock_irqrestore(&recorder->lock, flags);
 	cancel_delayed_work_sync(&recorder->work);
 }
 
@@ -1147,8 +1169,10 @@ struct dpu_encoder_phys *dpu_encoder_phys_cmd_init(struct drm_device *dev,
 	phys_enc = &cmd_enc->base;
 
 	dpu_encoder_phys_init(phys_enc, p);
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
 	if (phys_enc->dpu_kms)
 		atomic_inc(&phys_enc->dpu_kms->diag_cmd_phys_init);
+#endif
 
 	mutex_init(&phys_enc->vblank_ctl_lock);
 	phys_enc->vblank_refcount = 0;

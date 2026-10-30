@@ -72,7 +72,9 @@ static void _dpu_kms_mmu_destroy(struct dpu_kms *dpu_kms);
 static atomic_t dpu_diag_platform_probe_attempts = ATOMIC_INIT(0);
 static atomic_t dpu_diag_kms_init_success = ATOMIC_INIT(0);
 static unsigned int dpu_driver_diag_attempts;
+static int dpu_driver_diag_last_errno = -EINPROGRESS;
 static struct delayed_work dpu_driver_pstore_diag_work;
+static int dpu_diag_platform_register_result;
 
 static void dpu_driver_pstore_diag_fn(struct work_struct *work)
 {
@@ -83,22 +85,27 @@ static void dpu_driver_pstore_diag_fn(struct work_struct *work)
 	(void)work;
 	len = scnprintf(record, sizeof(record),
 		"LGG8_DPU_DRIVER_DIAG v=1 uptime_ns=%llu platform_probe=%d "
-		"kms_init=%d\n",
+		"kms_init=%d platform_register=%d attempt=%u "
+		"previous_pmsg_errno=%d\n",
 		(unsigned long long)ktime_get_ns(),
 		atomic_read(&dpu_diag_platform_probe_attempts),
-		atomic_read(&dpu_diag_kms_init_success));
+		atomic_read(&dpu_diag_kms_init_success),
+		READ_ONCE(dpu_diag_platform_register_result),
+		dpu_driver_diag_attempts,
+		READ_ONCE(dpu_driver_diag_last_errno));
 	crc_len = len;
 	crc = crc32_le(~0U, record, crc_len) ^ ~0U;
 	len += scnprintf(record + len, sizeof(record) - len,
 			 "crc32=%08x bytes=%d\n", crc, crc_len);
-	ret = pstore_write_console_and_seal(record, len);
+	ret = pstore_write_diagnostic_pmsg(record, len);
+	WRITE_ONCE(dpu_driver_diag_last_errno, ret);
 	if (ret == -ENODEV &&
 	    ++dpu_driver_diag_attempts < DPU_KMS_DIAG_MAX_ATTEMPTS) {
 		mod_delayed_work(system_percpu_wq, &dpu_driver_pstore_diag_work,
 				 DPU_KMS_DIAG_RETRY_SECONDS * HZ);
 		return;
 	}
-	if (ret && ret != -EALREADY)
+	if (ret)
 		pr_err("LGG8_DPU_DRIVER_DIAG pstore write failed: %d\n", ret);
 }
 
@@ -113,23 +120,27 @@ static void dpu_kms_pstore_diag_work(struct work_struct *work)
 
 	len = scnprintf(record, sizeof(record),
 		"LGG8_DPU_KMS_DIAG v=1 uptime_ns=%llu cmd_phys_init=%d "
-		"first_prepare=%d pp_timeout=%d\n",
+		"first_prepare=%d pp_timeout=%d attempt=%u "
+		"previous_pmsg_errno=%d\n",
 		(unsigned long long)ktime_get_ns(),
 		atomic_read(&dpu_kms->diag_cmd_phys_init),
 		atomic_read(&dpu_kms->diag_first_prepare),
-		atomic_read(&dpu_kms->diag_pp_timeout));
+		atomic_read(&dpu_kms->diag_pp_timeout),
+		dpu_kms->diag_pstore_attempts,
+		READ_ONCE(dpu_kms->diag_pstore_last_errno));
 	crc_len = len;
 	crc = crc32_le(~0U, record, crc_len) ^ ~0U;
 	len += scnprintf(record + len, sizeof(record) - len,
 			 "crc32=%08x bytes=%d\n", crc, crc_len);
-	ret = pstore_write_console_and_seal(record, len);
+	ret = pstore_write_diagnostic_pmsg(record, len);
+	WRITE_ONCE(dpu_kms->diag_pstore_last_errno, ret);
 	if (ret == -ENODEV &&
 	    ++dpu_kms->diag_pstore_attempts < DPU_KMS_DIAG_MAX_ATTEMPTS) {
 		mod_delayed_work(system_percpu_wq, &dpu_kms->pstore_diag_work,
 				 DPU_KMS_DIAG_RETRY_SECONDS * HZ);
 		return;
 	}
-	if (ret && ret != -EALREADY)
+	if (ret)
 		pr_err("LGG8_DPU_KMS_DIAG pstore write failed: %d\n", ret);
 }
 
@@ -1395,7 +1406,9 @@ static int dpu_kms_init(struct drm_device *ddev)
 		DPU_ERROR("failed to init kms, ret=%d\n", ret);
 		return ret;
 	}
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
 	atomic_inc(&dpu_diag_kms_init_success);
+#endif
 	dpu_kms->dev = ddev;
 
 	pm_runtime_enable(&pdev->dev);
@@ -1467,7 +1480,9 @@ static int dpu_dev_probe(struct platform_device *pdev)
 	int irq;
 	int ret = 0;
 
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
 	atomic_inc(&dpu_diag_platform_probe_attempts);
+#endif
 	if (!msm_disp_drv_should_bind(&pdev->dev, true))
 		return -ENODEV;
 
@@ -1481,6 +1496,8 @@ static int dpu_dev_probe(struct platform_device *pdev)
 	atomic_set(&dpu_kms->diag_cmd_phys_init, 0);
 	atomic_set(&dpu_kms->diag_first_prepare, 0);
 	atomic_set(&dpu_kms->diag_pp_timeout, 0);
+	dpu_kms->diag_pstore_attempts = 0;
+	dpu_kms->diag_pstore_last_errno = -EINPROGRESS;
 	ret = devm_add_action_or_reset(dev, dpu_kms_pstore_diag_cancel,
 				       dpu_kms);
 	if (ret)
@@ -1632,16 +1649,19 @@ static struct platform_driver dpu_driver = {
 
 void __init msm_dpu_register(void)
 {
-	int ret;
-
-	ret = platform_driver_register(&dpu_driver);
 #ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
-	if (!ret) {
-		INIT_DELAYED_WORK(&dpu_driver_pstore_diag_work,
-				  dpu_driver_pstore_diag_fn);
-		mod_delayed_work(system_percpu_wq, &dpu_driver_pstore_diag_work,
-				 DPU_DRIVER_DIAG_DELAY_SECONDS * HZ);
-	}
+	int ret;
+#endif
+
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
+	ret = platform_driver_register(&dpu_driver);
+	WRITE_ONCE(dpu_diag_platform_register_result, ret);
+	INIT_DELAYED_WORK(&dpu_driver_pstore_diag_work,
+			  dpu_driver_pstore_diag_fn);
+	mod_delayed_work(system_percpu_wq, &dpu_driver_pstore_diag_work,
+			 DPU_DRIVER_DIAG_DELAY_SECONDS * HZ);
+#else
+	platform_driver_register(&dpu_driver);
 #endif
 }
 

@@ -187,6 +187,8 @@ struct pstore_info {
 	size_t		bufsize;
 	/* Maximum size of a single backend console record, when known. */
 	size_t		console_bufsize;
+	/* Maximum size of a single backend pmsg record, when known. */
+	size_t		pmsg_bufsize;
 
 	struct mutex	read_mutex;
 
@@ -215,6 +217,7 @@ extern void pstore_unregister(struct pstore_info *);
 #ifdef CONFIG_PSTORE_CONSOLE
 int pstore_write_console_and_seal(const char *buf, size_t size);
 #endif
+int pstore_write_diagnostic_pmsg(const char *buf, size_t size);
 
 struct pstore_ftrace_record {
 	unsigned long ip;

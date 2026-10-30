@@ -2,6 +2,7 @@
 #ifndef __PSTORE_INTERNAL_H__
 #define __PSTORE_INTERNAL_H__
 
+#include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/time.h>
 #include <linux/pstore.h>
@@ -30,9 +31,14 @@ pstore_ftrace_combine_log(char **dest_log, size_t *dest_log_size,
 #ifdef CONFIG_PSTORE_PMSG
 extern void pstore_register_pmsg(void);
 extern void pstore_unregister_pmsg(void);
+int pstore_write_pmsg_record(struct pstore_record *record);
 #else
 static inline void pstore_register_pmsg(void) {}
 static inline void pstore_unregister_pmsg(void) {}
+static inline int pstore_write_pmsg_record(struct pstore_record *record)
+{
+	return -EOPNOTSUPP;
+}
 #endif
 
 extern struct pstore_info *psinfo;

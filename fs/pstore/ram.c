@@ -337,8 +337,10 @@ static int notrace ramoops_pstore_write(struct pstore_record *record)
 				     record->size);
 		return 0;
 	} else if (record->type == PSTORE_TYPE_PMSG) {
-		pr_warn_ratelimited("PMSG shouldn't call %s\n", __func__);
-		return -EINVAL;
+		if (!cxt->mprz)
+			return -ENOMEM;
+		persistent_ram_write(cxt->mprz, record->buf, record->size);
+		return 0;
 	}
 
 	if (record->type != PSTORE_TYPE_DMESG)
@@ -802,6 +804,8 @@ static int ramoops_probe(struct platform_device *pdev)
 				cxt->pmsg_size, 0);
 	if (err)
 		goto fail_init;
+	if (cxt->mprz)
+		cxt->pstore.pmsg_bufsize = cxt->mprz->buffer_size;
 
 	cxt->max_ftrace_cnt = (cxt->flags & RAMOOPS_FLAG_FTRACE_PER_CPU)
 				? nr_cpu_ids

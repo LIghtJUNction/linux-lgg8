@@ -457,6 +457,50 @@ out_mutex:
 	return ret;
 }
 
+/**
+ * pstore_write_diagnostic_pmsg - write a kernel diagnostic to the ramoops pmsg zone
+ * @buf: record bytes
+ * @size: number of bytes, bounded by the backend pmsg zone
+ *
+ * Unlike the console helper, this record does not seal or depend on the pstore
+ * console. The ramoops backend exports it as pmsg-ramoops after reboot.
+ */
+int pstore_write_diagnostic_pmsg(const char *buf, size_t size)
+{
+	struct pstore_record record;
+	int ret = 0;
+
+	if (!buf || !size || size > 4096)
+		return -EINVAL;
+
+	mutex_lock(&psinfo_lock);
+	if (!psinfo || !(psinfo->flags & PSTORE_FLAGS_PMSG)) {
+		ret = -ENODEV;
+		goto out_mutex;
+	}
+	if (!psinfo->name || strcmp(psinfo->name, "ramoops")) {
+		ret = -EOPNOTSUPP;
+		goto out_mutex;
+	}
+	if (!psinfo->pmsg_bufsize || size > psinfo->pmsg_bufsize) {
+		ret = -ENOSPC;
+		goto out_mutex;
+	}
+	if (!psinfo->write) {
+		ret = -EOPNOTSUPP;
+		goto out_mutex;
+	}
+
+	pstore_record_init(&record, psinfo);
+	record.type = PSTORE_TYPE_PMSG;
+	record.buf = (char *)buf;
+	record.size = size;
+	ret = pstore_write_pmsg_record(&record);
+out_mutex:
+	mutex_unlock(&psinfo_lock);
+	return ret;
+}
+
 static struct console pstore_console = {
 	.write	= pstore_console_write,
 	.index	= -1,

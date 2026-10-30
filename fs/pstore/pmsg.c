@@ -11,6 +11,17 @@
 
 static DEFINE_MUTEX(pmsg_lock);
 
+int pstore_write_pmsg_record(struct pstore_record *record)
+{
+	int ret;
+
+	mutex_lock(&pmsg_lock);
+	ret = psinfo->write(record);
+	mutex_unlock(&pmsg_lock);
+
+	return ret;
+}
+
 static ssize_t write_pmsg(struct file *file, const char __user *buf,
 			  size_t count, loff_t *ppos)
 {

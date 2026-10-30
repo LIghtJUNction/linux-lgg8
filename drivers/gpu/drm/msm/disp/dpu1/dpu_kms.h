@@ -111,6 +111,7 @@ struct dpu_kms {
 	atomic_t diag_first_prepare;
 	atomic_t diag_pp_timeout;
 	unsigned int diag_pstore_attempts;
+	int diag_pstore_last_errno;
 #endif
 };
 

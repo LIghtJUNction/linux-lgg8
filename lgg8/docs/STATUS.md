@@ -46,7 +46,13 @@ C190 的主机观测到 Android USB 返回约 148 秒后完成回收，总计约
 
 C190 实际 DTB 的 ramoops 区为 `0xb0000000–0xb0280000`，console 子区为 256 KiB。打包内核 SHA-256 `eccd43a30dd2559b7f1b4a27ceb2188ae77bbef541c618ffab2e7890a2b69db0` 与保留 ARM64 Image 完全相同；同目录 `vmlinux`/System.map 含 worker、ramoops probe/write 和 `pstore_write_console_and_seal()`。反汇编确认：容量字段在注册前由 ramoops console zone 初始化；backend `.write()` 返回 0 才 seal；可达失败路径释放锁并返回原始错误。**离线静态通过**，不证明真机执行过 worker 或写入成功，也不证明复位后 RAM 保持。
 
-下一轮若继续，必须使用不受 console seal 影响的独立可读记录，分别标记注册返回、worker 入口和 helper 调用者实际收到的 errno。三者都为空时只能记为“不可判定”。本轮之后未追加设备操作。
+## C191：独立 ramoops pmsg 诊断路径已编译
+
+针对 C190 暴露的证据盲区，诊断构建现在把驱动注册/探测与 KMS 状态写入独立 ramoops pmsg 区；只有 encoder 事件写入并 seal console 快照。pmsg 记录含事件名、启动时间、计数、尝试次数、上次 errno 和 CRC；helper 对后端未注册、区域容量不足及非 ramoops 后端显式返回错误。驱动注册及 KMS 工作项对后端尚未就绪做有限重试。诊断功能要求 `PSTORE_PMSG=y`，默认配置仍关闭。
+
+2026-10-30 本地构建 C191 默认配置和 `diag-pstore` 配置均完整链接成功。默认 Image SHA-256 为 `9435665265c4157098f809005a5d757509344a4bfbdc1b6a088401ee3123daf2`，诊断 Image 为 `bde85639312b653e5f135adb2de84ac0f2e9497e9a7262336845115a5ea1029f`，两者 DTB SHA 均为 `88207ff2e9b28cca8d0b98dc4e5ca64552c7023930d51b207a5546ebe71d4ef2`。修复默认配置下一个未使用变量警告后，两种配置复编无警告；62 项本地测试通过，`git diff --check`、构建脚本语法和 bootimg CLI 检查通过。
+
+这只是源码与构建验证：C191 尚未打包或 RAM 启动，也没有 pmsg 真机记录证据。下一步应从诊断配置构建一个独立 boot.img，保持 RAM-only，验证 Android 回收后 pmsg 区是否导出上述记录；无记录时只判“不可判定”，不能据此断言 worker 未执行。
 
 ## C108 / C109 留下了什么证据
 
@@ -75,7 +81,7 @@ RPMh `VOLTAGE` / `ENABLE` 的 `-110` 在部分损坏片段中只能模糊辨认�
 
 自动复位依赖执行到相应代码与平台复位路径可用，不能保证早期挂起恢复，更不能替代独立下载/恢复入口。当前新内核的目标首先是建立可归属的启动证据，再分别验证 USB、显示、触控及用户态；没有现成桌面承诺。
 
-完整源码编译、46 项本地测试、QEMU PID 1 执行和最终 boot.img verify 已完成，具体指纹见 [LOCAL-VALIDATION.md](LOCAL-VALIDATION.md)。后续真机实验按 [BOOT-AND-RECOVERY.md](BOOT-AND-RECOVERY.md) 匹配手机、核对 b 槽和恢复条件，再做单次 RAM boot；未通过前不升级为持久刷入结论。
+完整源码编译、62 项本地测试、QEMU PID 1 执行和最终 boot.img verify 已完成，具体指纹见 [LOCAL-VALIDATION.md](LOCAL-VALIDATION.md)。后续真机实验按 [BOOT-AND-RECOVERY.md](BOOT-AND-RECOVERY.md) 匹配手机、核对 b 槽和恢复条件，再做单次 RAM boot；未通过前不升级为持久刷入结论。
 
 ## 历史实验的适用范围
 

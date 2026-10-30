@@ -116,15 +116,18 @@ config DRM_MSM_DPU
 
 config DRM_MSM_DPU_PSTORE_DIAG
 	bool "One-shot DPU diagnostic record in ramoops"
+	depends on DRM_MSM_DPU
 	depends on DRM_MSM=y
 	depends on PSTORE_CONSOLE=y
+	depends on PSTORE_PMSG=y
 	depends on PSTORE_RAM=y
 	depends on CRC32=y
 	help
-	  Record one bounded DPU command-mode snapshot to the ramoops console
-	  after encoder probe/kickoff or the first PP timeout. The record seals
-	  the pstore console for the rest of that boot, so enable this only for
-	  a controlled diagnostic image.
+	  Record DPU probe and worker status in the ramoops pmsg area, then save
+	  one bounded command-mode snapshot to the pstore console after encoder
+	  kickoff or the first PP timeout. The console snapshot seals the pstore
+	  console for the rest of that boot. Enable only in controlled diagnostic
+	  images.
 
 config DRM_MSM_DP
 	bool "Enable DisplayPort support in MSM DRM driver"

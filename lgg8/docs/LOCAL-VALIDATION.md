@@ -152,3 +152,11 @@ buffer/damage/commit/frame callback 链及 guest/Weston 的 printk 镜像均通�
 最终 `diag-pstore` 构建在提交 `acb4b35c24724b4d96d055a06cd28ca748b6f2f0` 上重建，收据为 clean source。C191 boot.img SHA-256 `16e24f7d2c8b9cf91284ec0f0487b6c9a62628cbb321184119090ae79bcb3047`，27.9 MiB；使用 C186 固定桌面 CPIO `345d8001…e30b4e`，boot_b 容量先按历史 96 MiB 打包，随后 fastboot 实测为 100663296 字节。
 
 RAM-only `fastboot boot` 返回成功。物理口 1-2 于 +15.828 秒断开，Android USB +145.965 秒返回，ADB +146.311 秒上线。型号 `LM-G820`、设备 `alphalm_lao_com`、slot `_b`、`boot_completed=1` 均符合；boot ID 轮转，boot_a SHA `a8266516…` 与 boot_b SHA `fec418e5…` 前后不变。pstore 启动前、早期回收及回收后快照均经目录范围、源文件哈希和 tar 内容交叉验证为**确实为空**。Android 启动日志确认其 ramoops backend 映射同一 `0x280000@0xb0000000` 区域，config 含 `CONFIG_PSTORE_PMSG=y`。C191 没有留下可读 pmsg，因此不能确定 DPU worker 是否触发；屏幕观察记录待补。设备原始报告位于 `out/lgg8-c191/run/`。
+
+## C192 用户态 pmsg 探针（2026-10-30）
+
+C192 根文件系统在静态 PID 1 中增加默认关闭、由 `lgg8.pmsg_probe=1` 显式启用的一次 `/dev/pmsg0` 写入。使用独立输出目录 `out/lgg8-c192/desktop/`，复用既有、哈希校验过的包缓存。静态构建报告为 `PASSED_STATIC_CHECKS`；CPIO SHA-256 为 `4e0770c33cfa8632c7adf54fcaced78b7692cb556f8280e72c276e0aaebdc66e`。62 项单元测试全通过，`git diff --check`、构建脚本语法和 bootimg 独立校验通过。
+
+C192 diag-pstore 内核基于干净提交 `037f27450bf973efa398acae70f8a0dac6c9e303`，Image `bde85639312b653e5f135adb2de84ac0f2e9497e9a7262336845115a5ea1029f`、DTB `88207ff2e9b28cca8d0b98dc4e5ca64552c7023930d51b207a5546ebe71d4ef2`。boot.img 为 29,724,672 字节，SHA-256 `f1f5f5019a5c88bfc52eca4be3f6b02d896ad06e2cac01e0d078f3c8860056d9`；fastboot 实测 boot_b 容量 100663296 字节。干净收据 manifest 位于 `out/lgg8-c192/boot-clean/manifest.json`。
+
+真机 `fastboot boot` 返回 0；口 1-2 于 +16.036 秒消失，Android USB +143.165 秒返回，ADB +143.446 秒恢复，总计 153.808 秒。`LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1` 和 boot ID 轮转核验通过；boot_a 与 boot_b SHA 前后相同。pstore 启动前为空；早期和回收后均只导出 `console-ramoops-0`，大小 32878 字节、SHA-256 `f60337bb8efd32644191dd9c0e194511fa324616d6dc0b5a7941c48b3c5ca2b6`，两次内容一致且源哈希稳定。未出现 `pmsg-ramoops-0`，console 中也没有探针标记；console 内容可见大量乱码，故无法据此判断探针是否运行或写入失败。结论限于 ramoops console 内容确实跨启动被 Android 导出，DPU pmsg worker 和用户态 pmsg 写通路均未证实。报告与原始 tar 位于 `out/lgg8-c192/run-02/`。

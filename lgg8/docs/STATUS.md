@@ -28,6 +28,7 @@
 | 本仓新内核真机启动 | **完整默认参数已运行** | C160 与 C162–169 使用 GPIO 保护、启用 TLMM、默认无 blacklist；每轮均回收 Android 且 A/B boot 哈希不变 |
 | RAM 桌面用户态 | **QEMU headless 通过；手机终端已派生且 Weston 存活** | C167 阶段 8、C169 WPROC=1；用户报告全屏花屏，仍无可用桌面验收 |
 | Linux USB 枚举和 shell | **未通过；检测到 1 个 UDC** | C168 回传的 UDC 数量为 1，但主机未见 Linux `18d1:4ee7`，尚不能用 ACM shell |
+| ramoops/pstore 真机证据 | **C192 首次导出 console-ramoops；内容损坏，pmsg 未确认** | 早期与回收后同一 32878 字节记录；C191 为空；C192 用户态标记及 DPU pmsg 仍未观察到 |
 | 显示与触控 | **显示链已启动，画面错误；触控未验收** | C165/166 分别检测到 2 个 connected connector、fb0 存在；这些状态不证明正确 scanout |
 | 桌面/Omarchy | **未通过** | 不能由源码编译或通用 QEMU 推导 |
 | 当前 Android 与软件 fastboot 修复 | 历史真机通过 | 依赖当前已安装 Android 启动镜像；覆盖后不可假设保留 |
@@ -57,6 +58,10 @@ C191 已打包并完成一次 RAM-only 真机实验，boot.img SHA-256 为 `16e2
 Android 4.14.348 配置含 `CONFIG_PSTORE_PMSG=y`，启动日志确认 ramoops 注册且映射 `0x280000@0xb0000000`，与本候选 DTB 的保留区相同。尽管如此，没有任何 C191 pmsg 记录，因此只能判定“内核诊断记录未被观察到”，不能判断 DPU worker 是否执行、pmsg 写接口是否被调用或 RAM 内容为何未导出。屏幕反馈仍待用户观察。设备命令和原始快照保存在 `out/lgg8-c191/run/`。
 
 为区分用户态到 pmsg 区的可读性与 DPU worker 执行，C192 在同一诊断内核、同一桌面根上增加一个默认关闭的 `/dev/pmsg0` 一次性写入标记，仍只做 RAM-only 启动。若 Android 导出该唯一标记，可确认 pmsg 区通路；没有标记仍不能单独定位原因。
+
+C192 已通过 RAM-only 真机启动。boot.img SHA-256 为 `f1f5f5019a5c88bfc52eca4be3f6b02d896ad06e2cac01e0d078f3c8860056d9`，使用干净提交 `037f27450bf973efa398acae70f8a0dac6c9e303` 构建，pmsg 探针桌面 CPIO SHA-256 为 `4e0770c33cfa8632c7adf54fcaced78b7692cb556f8280e72c276e0aaebdc66e`。fastboot 命令返回 0；物理口 1-2 于 +16.036 秒消失，Android USB +143.165 秒返回，ADB +143.446 秒上线。设备身份、slot `_b`、`boot_completed=1` 和 boot ID 轮转均通过，boot_a/boot_b 哈希不变，容量实测 100663296 字节。
+
+C192 启动前 pstore 为空；早期及回收后均得到哈希相同的 `console-ramoops-0`（32878 字节，SHA-256 `f60337bb8efd32644191dd9c0e194511fa324616d6dc0b5a7941c48b3c5ca2b6`），快照范围和 tar 内容交叉校验通过。**新确认的里程碑是 ramoops console 内容能跨候选启动并由 Android 导出。** 该内容有大量乱码，不能作为可读诊断日志；没有 `pmsg-ramoops-0`，也没有找到用户态探针标记，因此 `/dev/pmsg0` 探针是否执行成功、DPU worker 是否运行仍未确认。C192 原始记录位于 `out/lgg8-c192/run-02/`。
 
 ## C108 / C109 留下了什么证据
 

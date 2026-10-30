@@ -483,3 +483,13 @@ Android 回收为 `LM-G820 / alphalm_lao_com`、slot `_b`、`boot_completed=1`�
 同一启动还记录 SMMUv2 translation fault：`SID=0xc20`、`CB=10`、`IOVA=0x9e30a700`。启动日志确认 `ae00000.display-subsystem` 加入 IOMMU group 8；SM8150 MDSS 设备树使用 stream ID/mask `<0x800 0x420>`，主线 SMMU 匹配规则允许该 mask 覆盖 SID `0xc20`。因此这条 fault 已能归属显示子系统的 SMMU stream-match 范围，是 PP_DONE 缺失的强诊断线索；IOVA 是否对应本帧 framebuffer 的具体页表映射仍未确认，不能直接宣称根因已修复或已证明。
 
 本轮安全回收通过：Android `boot_completed=1`、slot `_b`，boot ID 轮转；`boot_a`/`boot_b` SHA 与启动前一致，启动前及回收后 pstore 完整核验为空。真机屏幕没有可靠观察记录，可读显示里程碑仍未达成。原始 ACM 采样和运行结果保留在本机忽略目录 `out/lgg8-c198-usb-shell-20261031/run-04/`；后续应优先只读核对 fault IOVA 与活动 framebuffer DMA 映射，再决定是否需要单变量候选。
+
+#### C198-R5：活动 framebuffer 与 SMMU fault IOVA 对照（2026-10-31）
+
+继续复用同一 C198 boot.img（SHA-256 `04857cdb56d247ad1da95cecc660095b271c3141cfd9f277ee4d4a9aaf21e02d`）和 CPIO（SHA-256 `0e26a5bcd088b78f7f9a4fe4bbffab942c63a099ed6a8e729b920ae5149fd449`），RAM-only `fastboot boot`。root ACM collector 核实 tty 的 sysfs 父级为物理口 1-2、VID:PID `18d1:4ee7`，只读挂载 debugfs 到 `/run/lgg8-r5-debugfs`，读取 `framebuffer` 与 MSM DRM 的 `gem` 节点；命令结束标记、shell prompt 和 GEM/VMA 表头均收到。完整运行约 149.2 秒后 Android 恢复，`boot_completed=1`、slot `_b`、boot ID 轮转、两分区哈希不变；启动前与回收后 pstore 核验为空。未写分区。
+
+`framebuffer` 中 `framebuffer[97]` 的 `start=00102249` 与 `gem` 表中同一对象的 DRM offset 相符。结合 R4 同镜像的 active CRTC state（plane 0 指向 fb97），该对象的 KMS VMA 为 `0x01126000`，大小 17,973,248 字节，范围 `[0x01126000, 0x0224a000)`。另一个 Weston dumb BO 的映射范围为 `[0x2000, 0x01126000)`，`tx_gem` 为 `[0x1000, 0x2000)`；R5 的 GEM 快照没有任何映射覆盖 `0x9e30a700`。因此 R4 的 SMMU fault SID `0xc20` 虽落在 MDSS stream-ID mask 范围内，但该 fault 地址不是 R5 采样时这些当前 KMS GEM BO 的 IOVA。
+
+新的待验证线索：fault IOVA `0x9e30a700` 位于设备树预留的 splash 区间 `[0x9d200000, 0x9e400000)`；若把该物理区间起点当作缓冲区基址，fault 偏移 `0x110a700` 仍在一个 17,973,248 字节 framebuffer 范围内，距其末尾 `0x19900` 字节。R5 还列出 fbdev 的 `stolenfb` 对象，但该对象在当前 GEM VMA 列表中没有映射。现有证据没有证明 `stolenfb` 的物理 backing 就是 `splash_mem`，也没有证明故障发生时该对象仍在 scanout；“旧 splash/bootloader 地址被当作 IOVA”只是需要用早期 framebuffer IOVA 日志验证的假设，不能据此改映射或宣称根因已证实。
+
+R5 的脱敏运行与 ACM 输出保存在本机忽略目录 `out/lgg8-c198-usb-shell-20261031/run-05/`。下一步应在单变量候选中仅启用 DRM atomic-state 调试日志（核实 `DRM_UT_STATE` 位后），捕获 fbdev/早期 framebuffer prepare 时的 `FB[id] iova`，并与 `0x9e30a700` 比对；不要读取 per-CRTC 易触发问题的 `status`/`state` 节点。屏幕仍未取得可靠观察，可读显示里程碑仍未完成。

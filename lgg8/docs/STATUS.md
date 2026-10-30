@@ -52,7 +52,11 @@ C190 实际 DTB 的 ramoops 区为 `0xb0000000–0xb0280000`，console 子区为
 
 2026-10-30 本地构建 C191 默认配置和 `diag-pstore` 配置均完整链接成功。默认 Image SHA-256 为 `9435665265c4157098f809005a5d757509344a4bfbdc1b6a088401ee3123daf2`，诊断 Image 为 `bde85639312b653e5f135adb2de84ac0f2e9497e9a7262336845115a5ea1029f`，两者 DTB SHA 均为 `88207ff2e9b28cca8d0b98dc4e5ca64552c7023930d51b207a5546ebe71d4ef2`。修复默认配置下一个未使用变量警告后，两种配置复编无警告；62 项本地测试通过，`git diff --check`、构建脚本语法和 bootimg CLI 检查通过。
 
-这只是源码与构建验证：C191 尚未打包或 RAM 启动，也没有 pmsg 真机记录证据。下一步应从诊断配置构建一个独立 boot.img，保持 RAM-only，验证 Android 回收后 pmsg 区是否导出上述记录；无记录时只判“不可判定”，不能据此断言 worker 未执行。
+C191 已打包并完成一次 RAM-only 真机实验，boot.img SHA-256 为 `16e24f7d2c8b9cf91284ec0f0487b6c9a62628cbb321184119090ae79bcb3047`。物理口 1-2 于 +15.828 秒断开，Android `1004:631f` 于 +145.965 秒返回，ADB 于 +146.311 秒上线；`fastboot boot` 返回 0。启动前后型号/设备/slot `_b` 和 `boot_completed=1` 一致，boot ID 轮转，boot_a=`a8266516…`、boot_b=`fec418e5…` 哈希保持不变；fastboot 实测 boot_b 容量 100663296 字节。pstore 启动前、早期回收及回收后清单均验证为空。
+
+Android 4.14.348 配置含 `CONFIG_PSTORE_PMSG=y`，启动日志确认 ramoops 注册且映射 `0x280000@0xb0000000`，与本候选 DTB 的保留区相同。尽管如此，没有任何 C191 pmsg 记录，因此只能判定“内核诊断记录未被观察到”，不能判断 DPU worker 是否执行、pmsg 写接口是否被调用或 RAM 内容为何未导出。屏幕反馈仍待用户观察。设备命令和原始快照保存在 `out/lgg8-c191/run/`。
+
+为区分用户态到 pmsg 区的可读性与 DPU worker 执行，C192 在同一诊断内核、同一桌面根上增加一个默认关闭的 `/dev/pmsg0` 一次性写入标记，仍只做 RAM-only 启动。若 Android 导出该唯一标记，可确认 pmsg 区通路；没有标记仍不能单独定位原因。
 
 ## C108 / C109 留下了什么证据
 

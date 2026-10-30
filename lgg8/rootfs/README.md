@@ -2,7 +2,7 @@
 
 这是 Alpine 3.24.3 / AArch64 的文件级精简桌面：Weston 14.0.2、DRM + pixman、desktop-shell、终端、seatd、eudev 和 Liberation Mono。另保留小型 headless 后端供 QEMU 系统测试。**本地 headless 用户态已通过；LG G8 的 DRM、面板、触控和桌面仍未验收。**
 
-源文件仅在本目录，全部生成物位于 `out/lgg8/desktop`。构建器没有设备、Git、主机软件安装或主机挂载操作。它不修改内核、DTS、通用 bootpacker 或 `build.sh`。
+源文件仅在本目录，默认生成物位于 `out/lgg8/desktop`。可用 `LGG8_DESKTOP_OUT=/absolute/path` 指定独立输出目录；构建缓存可通过该目录的 `cache` 符号链接复用。构建器没有设备、Git、主机软件安装或主机挂载操作。它不修改内核、DTS、通用 bootpacker 或 `build.sh`。
 
 ## 构建与验证
 
@@ -34,6 +34,12 @@ python3 lgg8/rootfs/build.py pack \
 # 绑定同一最终 CPIO、日志、boot.img、源文件和签名输入。
 python3 lgg8/rootfs/build.py receipt
 ```
+
+一次性 pmsg 通路检查可在启动参数追加 `lgg8.pmsg_probe=1`。静态 PID 1
+会尝试向 `/dev/pmsg0` 写入带 `LGG8_USER_PMSG_PROBE` 标记的短记录，并把
+打开/写入结果写入内核日志。该参数默认关闭，只用于 RAM-only 诊断镜像；
+Android 回收后若 pstore 导出该标记，可证明 Linux 用户态到 ramoops pmsg
+的通路可读，但不能证明 DPU 驱动自己的诊断 worker 已执行。
 
 `--base` 只读取调用者明确指定的本地归档并校验 SHA-256；指定路径不存在就停止，不猜测私人目录。不传它时，向专用 cache 获取锁定的官方 ARM mini，已有缓存则核验后复用。公开锁文件不包含本地用户路径。`build` 每次重新生成唯一工作根，并重新核验缓存 APK 的 SHA-256、签名、名称、版本和 aarch64/noarch 架构；没有包安装事务。`--record-lock` 仅用于首次经过签名验证后补入缺失的包 SHA-256，已有 SHA 不会被静默替换。当前锁文件已完整，不需要此选项。
 

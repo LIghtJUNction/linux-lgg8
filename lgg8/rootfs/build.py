@@ -23,7 +23,7 @@ import urllib.request
 sys.dont_write_bytecode = True
 SOURCE = Path(__file__).resolve().parent
 REPO = SOURCE.parents[1]
-OUT = REPO / "out/lgg8/desktop"
+OUT = Path(os.environ.get("LGG8_DESKTOP_OUT", REPO / "out/lgg8/desktop")).resolve()
 LOCK = SOURCE / "package-lock.json"
 EPOCH = 1792365298
 

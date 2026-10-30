@@ -31,6 +31,32 @@ static void message(const char *fmt, ...)
     if (console_fd >= 0) (void)write(console_fd, line, n);
     if (kmsg_fd >= 0) (void)write(kmsg_fd, line, n);
 }
+static void pmsg_probe(void)
+{
+    char record[128];
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    int length = snprintf(record, sizeof(record),
+        "LGG8_USER_PMSG_PROBE candidate=C192 uptime_ns=%lld\n",
+        (long long)now.tv_sec * 1000000000LL + now.tv_nsec);
+    if (length <= 0 || length >= (int)sizeof(record)) {
+        message("LGG8_USER_PMSG_PROBE format_failed");
+        return;
+    }
+    int fd = open("/dev/pmsg0", O_WRONLY | O_CLOEXEC);
+    if (fd < 0) {
+        message("LGG8_USER_PMSG_PROBE open_errno=%d", errno);
+        return;
+    }
+    ssize_t written = write(fd, record, (size_t)length);
+    int write_errno = written < 0 ? errno : EIO;
+    close(fd);
+    if (written != length)
+        message("LGG8_USER_PMSG_PROBE write_errno=%d bytes=%zd expected=%d",
+                write_errno, written, length);
+    else
+        message("LGG8_USER_PMSG_PROBE written bytes=%d", length);
+}
 static void until(struct timespec deadline)
 {
     while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &deadline, NULL) == EINTR) {}
@@ -347,11 +373,13 @@ int main(void)
     if (fd >= 0) { (void)read(fd, cmdline, sizeof(cmdline) - 1); close(fd); }
     const char *backend = "drm";
     int seconds = 0, beacon = 0, beacon_attempted = 0, beacon_delay = 8, ram_sampled = 0;
+    int pmsg_probe_requested = 0;
     const char *ram_field = NULL;
     char *save = NULL;
     for (char *arg = strtok_r(cmdline, " \n", &save); arg; arg = strtok_r(NULL, " \n", &save)) {
         if (!strcmp(arg, "lgg8.desktop_backend=headless")) backend = "headless";
         if (!strcmp(arg, "lgg8.desktop_timeout=20")) seconds = 20;
+        if (!strcmp(arg, "lgg8.pmsg_probe=1")) pmsg_probe_requested = 1;
         if (!strncmp(arg, "lgg8.usb_beacon=", 16)) beacon = !strcmp(arg, "lgg8.usb_beacon=1");
         if (!strncmp(arg, "lgg8.usb_beacon_delay=", 22))
             beacon_delay = !strcmp(arg, "lgg8.usb_beacon_delay=12") ? 12 : 8;
@@ -365,6 +393,7 @@ int main(void)
         message("LGG8_RAM_FIELD disabled requires_usb_beacon_and_timeout20");
         ram_field = NULL;
     }
+    if (pmsg_probe_requested) pmsg_probe();
     message("LGG8_SUPERVISOR pid=1 backend=%s recovery=90 test_timeout=%d usb_beacon=%d", backend, seconds, beacon);
     pid_t guest = fork();
     if (!guest) {

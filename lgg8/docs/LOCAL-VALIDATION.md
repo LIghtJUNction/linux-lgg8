@@ -149,4 +149,6 @@ buffer/damage/commit/frame callback 链及 guest/Weston 的 printk 镜像均通�
 | 本地测试 | **62 项通过，0 跳过** | `PYTHONDONTWRITEBYTECODE=1 ./lgg8/build.sh test` |
 | 其他检查 | 通过 | 默认配置增量复编无警告；`git diff --check`、bash 语法、bootimg CLI |
 
-产物及收据位于 `out/lgg8-c191/`。源码仍有未提交差异；收据将此标为 dirty build 并记录差异指纹。C191 尚未打包 `boot.img`，未做 QEMU pmsg 仿真或真机启动，因此尚无 pmsg 运行记录，也不能宣称屏幕、USB 或 Linux 用户态里程碑变化。
+最终 `diag-pstore` 构建在提交 `acb4b35c24724b4d96d055a06cd28ca748b6f2f0` 上重建，收据为 clean source。C191 boot.img SHA-256 `16e24f7d2c8b9cf91284ec0f0487b6c9a62628cbb321184119090ae79bcb3047`，27.9 MiB；使用 C186 固定桌面 CPIO `345d8001…e30b4e`，boot_b 容量先按历史 96 MiB 打包，随后 fastboot 实测为 100663296 字节。
+
+RAM-only `fastboot boot` 返回成功。物理口 1-2 于 +15.828 秒断开，Android USB +145.965 秒返回，ADB +146.311 秒上线。型号 `LM-G820`、设备 `alphalm_lao_com`、slot `_b`、`boot_completed=1` 均符合；boot ID 轮转，boot_a SHA `a8266516…` 与 boot_b SHA `fec418e5…` 前后不变。pstore 启动前、早期回收及回收后快照均经目录范围、源文件哈希和 tar 内容交叉验证为**确实为空**。Android 启动日志确认其 ramoops backend 映射同一 `0x280000@0xb0000000` 区域，config 含 `CONFIG_PSTORE_PMSG=y`。C191 没有留下可读 pmsg，因此不能确定 DPU worker 是否触发；屏幕观察记录待补。设备原始报告位于 `out/lgg8-c191/run/`。

@@ -160,3 +160,31 @@ C192 根文件系统在静态 PID 1 中增加默认关闭、由 `lgg8.pmsg_probe
 C192 diag-pstore 内核基于干净提交 `037f27450bf973efa398acae70f8a0dac6c9e303`，Image `bde85639312b653e5f135adb2de84ac0f2e9497e9a7262336845115a5ea1029f`、DTB `88207ff2e9b28cca8d0b98dc4e5ca64552c7023930d51b207a5546ebe71d4ef2`。boot.img 为 29,724,672 字节，SHA-256 `f1f5f5019a5c88bfc52eca4be3f6b02d896ad06e2cac01e0d078f3c8860056d9`；fastboot 实测 boot_b 容量 100663296 字节。干净收据 manifest 位于 `out/lgg8-c192/boot-clean/manifest.json`。
 
 真机 `fastboot boot` 返回 0；口 1-2 于 +16.036 秒消失，Android USB +143.165 秒返回，ADB +143.446 秒恢复，总计 153.808 秒。`LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1` 和 boot ID 轮转核验通过；boot_a 与 boot_b SHA 前后相同。pstore 启动前为空；早期和回收后均只导出 `console-ramoops-0`，大小 32878 字节、SHA-256 `f60337bb8efd32644191dd9c0e194511fa324616d6dc0b5a7941c48b3c5ca2b6`，两次内容一致且源哈希稳定。未出现 `pmsg-ramoops-0`，console 中也没有探针标记；console 内容可见大量乱码，故无法据此判断探针是否运行或写入失败。结论限于 ramoops console 内容确实跨启动被 Android 导出，DPU pmsg worker 和用户态 pmsg 写通路均未证实。报告与原始 tar 位于 `out/lgg8-c192/run-02/`。
+
+## C194 ramoops 布局对齐真机回合（2026-10-31）
+
+设备只读参数与 `/proc/iomem` 的区域边界，结合固定 LG 4.14.348-openela 参考源码，给出高置信 reader 布局：console `0xb0000000–0xb003ffff`、ftrace `0xb0040000–0xb007ffff`、pmsg `0xb0080000–0xb027ffff`。参考提交 `LineageOS/android_kernel_lge_sm8150@f43e8f17061239356b05abc00a4dbbbf3b56eac8` 与设备版本和 DT 匹配，但未由手机构建收据或二进制证明为精确来源。128 KiB `0xb02c0000–0xb02dffff` 符合该树 LG bootloader-log 驱动的计算公式；当前 bootlog 平台设备有注册、未见 driver 绑定。
+
+C194 的唯一功能变化是将主线 `fs/pstore/ram.c` 分配顺序调整为 `console → ftrace → pmsg`。以 C193 为受控基线比较，bootargs、stock boot 模板、cmdline、最终 DTB、initramfs、有效配置及 toolchain 完全相同；变化的 manifest 组件只有内核及其压缩/打包衍生物。initramfs 使用已有 CPIO，SHA-256 `4e0770c33cfa8632c7adf54fcaced78b7692cb556f8280e72c276e0aaebdc66e`；boot.img SHA-256 `d67482f2a96638c1246f4639cdcd526afdd73e4884f51e22ea4d87c1e0d211d8`，大小 30,818,304 字节。`./lgg8/build.sh verify out/lgg8-c194-pstore-layout-20261031` 返回 `PASSED`；manifest 明确为 `device_acceptance=NOT_TESTED`。
+
+只读 `dmesg` 成功，但现有环形日志未保留 ramoops attach 或 bootlog 初始化行。C193/C194 最终 DTB 仅含 2.5 MiB ramoops 保留节点，没有 Android FDT 的完整 3 MiB reservation 或 `/soc/bootlog` 节点。三个 ramoops 子区仍止于 `0xb0280000`，重排不扩展映射；未覆盖的尾部 512 KiB 是继承边界，会限制空 pstore 结果的解释。
+
+C194 RAM-only 运行器只执行 `fastboot boot`，命令返回 0。物理口 1-2 的 Fastboot `18d1:4ee0` 在 +0.001 秒出现、+16.235 秒断开，Android `1004:631f` 于 +137.159 秒返回，ADB 于 +137.442 秒恢复；全轮 148.280 秒。设备恢复为 `LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1`，boot ID 轮转；`boot_a` 与 `boot_b` SHA 均与启动前相同。未写入分区。
+
+启动前、早期 Android 回连和稍后 pstore 采样均通过挂载范围、完整 tar 清单及源文件哈希核验为空。C194 bootargs 没有启用 initramfs 内建的 `lgg8.pmsg_probe=1`，所以该轮并未直接验证 Linux pmsg writer 到 Android reader 的往返；DPU pstore 记录也未观察到。屏幕观察等待用户反馈。完整证据保存在 `out/lgg8-c194-pstore-layout-20261031/run-01/`，设备回收已闭环，但 pstore 布局假说尚未验收。
+
+候选材料位于 `out/lgg8-c194-pstore-layout-20261031/`。构建中间对象已清理，保留 boot.img、manifest、vmlinux、System.map、有效配置、源码差分、独立 RAM-only 运行器和本轮回收证据。
+
+## C195 pmsg 往返探针真机回合（2026-10-31）
+
+C195 复用 C194 的 kernel Image、initramfs、源码差分和运行环境，只在 `/chosen/bootargs` 添加 `lgg8.pmsg_probe=1`。有效配置为 `CONFIG_DRM_MSM_DPU_PSTORE_DIAG=y`、`CONFIG_PSTORE=y`、`CONFIG_PSTORE_RAM=y`、`CONFIG_PSTORE_CONSOLE=y`、`CONFIG_PSTORE_PMSG=y`、`CONFIG_FTRACE=y`；`CONFIG_FUNCTION_TRACER` 未启用，`CONFIG_CMDLINE=""`，因此空默认命令行下的 `CMDLINE_FORCE` 选择不可用。boot.img SHA-256 `ce1d56eab8fbc0e5922838d0df859c4047d28520aac2efd44eaa6c9bbe915357`，30,818,304 字节，离线独立校验通过。
+
+真机 RAM-only `fastboot boot` 返回 0；Fastboot 于 +0.001 秒出现、+16.230 秒断开，Android `1004:631f` 于 +178.587 秒返回，ADB 于 +178.946 秒恢复；全轮 187.966 秒。设备恢复 `LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1`，boot ID 轮转；`boot_a` 和 `boot_b` SHA 前后相同。启动前、Android 早期回连和稍后采样的 pstore 均经完整目录、tar 内容及哈希核验为空；没有 `LGG8_USER_PMSG_PROBE` 或 DPU 诊断记录。回收后只读 Android `dmesg` 确认 ramoops backend 已注册并 attach `0x280000@0xb0000000`，`console [pstore0] enabled`；这只能证明 Android 当前内核注册了该区域，不能证明它读到了 C195 pmsg。`/data/misc/pstore` 不存在，`logcat -L` 返回 `Logcat read failure: No such file or directory`。空结果无法区分 PID 1 写入失败、Android 导出路径或 reader 布局问题。复用 CPIO 的记录字符串带有历史字面值 `candidate=C192`；若以后发现记录，应按本轮空基线和 C195 镜像身份归因，而不依据这个标签。屏幕观察未记录。设备回收证据位于 `out/lgg8-c195-pmsg-probe-20261031/run-01/`。
+
+## C196 PID1 pmsg 回执与 USB beacon 联合候选（2026-10-31）
+
+C196 使用 `diag-pstore` Image `2962224f1fda3031af28c01b05f3b0a9e15101cb266fccafb38ce5c6848463d6`、CPIO `c97389e44938bcb9fe3e0c8059604d10096cba8eeabf72601a2eb39f80e5c2f7`，bootargs 显式启用 `lgg8.pmsg_probe=1 lgg8.pmsg_tag=C196`。boot.img SHA-256 `527934b7c5e050d26567f72c40c3cfb63fe106c62ccfb639b98c7f49ff00844f`，30,818,304 字节；离线 manifest/镜像验证通过，boot_b 容量由 fastboot 只读核实为 100,663,296 字节。
+
+RAM-only `fastboot boot` 返回 0。物理口 1-2 的 Fastboot 于 +0.001 秒出现、+16.238 秒断开；断开窗口没有观察到 Linux `18d1:4ee7` gadget。Android `1004:631f` 于 +137.164 秒返回，ADB 于 +137.452 秒恢复，总计 147.615 秒。设备恢复 `LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1`，boot ID 轮转；boot_a、boot_b SHA 均与启动前相同，全程无分区写入。
+
+启动前及回收后的 Android pstore 均经挂载范围、完整 tar 清单和源文件哈希核验为空，没有发现 `LGG8_USER_PMSG_PROBE` 或 DPU 记录。由于 Linux gadget 未枚举，主机无法读取 C196 冻结在 iSerial 的 open/write 状态，本轮无法确定探针停在哪一步；屏幕观察未记录。完整运行器和证据位于 `out/lgg8-c196-pmsg-beacon-receipt-20261031/`。

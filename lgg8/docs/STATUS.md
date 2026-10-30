@@ -427,3 +427,29 @@ RAM-only 启动被接受；USB 1-2 于 +16.231 秒断开、+100.116 秒返回 An
 Candidate 184 只把 C183 的两条诊断输出合并为一条 `DPU_DIAG`，缩短 pstore 行长；boot.img SHA-256 `95904f00c382bb92f5e2cc368c642786b59adbdb81bac2ba49b96922a073d6bc`，大小 31,076,352 字节，桌面 initramfs SHA-256 `345d8001e7cbba1a29ba71adb9de33fa4ae0f3b8cb1dd408b4fb226c59e30b4e`。离线 boot.img 校验通过。
 
 RAM-only 测试于 +16.232 秒观察到 USB 1-2 断开，+104.120 秒返回 Android；`boot_completed=1`、设备 `LM-G820 / alphalm_lao_com`、slot `_b`、boot ID 轮转，boot_a/b 哈希均保持不变，boot_b 基线 `fec418e5…` 匹配。未写分区，未打开 ttyACM 或发送输入。Android 的 `console-ramoops-0` 在本轮前后相同，31,613 字节，SHA-256 `405025287678331468463de46b0eb50fe8a459660dd72c4208e0099786fa4230`；没有读到 `DPU_DIAG`，所以 C184 没有补上软件 kickoff/CTL 侧证据。屏幕观察缺失。候选及原始 pstore 证据位于 `android-mainline-port/out/candidate-m3-desktop-dpu-state-20261030-184/`，运行记录位于 `out/run-candidate-m3-desktop-dpu-state-20261030-184-attempt2/`。
+
+### C194：ramoops writer 顺序对齐候选（2026-10-31，真机回收完成）
+
+只读设备证据与固定参考源码交叉核验后，Android reader 的 ramoops 区域高置信布局为 `console (0xb0000000, 256 KiB) → ftrace (0xb0040000, 256 KiB) → pmsg (0xb0080000, 2 MiB)`。参考源码为 `LineageOS/android_kernel_lge_sm8150@f43e8f17061239356b05abc00a4dbbbf3b56eac8`，Makefile 标记 `4.14.348-openela`；它与设备型号/DT 属性吻合，但未证明就是手机精确构建提交。独立 `0xb02c0000–0xb02dffff` 的 128 KiB 区域匹配 LG bootloader-log 驱动地址公式，不属于 ramoops 子区；当前 `/soc/bootlog` 平台设备存在但没有 driver 绑定链接。
+
+C194 只交换主线 `fs/pstore/ram.c` 中 pmsg 与 ftrace 的初始化顺序，使 writer 区域匹配该 reader；bootargs、initramfs、DTB、有效配置、模板与工具链均与 C193 相同。构建成功，boot.img SHA-256 `d67482f2a96638c1246f4639cdcd526afdd73e4884f51e22ea4d87c1e0d211d8`，30,818,304 字节；离线 manifest 校验 `PASSED`。RAM-only `fastboot boot` 返回 0，USB 1-2 于 +16.235 秒断开，Android `1004:631f` 于 +137.159 秒返回、ADB 于 +137.442 秒恢复；总计 148.280 秒。设备恢复 `LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1`，boot ID 轮转；`boot_a` 与 `boot_b` SHA 前后相同。全程无分区写入。
+
+C193/C194 DTB 只显式保留 2.5 MiB ramoops 窗口；Android 原 FDT 的 3 MiB 外层 reservation 多出的 512 KiB 未映射为相应保留节点。源码确认 C194 三个子区仍止于 `0xb0280000`，重排不会扩大访问范围；尾部差异作为继承限制记录，空 pstore 结果的排除能力会受其限制。
+
+启动前、早期 Android 回连及后续 pstore 快照都通过完整性核验为空。C194 bootargs 未包含 `lgg8.pmsg_probe=1`，故没有执行用户态探针；本轮不能据此验证 pmsg writer/reader 布局，也没有新的 DPU 记录。pstore 区仍有 ramoops attach 保留区尾部 512 KiB 未在候选 DTB 显式保留的继承限制。屏幕反馈等待用户确认。
+
+候选包与复核材料位于 `out/lgg8-c194-pstore-layout-20261031/`；本轮安全回收证据在 `run-01/`。首轮构建对象已清理，保留 boot.img、manifest、vmlinux、System.map、有效配置、源码差分及运行器。
+
+### C195：用户态 pmsg 往返探针（2026-10-31，真机回收完成）
+
+C195 复用 C194 完全相同的 kernel Image、initramfs 和源码差分，只在 bootargs 追加 `lgg8.pmsg_probe=1`。独立 DTS 语义比较显示，除 `/chosen/bootargs` 外 DTB 属性相同；kernel SHA-256 `2962224f1fda3031af28c01b05f3b0a9e15101cb266fccafb38ce5c6848463d`，initramfs SHA-256 `4e0770c33cfa8632c7adf54fcaced78b7692cb556f8280e72c276e0aaebdc66e`。
+
+C195 boot.img SHA-256 `ce1d56eab8fbc0e5922838d0df859c4047d28520aac2efd44eaa6c9bbe915357`，大小 30,818,304 字节；离线独立校验通过。有效配置确认 DPU 诊断、pstore RAM、console、pmsg、FTRACE 均启用；`FUNCTION_TRACER` 未启用。RAM-only `fastboot boot` 返回 0；Fastboot 于 +0.001 秒出现、+16.230 秒断开，Android `1004:631f` 于 +178.587 秒返回、ADB 于 +178.946 秒恢复；全轮 187.966 秒。设备恢复 `LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1`，boot ID 轮转，`boot_a` 与 `boot_b` SHA 前后相同；未写分区。
+
+启动前、早期 Android 回连及稍后快照均经完整性核验为空，未发现 `LGG8_USER_PMSG_PROBE` 或 DPU 记录；Android `/data/misc/pstore` 路径也不存在。此结果不能区分用户态 pmsg 写入失败与 Android 导出/reader 路径问题。复用 CPIO 的 marker 内含旧字面标签 `candidate=C192`，不能把它当作 C195 身份；若出现记录，应以启动前空基线和已固定的 C195 镜像身份归因。屏幕观察未记录。证据：`out/lgg8-c195-pmsg-probe-20261031/run-01/`。
+
+### C196：PID1 pmsg 回执与 USB beacon 联合候选（2026-10-31，真机安全回收）
+
+C196 boot.img SHA-256 `527934b7c5e050d26567f72c40c3cfb63fe106c62ccfb639b98c7f49ff00844f`；RAM-only `fastboot boot` 返回 0。物理 USB 1-2 于 +16.238 秒断开，Android USB 于 +137.164 秒返回，ADB 于 +137.452 秒恢复。型号/设备、slot `_b`、`boot_completed=1`、boot ID 轮转及 boot_a/boot_b 不变全部核验通过；无分区写入。
+
+Linux `18d1:4ee7` 未枚举；启动前与回收后 pstore 均经完整校验为空，没有 pmsg marker。因 USB gadget 未枚举，iSerial 回执不可读，无法确定 PID1 探针 open/write 状态。屏幕未观察。设备证据在 `out/lgg8-c196-pmsg-beacon-receipt-20261031/run-01/`。该轮完成 RAM-only 集成启动和 Android 安全回收，没有推进 Linux USB 枚举或 pmsg 读回里程碑。

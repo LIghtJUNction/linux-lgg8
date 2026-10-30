@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mount.h>
+#include <sys/mman.h>
 #include <sys/reboot.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -17,7 +18,18 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifndef LGG8_PMSG_PATH
+#define LGG8_PMSG_PATH "/dev/pmsg0"
+#endif
 static int console_fd = -1, kmsg_fd = -1;
+enum { PMSG_OFF, PMSG_PENDING, PMSG_OK, PMSG_SHORT, PMSG_ERROR, PMSG_FORMAT_ERROR };
+struct pmsg_receipt {
+    int open_state, open_errno;
+    int write_state, write_errno, write_bytes, write_expected;
+};
+static struct pmsg_receipt *pmsg_result;
+static int pmsg_spawn_errno;
+static char pmsg_tag[25] = "NA";
 static void message(const char *fmt, ...)
 {
     char line[1024];
@@ -31,31 +43,122 @@ static void message(const char *fmt, ...)
     if (console_fd >= 0) (void)write(console_fd, line, n);
     if (kmsg_fd >= 0) (void)write(kmsg_fd, line, n);
 }
-static void pmsg_probe(void)
+static void pmsg_probe(struct pmsg_receipt *result)
 {
     char record[128];
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     int length = snprintf(record, sizeof(record),
-        "LGG8_USER_PMSG_PROBE candidate=C192 uptime_ns=%lld\n",
+        "LGG8_USER_PMSG_PROBE tag=%s uptime_ns=%lld\n", pmsg_tag,
         (long long)now.tv_sec * 1000000000LL + now.tv_nsec);
     if (length <= 0 || length >= (int)sizeof(record)) {
+        __atomic_store_n(&result->open_state, PMSG_FORMAT_ERROR, __ATOMIC_RELEASE);
         message("LGG8_USER_PMSG_PROBE format_failed");
         return;
     }
-    int fd = open("/dev/pmsg0", O_WRONLY | O_CLOEXEC);
+    __atomic_store_n(&result->open_state, PMSG_PENDING, __ATOMIC_RELEASE);
+#ifdef LGG8_PMSG_TEST_HANG_OPEN
+    for (;;) pause();
+#endif
+    int fd = open(LGG8_PMSG_PATH, O_WRONLY | O_CLOEXEC);
     if (fd < 0) {
-        message("LGG8_USER_PMSG_PROBE open_errno=%d", errno);
+        int error = errno;
+        __atomic_store_n(&result->open_errno, error, __ATOMIC_RELAXED);
+        __atomic_store_n(&result->open_state, PMSG_ERROR, __ATOMIC_RELEASE);
+        message("LGG8_USER_PMSG_PROBE open_errno=%d", error);
         return;
     }
+    __atomic_store_n(&result->write_expected, length, __ATOMIC_RELAXED);
+    __atomic_store_n(&result->open_state, PMSG_OK, __ATOMIC_RELEASE);
+    __atomic_store_n(&result->write_state, PMSG_PENDING, __ATOMIC_RELEASE);
+#ifdef LGG8_PMSG_TEST_HANG_WRITE
+    for (;;) pause();
+#endif
+#ifdef LGG8_PMSG_TEST_SHORT_WRITE
+    ssize_t written = length / 2;
+#else
     ssize_t written = write(fd, record, (size_t)length);
-    int write_errno = written < 0 ? errno : EIO;
-    close(fd);
-    if (written != length)
-        message("LGG8_USER_PMSG_PROBE write_errno=%d bytes=%zd expected=%d",
-                write_errno, written, length);
-    else
+#endif
+    int write_errno = written < 0 ? errno : 0;
+    if (written < 0) {
+        __atomic_store_n(&result->write_errno, write_errno, __ATOMIC_RELAXED);
+        __atomic_store_n(&result->write_state, PMSG_ERROR, __ATOMIC_RELEASE);
+        message("LGG8_USER_PMSG_PROBE write_errno=%d bytes=-1 expected=%d",
+                write_errno, length);
+    } else if (written != length) {
+        __atomic_store_n(&result->write_bytes, (int)written, __ATOMIC_RELAXED);
+        __atomic_store_n(&result->write_state, PMSG_SHORT, __ATOMIC_RELEASE);
+        message("LGG8_USER_PMSG_PROBE short_write bytes=%zd expected=%d", written, length);
+    } else {
+        __atomic_store_n(&result->write_bytes, (int)written, __ATOMIC_RELAXED);
+        __atomic_store_n(&result->write_state, PMSG_OK, __ATOMIC_RELEASE);
         message("LGG8_USER_PMSG_PROBE written bytes=%d", length);
+    }
+    close(fd);
+}
+static void start_pmsg_probe(void)
+{
+    pmsg_result = mmap(NULL, sizeof(*pmsg_result), PROT_READ | PROT_WRITE,
+                       MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    if (pmsg_result == MAP_FAILED) {
+        pmsg_result = NULL;
+        pmsg_spawn_errno = errno;
+        message("LGG8_USER_PMSG_PROBE state_errno=%d", pmsg_spawn_errno);
+        return;
+    }
+    memset(pmsg_result, 0, sizeof(*pmsg_result));
+    pid_t worker = fork();
+    if (!worker) {
+        pmsg_probe(pmsg_result);
+        _exit(0);
+    }
+    if (worker < 0) {
+        pmsg_spawn_errno = errno;
+        message("LGG8_USER_PMSG_PROBE fork_errno=%d", pmsg_spawn_errno);
+    } else {
+        message("LGG8_USER_PMSG_PROBE worker=%ld", (long)worker);
+    }
+}
+static void freeze_pmsg_receipt(char serial[126])
+{
+    if (!pmsg_result && !pmsg_spawn_errno) {
+        snprintf(serial, 126, "LGG8" "-RAM");
+        return;
+    }
+    int open_state = PMSG_OFF, open_errno = 0;
+    int write_state = PMSG_OFF, write_errno = 0, bytes = 0, expected = 0;
+    if (pmsg_result) {
+        open_state = __atomic_load_n(&pmsg_result->open_state, __ATOMIC_ACQUIRE);
+        open_errno = __atomic_load_n(&pmsg_result->open_errno, __ATOMIC_RELAXED);
+        write_state = __atomic_load_n(&pmsg_result->write_state, __ATOMIC_ACQUIRE);
+        write_errno = __atomic_load_n(&pmsg_result->write_errno, __ATOMIC_RELAXED);
+        bytes = __atomic_load_n(&pmsg_result->write_bytes, __ATOMIC_RELAXED);
+        expected = __atomic_load_n(&pmsg_result->write_expected, __ATOMIC_RELAXED);
+    }
+    if (pmsg_spawn_errno) {
+        snprintf(serial, 126, "LGG8-RAM;T=%s;P=START-ERR-%d", pmsg_tag, pmsg_spawn_errno);
+        return;
+    }
+    if (open_state == PMSG_OK && write_state == PMSG_OFF)
+        write_state = PMSG_PENDING;
+    const char *o = open_state == PMSG_OK ? "OK" :
+                    open_state == PMSG_ERROR ? "ERR" :
+                    open_state == PMSG_FORMAT_ERROR ? "FORMAT" :
+                    open_state == PMSG_OFF ? "OFF" : "PEND";
+    const char *w = write_state == PMSG_OK ? "OK" :
+                    write_state == PMSG_SHORT ? "SHORT" :
+                    write_state == PMSG_ERROR ? "ERR" :
+                    write_state == PMSG_OFF ? "NA" : "PEND";
+    if (write_state == PMSG_SHORT)
+        snprintf(serial, 126, "LGG8-RAM;T=%s;O=%s;W=%s-%d/%d", pmsg_tag, o, w, bytes, expected);
+    else if (write_state == PMSG_ERROR)
+        snprintf(serial, 126, "LGG8-RAM;T=%s;O=%s;W=%s-%d", pmsg_tag, o, w, write_errno);
+    else if (open_state == PMSG_ERROR)
+        snprintf(serial, 126, "LGG8-RAM;T=%s;O=%s-%d;W=%s", pmsg_tag, o, open_errno, w);
+    else if (open_state == PMSG_FORMAT_ERROR)
+        snprintf(serial, 126, "LGG8-RAM;T=%s;O=FORMAT;W=NA", pmsg_tag);
+    else
+        snprintf(serial, 126, "LGG8-RAM;T=%s;O=%s;W=%s", pmsg_tag, o, w);
 }
 static void until(struct timespec deadline)
 {
@@ -260,7 +363,7 @@ static int reached(struct timespec now, struct timespec start, int seconds)
     return now.tv_sec > start.tv_sec + seconds ||
         (now.tv_sec == start.tv_sec + seconds && now.tv_nsec >= start.tv_nsec);
 }
-static void usb_beacon(void)
+static void usb_beacon(const char *serial)
 {
     /* This separate worker cannot stall desktop supervision. Alarm bounds
      * interruptible work; an uninterruptible UDC bind still needs guardian90. */
@@ -328,7 +431,7 @@ static void usb_beacon(void)
         if (beacon_mkdir(path)) return;
     }
     const char *attrs[][2] = {{"idVendor", "0x18d1"}, {"idProduct", "0x4ee7"},
-        {"strings/0x409/serialnumber", "LGG8-RAM"},
+        {"strings/0x409/serialnumber", serial},
         {"strings/0x409/manufacturer", "LGG8 RAM diagnostic"},
         {"strings/0x409/product", product},
         {"configs/c.1/strings/0x409/configuration", "RAM descriptor beacon"},
@@ -338,7 +441,9 @@ static void usb_beacon(void)
         if (beacon_write(path, attrs[i][1])) return;
     }
     snprintf(path, sizeof(path), "%s/configs/c.1/acm.usb0", base);
-    if (symlink("../../functions/acm.usb0", path)) {
+    char function_path[256];
+    snprintf(function_path, sizeof(function_path), "%s/functions/acm.usb0", base);
+    if (symlink(function_path, path)) {
         message("LGG8_BEACON symlink path=%s errno=%d", path, errno); return;
     }
     snprintf(path, sizeof(path), "%s/UDC", base);
@@ -379,6 +484,18 @@ int main(void)
     for (char *arg = strtok_r(cmdline, " \n", &save); arg; arg = strtok_r(NULL, " \n", &save)) {
         if (!strcmp(arg, "lgg8.desktop_backend=headless")) backend = "headless";
         if (!strcmp(arg, "lgg8.desktop_timeout=20")) seconds = 20;
+        if (!strncmp(arg, "lgg8.pmsg_tag=", 14)) {
+            size_t n = strnlen(arg + 14, sizeof(pmsg_tag));
+            if (n > 0 && n < sizeof(pmsg_tag)) {
+                int valid = 1;
+                for (size_t i = 0; i < n; ++i)
+                    if (!((arg[14+i] >= 'a' && arg[14+i] <= 'z') ||
+                          (arg[14+i] >= 'A' && arg[14+i] <= 'Z') ||
+                          (arg[14+i] >= '0' && arg[14+i] <= '9') ||
+                          arg[14+i] == '-' || arg[14+i] == '_')) valid = 0;
+                if (valid) { memcpy(pmsg_tag, arg + 14, n); pmsg_tag[n] = 0; }
+            }
+        }
         if (!strcmp(arg, "lgg8.pmsg_probe=1")) pmsg_probe_requested = 1;
         if (!strncmp(arg, "lgg8.usb_beacon=", 16)) beacon = !strcmp(arg, "lgg8.usb_beacon=1");
         if (!strncmp(arg, "lgg8.usb_beacon_delay=", 22))
@@ -393,7 +510,7 @@ int main(void)
         message("LGG8_RAM_FIELD disabled requires_usb_beacon_and_timeout20");
         ram_field = NULL;
     }
-    if (pmsg_probe_requested) pmsg_probe();
+    if (pmsg_probe_requested) start_pmsg_probe();
     message("LGG8_SUPERVISOR pid=1 backend=%s recovery=90 test_timeout=%d usb_beacon=%d", backend, seconds, beacon);
     pid_t guest = fork();
     if (!guest) {
@@ -418,8 +535,10 @@ int main(void)
         clock_gettime(CLOCK_MONOTONIC, &now);
         if (beacon && !beacon_attempted && reached(now, start, beacon_delay)) {
             beacon_attempted = 1;
+            char serial[126];
+            freeze_pmsg_receipt(serial);
             pid_t worker = fork();
-            if (!worker) { usb_beacon(); _exit(0); }
+            if (!worker) { usb_beacon(serial); _exit(0); }
             if (worker < 0) message("LGG8_BEACON fork errno=%d", errno);
             else message("LGG8_BEACON worker pid=%ld alarm=3", (long)worker);
         }

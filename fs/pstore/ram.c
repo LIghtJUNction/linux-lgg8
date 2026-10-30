@@ -800,13 +800,6 @@ static int ramoops_probe(struct platform_device *pdev)
 	if (cxt->cprz)
 		cxt->pstore.console_bufsize = cxt->cprz->buffer_size;
 
-	err = ramoops_init_prz("pmsg", dev, cxt, &cxt->mprz, &paddr,
-				cxt->pmsg_size, 0);
-	if (err)
-		goto fail_init;
-	if (cxt->mprz)
-		cxt->pstore.pmsg_bufsize = cxt->mprz->buffer_size;
-
 	cxt->max_ftrace_cnt = (cxt->flags & RAMOOPS_FLAG_FTRACE_PER_CPU)
 				? nr_cpu_ids
 				: 1;
@@ -817,6 +810,14 @@ static int ramoops_probe(struct platform_device *pdev)
 					? PRZ_FLAG_NO_LOCK : 0);
 	if (err)
 		goto fail_init;
+
+	/* Keep subregion order compatible with the LG Android ramoops reader. */
+	err = ramoops_init_prz("pmsg", dev, cxt, &cxt->mprz, &paddr,
+				cxt->pmsg_size, 0);
+	if (err)
+		goto fail_init;
+	if (cxt->mprz)
+		cxt->pstore.pmsg_bufsize = cxt->mprz->buffer_size;
 
 	cxt->pstore.data = cxt;
 	/*

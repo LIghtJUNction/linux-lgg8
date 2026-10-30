@@ -8,7 +8,7 @@
 
 从仓库根目录运行，需要现有 Python 3、`aarch64-linux-gnu-gcc`、QEMU system AArch64；打包另外使用通用 bootpacker 已有的 LLVM 工具。GNU 工具链必须带 AArch64 静态 libc/libgcc，生成静态 ET_EXEC；不能替换成主机 gcc。实际工具版本记录在 provenance.json，改变工具链后需重建并重新验证，不能沿用参考产物哈希。
 
-本次实际使用 GNU AArch64 GCC **16.2.0**、QEMU **11.1.2**；固定 Image 是既有的 `3f2487…a2bca`，不由这个构建器重新编译。CLI 只调整打包参数或锁文件的本地路径元数据时，若 CPIO 哈希未变，可重新核验已有日志，无需重跑 guest。
+本次实际使用 GNU AArch64 GCC **16.2.0**、QEMU **11.1.2**。当前 package lock 固定的 Image 为 `2962224f…8463d6`，由仓库根目录的 `JOBS=2 ./lgg8/build.sh diag-pstore` 构建；构建凭据记录于 `out/lgg8/kernel/build-provenance.json`。根文件系统构建器只核对锁定的 Image，不会自行编译内核。旧基准 `3f2487…a2bca` 仅对应下文历史交付。CLI 只调整打包参数或锁文件的本地路径元数据时，若 CPIO 哈希未变，可重新核验已有日志，无需重跑 guest。
 
 ```sh
 # 使用现有、已核验的 ARM mini 归档，不重复下载。
@@ -35,11 +35,34 @@ python3 lgg8/rootfs/build.py pack \
 python3 lgg8/rootfs/build.py receipt
 ```
 
-一次性 pmsg 通路检查可在启动参数追加 `lgg8.pmsg_probe=1`。静态 PID 1
-会尝试向 `/dev/pmsg0` 写入带 `LGG8_USER_PMSG_PROBE` 标记的短记录，并把
-打开/写入结果写入内核日志。该参数默认关闭，只用于 RAM-only 诊断镜像；
-Android 回收后若 pstore 导出该标记，可证明 Linux 用户态到 ramoops pmsg
-的通路可读，但不能证明 DPU 驱动自己的诊断 worker 已执行。
+一次性 pmsg 通路检查可在启动参数追加 `lgg8.pmsg_probe=1`，并用
+`lgg8.pmsg_tag=C196` 给本轮打标。PID 1 只创建共享回执并派生专用 worker；
+worker 尝试向 `/dev/pmsg0` 写入带 `LGG8_USER_PMSG_PROBE` 标记的短记录。
+即使 pmsg 的 open 或 write 卡住，桌面监督和 USB beacon 仍继续运行。beacon
+启动时冻结当时的 open/write 状态、真实 errno 或短写字节数，并写入 USB
+iSerial；`lgg8.pmsg_probe` 未启用时，原 iSerial 保持 `LGG8-RAM`。旧的
+`/run/usb-beacon-snapshot` 格式不变。Android 回收后若 pstore 导出该标记，
+可证明 Linux 用户态到 ramoops pmsg 的通路可读，但不能证明 DPU 驱动自己的
+诊断 worker 已执行。
+
+2026-10-31 pmsg 回执版本已用 `diag-pstore` 配置重建内核，并通过离线包格式核验和 AArch64 QEMU headless 桌面验收：Image SHA-256 `2962224f1fda3031af28c01b05f3b0a9e15101cb266fccafb38ce5c6848463d6`，DTB SHA-256 `88207ff2e9b28cca8d0b98dc4e5ca64552c7023930d51b207a5546ebe71d4ef2`，CPIO SHA-256 `c97389e44938bcb9fe3e0c8059604d10096cba8eeabf72601a2eb39f80e5c2f7`，默认 probe 关闭的 RAM-only `boot.img` SHA-256 `1488331400a54a35edb69f367061a3b7d4017190c160ed5a60ccfb0e00d75faa`。x86_64 `dummy_hcd` 测试覆盖禁用、open 错误/挂起、write 错误/挂起/成功和短写七种状态，主机均能读取冻结后的 iSerial 回执。随后 C196 在 bootargs 开启 pmsg probe，RAM-only `fastboot boot` 成功；Android 完整回收，slot `_b`、boot_completed、boot ID 轮转核验通过，boot_a/boot_b 哈希不变，全程无分区写入。USB 1-2 于 +16.238 秒断开、Android USB 于 +137.164 秒返回、ADB 于 +137.452 秒恢复。C196 启动前后 pstore 均经完整性核验为空，且主机在 USB 断开窗口没有观察到 Linux `18d1:4ee7` gadget 枚举，因此不能读到 iSerial 中的 open/write 回执，也不能判定探针停在何处；屏幕结果未记录。C196 镜像 SHA-256 `527934b7c5e050d26567f72c40c3cfb63fe106c62ccfb639b98c7f49ff00844f`，产物、运行器及证据位于 `out/lgg8-c196-pmsg-beacon-receipt-20261031/`。AArch64 QEMU 和虚拟 USB 结果不代表实机显示正常或 gadget 已枚举。
+
+可用本机内核和 `dummy_hcd` 快速跑真实 `supervisor.c` PID 1 的隔离测试；它
+使用临时 initramfs，不接触手机或物理 USB 口：
+
+```sh
+python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode disabled
+python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode open-error
+python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode hang-open
+python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode hang-write
+python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode write-ok
+python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode write-error
+python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode short-write
+```
+
+这些测试验证虚拟主机实际读到的 gadget iSerial、pmsg 探针挂起时 PID 1 仍
+能绑定并枚举，以及复位监督进程仍存活；它们不代替 LG G8 的 pmsg 成功读回
+或真机 USB 物理枚举验收。
 
 `--base` 只读取调用者明确指定的本地归档并校验 SHA-256；指定路径不存在就停止，不猜测私人目录。不传它时，向专用 cache 获取锁定的官方 ARM mini，已有缓存则核验后复用。公开锁文件不包含本地用户路径。`build` 每次重新生成唯一工作根，并重新核验缓存 APK 的 SHA-256、签名、名称、版本和 aarch64/noarch 架构；没有包安装事务。`--record-lock` 仅用于首次经过签名验证后补入缺失的包 SHA-256，已有 SHA 不会被静默替换。当前锁文件已完整，不需要此选项。
 
@@ -82,7 +105,7 @@ RAM 日志有 `desktop-events.log`、`weston.log`、`client.log`、`seatd.log`�
 
 仅当命令行明确包含 `lgg8.usb_beacon=1` 时启用；重复该键时最后一个值决定，其他值均关闭。guardian90 已建立、桌面脚本已 fork 后，主循环在 PID1 启动约 8 秒时只派生一次 beacon 工作进程。它有 3 秒 alarm、有限目录扫描和短读取；无 UDC、多 UDC 或任一步失败就有限记录日志并结束，不阻塞桌面主循环、不重试或修改已有 gadget。若 UDC 写入卡在不可中断内核路径，alarm 不保证能中止，仍依靠独立 90 秒 guardian 和平台复位路径。
 
-仅对 `/sys/class/udc` 中唯一的实际控制器创建 configfs ACM：VID:PID 为 `18d1:4ee7`，匿名 serial 为 `LGG8-RAM`，最多写一次 UDC 绑定。没有 ACM shell，不打开 `/dev/ttyGS0`，不导出网络或存储，不访问持久分区。configfs 状态和阶段文件都只在 RAM。真实 USB 绑定和主机看到描述符仍须真机证明。
+仅对 `/sys/class/udc` 中唯一的实际控制器创建 configfs ACM：VID:PID 为 `18d1:4ee7`，默认保留原 iSerial；启用 pmsg 探针时 serial 携带冻结回执，最多写一次 UDC 绑定。没有 ACM shell，不打开 `/dev/ttyGS0`，不导出网络或存储，不访问持久分区。configfs 状态和阶段文件都只在 RAM。真实 USB 绑定和主机看到描述符仍须真机证明。
 
 产品字符串示例：
 

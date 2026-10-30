@@ -448,8 +448,8 @@ C195 boot.img SHA-256 `ce1d56eab8fbc0e5922838d0df859c4047d28520aac2efd44eaa6c9bb
 
 启动前、早期 Android 回连及稍后快照均经完整性核验为空，未发现 `LGG8_USER_PMSG_PROBE` 或 DPU 记录；Android `/data/misc/pstore` 路径也不存在。此结果不能区分用户态 pmsg 写入失败与 Android 导出/reader 路径问题。复用 CPIO 的 marker 内含旧字面标签 `candidate=C192`，不能把它当作 C195 身份；若出现记录，应以启动前空基线和已固定的 C195 镜像身份归因。屏幕观察未记录。证据：`out/lgg8-c195-pmsg-probe-20261031/run-01/`。
 
-### C196：PID1 pmsg 回执与 USB beacon 联合候选（2026-10-31，真机安全回收）
+### C196：pmsg 探针启用、USB beacon 未启用（2026-10-31，真机安全回收）
 
 C196 boot.img SHA-256 `527934b7c5e050d26567f72c40c3cfb63fe106c62ccfb639b98c7f49ff00844f`；RAM-only `fastboot boot` 返回 0。物理 USB 1-2 于 +16.238 秒断开，Android USB 于 +137.164 秒返回，ADB 于 +137.452 秒恢复。型号/设备、slot `_b`、`boot_completed=1`、boot ID 轮转及 boot_a/boot_b 不变全部核验通过；无分区写入。
 
-Linux `18d1:4ee7` 未枚举；启动前与回收后 pstore 均经完整校验为空，没有 pmsg marker。因 USB gadget 未枚举，iSerial 回执不可读，无法确定 PID1 探针 open/write 状态。屏幕未观察。设备证据在 `out/lgg8-c196-pmsg-beacon-receipt-20261031/run-01/`。该轮完成 RAM-only 集成启动和 Android 安全回收，没有推进 Linux USB 枚举或 pmsg 读回里程碑。
+启动前与回收后 pstore 均经完整校验为空，没有 pmsg marker。关键勘误：C196 的最终 manifest bootargs 含 `lgg8.pmsg_probe=1 lgg8.pmsg_tag=C196`，但缺少 `lgg8.usb_beacon=1`；`supervisor.c` 默认 `beacon=0`，只有显式传入该参数才会创建并绑定 configfs ACM gadget。因此 C196 没有尝试 gadget 创建或 UDC bind，未见 `18d1:4ee7` 是预期结果，不能据此判断 DWC3、D+ 或 gadget bind。该轮 pmsg 探针结果仍未知；没有创建或暴露 iSerial 回执。当前 ACM 路径也没有启动 `/dev/ttyGS0` shell。屏幕未观察。设备证据在 `out/lgg8-c196-pmsg-beacon-receipt-20261031/run-01/`。该轮只证明 RAM-only 集成启动与 Android 安全回收，没有推进 Linux USB 枚举或 pmsg 读回里程碑。

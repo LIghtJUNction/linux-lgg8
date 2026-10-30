@@ -181,10 +181,10 @@ C195 复用 C194 的 kernel Image、initramfs、源码差分和运行环境，�
 
 真机 RAM-only `fastboot boot` 返回 0；Fastboot 于 +0.001 秒出现、+16.230 秒断开，Android `1004:631f` 于 +178.587 秒返回，ADB 于 +178.946 秒恢复；全轮 187.966 秒。设备恢复 `LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1`，boot ID 轮转；`boot_a` 和 `boot_b` SHA 前后相同。启动前、Android 早期回连和稍后采样的 pstore 均经完整目录、tar 内容及哈希核验为空；没有 `LGG8_USER_PMSG_PROBE` 或 DPU 诊断记录。回收后只读 Android `dmesg` 确认 ramoops backend 已注册并 attach `0x280000@0xb0000000`，`console [pstore0] enabled`；这只能证明 Android 当前内核注册了该区域，不能证明它读到了 C195 pmsg。`/data/misc/pstore` 不存在，`logcat -L` 返回 `Logcat read failure: No such file or directory`。空结果无法区分 PID 1 写入失败、Android 导出路径或 reader 布局问题。复用 CPIO 的记录字符串带有历史字面值 `candidate=C192`；若以后发现记录，应按本轮空基线和 C195 镜像身份归因，而不依据这个标签。屏幕观察未记录。设备回收证据位于 `out/lgg8-c195-pmsg-probe-20261031/run-01/`。
 
-## C196 PID1 pmsg 回执与 USB beacon 联合候选（2026-10-31）
+## C196 pmsg 探针启用、USB beacon 未启用（2026-10-31）
 
-C196 使用 `diag-pstore` Image `2962224f1fda3031af28c01b05f3b0a9e15101cb266fccafb38ce5c6848463d6`、CPIO `c97389e44938bcb9fe3e0c8059604d10096cba8eeabf72601a2eb39f80e5c2f7`，bootargs 显式启用 `lgg8.pmsg_probe=1 lgg8.pmsg_tag=C196`。boot.img SHA-256 `527934b7c5e050d26567f72c40c3cfb63fe106c62ccfb639b98c7f49ff00844f`，30,818,304 字节；离线 manifest/镜像验证通过，boot_b 容量由 fastboot 只读核实为 100,663,296 字节。
+C196 使用 `diag-pstore` Image `2962224f1fda3031af28c01b05f3b0a9e15101cb266fccafb38ce5c6848463d6`、CPIO `c97389e44938bcb9fe3e0c8059604d10096cba8eeabf72601a2eb39f80e5c2f7`，bootargs 显式启用 `lgg8.pmsg_probe=1 lgg8.pmsg_tag=C196`。boot.img SHA-256 `527934b7c5e050d26567f72c40c3cfb63fe106c62ccfb639b98c7f49ff00844f`，30,818,304 字节；离线 manifest/镜像验证通过，boot_b 容量由 fastboot 只读核实为 100,663,296 字节。**勘误：最终 manifest 未包含 `lgg8.usb_beacon=1`；supervisor 默认 beacon 关闭，因此该镜像没有执行 configfs gadget 创建或 UDC bind。**
 
 RAM-only `fastboot boot` 返回 0。物理口 1-2 的 Fastboot 于 +0.001 秒出现、+16.238 秒断开；断开窗口没有观察到 Linux `18d1:4ee7` gadget。Android `1004:631f` 于 +137.164 秒返回，ADB 于 +137.452 秒恢复，总计 147.615 秒。设备恢复 `LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1`，boot ID 轮转；boot_a、boot_b SHA 均与启动前相同，全程无分区写入。
 
-启动前及回收后的 Android pstore 均经挂载范围、完整 tar 清单和源文件哈希核验为空，没有发现 `LGG8_USER_PMSG_PROBE` 或 DPU 记录。由于 Linux gadget 未枚举，主机无法读取 C196 冻结在 iSerial 的 open/write 状态，本轮无法确定探针停在哪一步；屏幕观察未记录。完整运行器和证据位于 `out/lgg8-c196-pmsg-beacon-receipt-20261031/`。
+启动前及回收后的 Android pstore 均经挂载范围、完整 tar 清单和源文件哈希核验为空，没有发现 `LGG8_USER_PMSG_PROBE` 或 DPU 记录。因为 beacon 参数缺失，C196 没有创建 gadget，也没有冻结或暴露 iSerial 回执；因此该轮不能判断 pmsg open/write 结果，更不能用“未枚举”判断 DWC3/D+。这是一轮 pmsg-probe-enabled 的 RAM 启动与恢复记录。当前 ACM beacon 代码也未启动 `/dev/ttyGS0` shell。屏幕观察未记录。完整运行器和证据位于 `out/lgg8-c196-pmsg-beacon-receipt-20261031/`。

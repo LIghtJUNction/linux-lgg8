@@ -58,11 +58,12 @@ python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode hang-write
 python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode write-ok
 python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode write-error
 python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode short-write
+python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode shell
 ```
 
 这些测试验证虚拟主机实际读到的 gadget iSerial、pmsg 探针挂起时 PID 1 仍
-能绑定并枚举，以及复位监督进程仍存活；它们不代替 LG G8 的 pmsg 成功读回
-或真机 USB 物理枚举验收。
+能绑定并枚举，以及复位监督进程仍存活。`shell` 模式还会通过虚拟 ttyACM0
+发送一条命令并检查返回字节；这些测试不代替 LG G8 的物理枚举或真机 shell 验收。
 
 `--base` 只读取调用者明确指定的本地归档并校验 SHA-256；指定路径不存在就停止，不猜测私人目录。不传它时，向专用 cache 获取锁定的官方 ARM mini，已有缓存则核验后复用。公开锁文件不包含本地用户路径。`build` 每次重新生成唯一工作根，并重新核验缓存 APK 的 SHA-256、签名、名称、版本和 aarch64/noarch 架构；没有包安装事务。`--record-lock` 仅用于首次经过签名验证后补入缺失的包 SHA-256，已有 SHA 不会被静默替换。当前锁文件已完整，不需要此选项。
 
@@ -105,7 +106,9 @@ RAM 日志有 `desktop-events.log`、`weston.log`、`client.log`、`seatd.log`�
 
 仅当命令行明确包含 `lgg8.usb_beacon=1` 时启用；重复该键时最后一个值决定，其他值均关闭。guardian90 已建立、桌面脚本已 fork 后，主循环在 PID1 启动约 8 秒时只派生一次 beacon 工作进程。它有 3 秒 alarm、有限目录扫描和短读取；无 UDC、多 UDC 或任一步失败就有限记录日志并结束，不阻塞桌面主循环、不重试或修改已有 gadget。若 UDC 写入卡在不可中断内核路径，alarm 不保证能中止，仍依靠独立 90 秒 guardian 和平台复位路径。
 
-仅对 `/sys/class/udc` 中唯一的实际控制器创建 configfs ACM：VID:PID 为 `18d1:4ee7`，默认保留原 iSerial；启用 pmsg 探针时 serial 携带冻结回执，最多写一次 UDC 绑定。没有 ACM shell，不打开 `/dev/ttyGS0`，不导出网络或存储，不访问持久分区。configfs 状态和阶段文件都只在 RAM。真实 USB 绑定和主机看到描述符仍须真机证明。
+仅对 `/sys/class/udc` 中唯一的实际控制器创建 configfs ACM：VID:PID 为 `18d1:4ee7`，默认保留原 iSerial；启用 pmsg 探针时 serial 携带冻结回执，最多写一次 UDC 绑定。默认不打开 `/dev/ttyGS0`，不导出网络或存储，不访问持久分区。configfs 状态和阶段文件都只在 RAM。
+
+交互 shell 是另一项显式开关：只有同时设置 `lgg8.usb_beacon=1 lgg8.usb_shell=1`，且 ACM 的 UDC 绑定成功后，beacon worker 才在 `/dev/ttyGS0` 上启动 `/bin/sh -i`。shell 以 root 运行；绑定成功后会取消 3 秒 setup alarm，独立 PID 1 guardian 仍会在约 90 秒时复位。默认不开 shell。主机看到 `18d1:4ee7` 后可打开对应 `/dev/ttyACM*`。本机 `--mode shell` 测试覆盖虚拟 ACM 命令往返，但不代替 LG G8 真机 shell 验收。
 
 产品字符串示例：
 

@@ -16,6 +16,7 @@ MODULES = {
     "libcomposite": "kernel/drivers/usb/gadget/libcomposite.ko.zst",
     "u_serial": "kernel/drivers/usb/gadget/function/u_serial.ko.zst",
     "usb_f_acm": "kernel/drivers/usb/gadget/function/usb_f_acm.ko.zst",
+    "cdc-acm": "kernel/drivers/usb/class/cdc-acm.ko.zst",
     "dummy_hcd": "kernel/drivers/usb/gadget/udc/dummy_hcd.ko.zst",
 }
 
@@ -46,6 +47,7 @@ def make_case(root: Path, module_root: Path, cc: str, mode: str) -> Path:
         "write-ok": ["-DLGG8_PMSG_PATH=\"/dev/null\""],
         "write-error": ["-DLGG8_PMSG_PATH=\"/dev/full\""],
         "short-write": ["-DLGG8_PMSG_PATH=\"/dev/null\"", "-DLGG8_PMSG_TEST_SHORT_WRITE"],
+        "shell": [],
     }[mode]
     command([cc, "-static", "-O2", "-Wall", "-Wextra", "-Werror", *extra,
              str(SOURCE), "-o", str(root / "sbin/supervisor")],
@@ -53,8 +55,15 @@ def make_case(root: Path, module_root: Path, cc: str, mode: str) -> Path:
     desktop = root / "usr/local/bin/desktop-start"
     desktop.write_text("#!/bin/sh\nexit 0\n")
     desktop.chmod(0o755)
+    probe = ""
+    if mode == "shell":
+        command([cc, "-static", "-O2", "-Wall", "-Wextra", "-Werror",
+                 str(SOURCE.with_name("test_usb_shell_probe.c")),
+                 "-o", str(root / "usr/local/bin/host-shell-probe")],
+                capture_output=True, text=True)
+        probe = "/usr/local/bin/host-shell-probe &"
 
-    init = """#!/bin/sh
+    init = f"""#!/bin/sh
 mkdir -p /proc /sys /dev /run
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
@@ -63,7 +72,9 @@ insmod /modules/udc-core.ko
 insmod /modules/libcomposite.ko
 insmod /modules/u_serial.ko
 insmod /modules/usb_f_acm.ko
+insmod /modules/cdc-acm.ko
 insmod /modules/dummy_hcd.ko
+{probe}
 (
   i=0
   while [ "$i" -lt 18 ]; do
@@ -86,7 +97,7 @@ exec /sbin/supervisor
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("disabled", "open-error", "hang-open", "hang-write",
-                                            "write-ok", "write-error", "short-write"),
+                                            "write-ok", "write-error", "short-write", "shell"),
                         default="open-error")
     parser.add_argument("--timeout", type=int, default=24,
                         help="host-side QEMU run time in seconds")
@@ -117,6 +128,7 @@ def main() -> int:
         "write-ok": serial_base + "O=OK;W=OK",
         "write-error": serial_base + "O=OK;W=ERR-28",
         "short-write": serial_base + "O=OK;W=SHORT-",
+        "shell": serial_base + "O=ERR-2;W=NA",
     }[args.mode]
     with tempfile.TemporaryDirectory(prefix="lgg8-pmsg-qemu-") as temporary:
         base = Path(temporary)
@@ -132,6 +144,8 @@ def main() -> int:
         print(f"mode={args.mode} initrd_bytes={initrd.stat().st_size}", flush=True)
         cmdline = "console=ttyS0,115200 rdinit=/init loglevel=7 panic=0 " \
                   "lgg8.desktop_backend=headless lgg8.usb_beacon=1"
+        if args.mode == "shell":
+            cmdline += " lgg8.usb_shell=1"
         if args.mode != "disabled":
             cmdline += " lgg8.pmsg_probe=1 lgg8.pmsg_tag=C196"
         qemu = ["timeout", f"{args.timeout}s", "qemu-system-x86_64", "-accel", "tcg",
@@ -143,7 +157,8 @@ def main() -> int:
         output = result.stdout.decode(errors="replace")
         for line in output.splitlines():
             if any(marker in line for marker in
-                   ("LGG8_USER_PMSG_PROBE", "LGG8_SUPERVISOR", "LGG8_BEACON", "HOST_ENUM")):
+                   ("LGG8_USER_PMSG_PROBE", "LGG8_SUPERVISOR", "LGG8_BEACON", "HOST_ENUM",
+                    "LGG8_USB_SHELL", "HOST_SHELL_PROBE")):
                 print(line)
         found = (re.search(re.escape(expected) + r"\d+/\d+", output) is not None
                  if args.mode == "short-write" else expected in output)
@@ -155,6 +170,11 @@ def main() -> int:
         if "LGG8_BEACON bound" not in output or "HOST_ENUM" not in output:
             print("\n".join(output.splitlines()[-80:]))
             raise SystemExit("Gadget did not bind and enumerate on the guest USB host")
+        if args.mode == "shell" and (
+                "LGG8_USB_SHELL started" not in output or
+                "HOST_SHELL_PROBE PASS byte_roundtrip=1" not in output):
+            print("\n".join(output.splitlines()[-100:]))
+            raise SystemExit("Gadget shell did not complete a host-to-shell byte roundtrip")
         print(f"PASS: PID1 survived; dummy_hcd host read frozen serial {expected}")
     return 0
 

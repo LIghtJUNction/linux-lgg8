@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/mount.h>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
 #include <sys/reboot.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -363,7 +364,61 @@ static int reached(struct timespec now, struct timespec start, int seconds)
     return now.tv_sec > start.tv_sec + seconds ||
         (now.tv_sec == start.tv_sec + seconds && now.tv_nsec >= start.tv_nsec);
 }
-static void usb_beacon(const char *serial)
+static void usb_shell_session(void)
+{
+    /* A successful USB bind removes the short setup alarm. The independent
+     * PID 1 guardian still owns the hard 90-second recovery deadline. */
+    alarm(0);
+    pid_t shell = fork();
+    if (shell < 0) {
+        message("LGG8_USB_SHELL fork errno=%d", errno);
+        return;
+    }
+    if (!shell) {
+        (void)setsid();
+        int tty = -1;
+        for (unsigned i = 0; i < 30; ++i) {
+            tty = open("/dev/ttyGS0", O_RDWR | O_CLOEXEC);
+            if (tty >= 0 || (errno != ENOENT && errno != ENODEV)) break;
+            struct timespec pause = {.tv_nsec = 100000000};
+            (void)nanosleep(&pause, NULL);
+        }
+        if (tty < 0) {
+            message("LGG8_USB_SHELL open_ttyGS0 errno=%d", errno);
+            _exit(126);
+        }
+        if (ioctl(tty, TIOCSCTTY, 0)) {
+            message("LGG8_USB_SHELL controlling_tty errno=%d", errno);
+            _exit(126);
+        }
+        for (int target = STDIN_FILENO; target <= STDERR_FILENO; ++target) {
+            if (tty != target && dup2(tty, target) < 0) {
+                message("LGG8_USB_SHELL dup2 target=%d errno=%d", target, errno);
+                _exit(126);
+            }
+        }
+        if (tty > STDERR_FILENO) close(tty);
+        char *const argv[] = {"/bin/sh", "-i", NULL};
+        char *const envp[] = {"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root",
+                              "TERM=vt100", "PS1=lgg8# ", "LANG=C", NULL};
+        execve(argv[0], argv, envp);
+        message("LGG8_USB_SHELL exec errno=%d", errno);
+        _exit(127);
+    }
+    message("LGG8_USB_SHELL started pid=%ld tty=/dev/ttyGS0", (long)shell);
+    int status;
+    while (waitpid(shell, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        message("LGG8_USB_SHELL wait errno=%d", errno);
+        return;
+    }
+    if (WIFEXITED(status))
+        message("LGG8_USB_SHELL exit status=%d", WEXITSTATUS(status));
+    else if (WIFSIGNALED(status))
+        message("LGG8_USB_SHELL signal=%d", WTERMSIG(status));
+}
+
+static void usb_beacon(const char *serial, int shell_enabled)
 {
     /* This separate worker cannot stall desktop supervision. Alarm bounds
      * interruptible work; an uninterruptible UDC bind still needs guardian90. */
@@ -448,7 +503,10 @@ static void usb_beacon(const char *serial)
     }
     snprintf(path, sizeof(path), "%s/UDC", base);
     message("LGG8_BEACON bind_once");
-    if (!beacon_write(path, udc)) message("LGG8_BEACON bound %s", product);
+    if (!beacon_write(path, udc)) {
+        message("LGG8_BEACON bound %s", product);
+        if (shell_enabled) usb_shell_session();
+    }
 }
 int main(void)
 {
@@ -477,7 +535,8 @@ int main(void)
     int fd = open("/proc/cmdline", O_RDONLY | O_CLOEXEC);
     if (fd >= 0) { (void)read(fd, cmdline, sizeof(cmdline) - 1); close(fd); }
     const char *backend = "drm";
-    int seconds = 0, beacon = 0, beacon_attempted = 0, beacon_delay = 8, ram_sampled = 0;
+    int seconds = 0, beacon = 0, usb_shell = 0;
+    int beacon_attempted = 0, beacon_delay = 8, ram_sampled = 0;
     int pmsg_probe_requested = 0;
     const char *ram_field = NULL;
     char *save = NULL;
@@ -498,6 +557,7 @@ int main(void)
         }
         if (!strcmp(arg, "lgg8.pmsg_probe=1")) pmsg_probe_requested = 1;
         if (!strncmp(arg, "lgg8.usb_beacon=", 16)) beacon = !strcmp(arg, "lgg8.usb_beacon=1");
+        if (!strncmp(arg, "lgg8.usb_shell=", 15)) usb_shell = !strcmp(arg, "lgg8.usb_shell=1");
         if (!strncmp(arg, "lgg8.usb_beacon_delay=", 22))
             beacon_delay = !strcmp(arg, "lgg8.usb_beacon_delay=12") ? 12 : 8;
         if (!strncmp(arg, "lgg8.ram_field=", 15)) {
@@ -510,8 +570,13 @@ int main(void)
         message("LGG8_RAM_FIELD disabled requires_usb_beacon_and_timeout20");
         ram_field = NULL;
     }
+    if (usb_shell && !beacon) {
+        message("LGG8_USB_SHELL disabled requires_usb_beacon");
+        usb_shell = 0;
+    }
     if (pmsg_probe_requested) start_pmsg_probe();
-    message("LGG8_SUPERVISOR pid=1 backend=%s recovery=90 test_timeout=%d usb_beacon=%d", backend, seconds, beacon);
+    message("LGG8_SUPERVISOR pid=1 backend=%s recovery=90 test_timeout=%d usb_beacon=%d usb_shell=%d",
+            backend, seconds, beacon, usb_shell);
     pid_t guest = fork();
     if (!guest) {
         (void)setsid();
@@ -538,7 +603,7 @@ int main(void)
             char serial[126];
             freeze_pmsg_receipt(serial);
             pid_t worker = fork();
-            if (!worker) { usb_beacon(serial); _exit(0); }
+            if (!worker) { usb_beacon(serial, usb_shell); _exit(0); }
             if (worker < 0) message("LGG8_BEACON fork errno=%d", errno);
             else message("LGG8_BEACON worker pid=%ld alarm=3", (long)worker);
         }

@@ -114,6 +114,18 @@ config DRM_MSM_DPU
 	  the MSM DRM driver. It is the display controller found in devices
 	  using e.g. SDM845 and newer platforms.
 
+config DRM_MSM_DPU_PSTORE_DIAG
+	bool "One-shot DPU diagnostic record in ramoops"
+	depends on DRM_MSM=y
+	depends on PSTORE_CONSOLE=y
+	depends on PSTORE_RAM=y
+	depends on CRC32=y
+	help
+	  Record one bounded DPU command-mode snapshot to the ramoops console
+	  after encoder probe/kickoff or the first PP timeout. The record seals
+	  the pstore console for the rest of that boot, so enable this only for
+	  a controlled diagnostic image.
+
 config DRM_MSM_DP
 	bool "Enable DisplayPort support in MSM DRM driver"
 	depends on DRM_MSM

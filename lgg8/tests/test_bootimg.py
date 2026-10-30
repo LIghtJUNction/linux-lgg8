@@ -242,8 +242,10 @@ class BuildTests(unittest.TestCase):
         (cls.root / "board.dtb").write_bytes(tree().encode())
         (cls.root / "initramfs.cpio").write_bytes(archive())
         (cls.root / "cmdline.txt").write_text("console=tty0 rdinit=/init\n")
+        (cls.root / ".config").write_text("CONFIG_DRM_MSM=y\nCONFIG_PSTORE_CONSOLE=y\nCONFIG_PSTORE_RAM=y\n")
         cls.args = argparse.Namespace(kernel=cls.root / "Image", dtb=cls.root / "board.dtb", initramfs=cls.root / "initramfs.cpio",
-                                      template=cls.root / "template", cmdline_file=cls.root / "cmdline.txt", output=cls.root / "build", partition_size=1024 * 1024)
+                                      template=cls.root / "template", cmdline_file=cls.root / "cmdline.txt", output=cls.root / "build",
+                                      partition_size=1024 * 1024, config=cls.root / ".config")
         with patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "0"}):
             cls.manifest = b.build(cls.args)
         cls.blob = (cls.root / "build/boot.img").read_bytes()
@@ -258,6 +260,67 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in (self.root / "build").iterdir()), ["boot.img", "linux.dtb", "manifest.json"])
         # The verifier has no dependency on the input paths or extracted template.
         b.verify_bytes(self.blob, json.loads(json.dumps(self.manifest)))
+        provenance = self.manifest["provenance"]
+        self.assertEqual(provenance["schema"], "lgg8-build-provenance-v1")
+        self.assertEqual(provenance["effective_config"]["sha256"], b.sha((self.root / ".config").read_bytes()))
+        self.assertEqual(provenance["config_symbols"]["CONFIG_DRM_MSM"], "y")
+
+    def test_provenance_tracks_commit_dirty_diff_untracked_and_effective_config(self):
+        with tempfile.TemporaryDirectory(prefix="lgg8-provenance-tests-") as folder:
+            repo = Path(folder)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            (repo / ".gitignore").write_text("out/\n")
+            seed = repo / "lgg8/configs/lgg8.config"
+            seed.parent.mkdir(parents=True)
+            seed.write_text("CONFIG_DRM_MSM=y\n")
+            source = repo / "drivers/example.c"
+            source.parent.mkdir()
+            source.write_text("int original;\n")
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=LG G8 Test", "-c",
+                            "user.email=test@example.invalid", "commit", "-q", "-m", "base"], check=True)
+            source.write_text("int modified;\n")
+            new_input = repo / "lgg8/configs/diag.config"
+            new_input.write_text("CONFIG_DRM_MSM_DPU_PSTORE_DIAG=y\n")
+            effective = repo / "out/kernel/.config"
+            effective.parent.mkdir(parents=True)
+            effective.write_text("CONFIG_DRM_MSM=y\nCONFIG_DRM_MSM_DPU_PSTORE_DIAG=y\n# CONFIG_PSTORE_FTRACE is not set\n")
+
+            first = b.build_provenance(repo, effective)
+            self.assertRegex(first["source_commit"], r"^[0-9a-f]{40}$")
+            self.assertTrue(first["source_dirty"])
+            self.assertRegex(first["tracked_diff_sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(first["untracked_file_count"], 1)
+            self.assertEqual(first["effective_config"]["sha256"], b.sha(effective.read_bytes()))
+            self.assertEqual(first["config_symbols"]["CONFIG_DRM_MSM_DPU_PSTORE_DIAG"], "y")
+            self.assertEqual(first["config_symbols"]["CONFIG_PSTORE_FTRACE"], "n")
+
+            new_input.write_text("CONFIG_DRM_MSM_DPU_PSTORE_DIAG=n\n")
+            second = b.build_provenance(repo, effective)
+            self.assertNotEqual(first["untracked_tree_sha256"], second["untracked_tree_sha256"])
+
+    def test_kernel_build_receipt_binds_exact_kernel_dtb_and_config(self):
+        receipt_path = self.root / "kernel-build-provenance.json"
+        receipt = b.record_kernel_build(argparse.Namespace(kernel=self.root / "Image", dtb=self.root / "board.dtb",
+                                                            config=self.root / ".config", profile="unit-test", output=receipt_path))
+        args = copy.copy(self.args)
+        args.output = self.root / "receipt-build"
+        args.build_provenance = receipt_path
+        with patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "0"}):
+            manifest = b.build(args)
+        self.assertEqual(manifest["provenance"]["capture_stage"], "kernel-build")
+        self.assertEqual(manifest["provenance"]["profile"], "unit-test")
+        self.assertEqual(receipt["components"]["kernel"], b.describe((self.root / "Image").read_bytes()))
+
+        changed_dtb = self.root / "different.dtb"
+        changed_tree = tree()
+        changed_tree.nodes["/"]["model"] = b"changed\0"
+        changed_dtb.write_bytes(changed_tree.encode())
+        args.dtb = changed_dtb
+        args.output = self.root / "receipt-mismatch"
+        with self.assertRaisesRegex(ValueError, "provenance input mismatch: dtb"):
+            b.build(args)
+        self.assertFalse(args.output.exists())
 
     def test_determinism_and_source_date_epoch(self):
         args = copy.copy(self.args)

@@ -6,11 +6,12 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 ACTION=${1:-help}
 if [[ "$ACTION" == help || "$ACTION" == --help ]]; then
     cat <<'EOF'
-Usage: ./lgg8/build.sh {kernel|dtb|diag-ftrace|initramfs|boot|test|verify} [OUT]
+Usage: ./lgg8/build.sh {kernel|dtb|diag-ftrace|diag-pstore|initramfs|boot|test|verify} [OUT]
 OUT defaults to <repository>/out/lgg8. No phone commands are executed.
 kernel:    build Image + qcom/sm8150-lg-alphalm.dtb (JOBS defaults to 2)
 dtb:       rebuild only the board device tree for a short local iteration
 diag-ftrace: build Image + DTB with filtered persistent function tracing support
+diag-pstore: build Image + DTB with the one-shot DPU ramoops recorder
 initramfs: build a static diagnostic PID 1 with a 45-second reset deadline
 boot:      package existing outputs; requires TEMPLATE_DIR and PARTITION_SIZE
            Optional INITRAMFS, CMDLINE_FILE, BOOT_OUTPUT override inputs/output.
@@ -19,7 +20,7 @@ test:      run local packaging and initramfs unit tests
 EOF
     exit 0
 fi
-case "$ACTION" in kernel|dtb|diag-ftrace|initramfs|boot|verify|test) ;; *) echo "Unknown action: $ACTION" >&2; exit 2;; esac
+case "$ACTION" in kernel|dtb|diag-ftrace|diag-pstore|initramfs|boot|verify|test) ;; *) echo "Unknown action: $ACTION" >&2; exit 2;; esac
 if [[ "$ACTION" == test ]]; then
     exec python3 -m unittest discover -s "$ROOT/lgg8/tests" -p 'test_*.py' -v
 fi
@@ -44,13 +45,13 @@ export KBUILD_BUILD_USER=lgg8 KBUILD_BUILD_HOST=builder KBUILD_BUILD_VERSION=1
 export LOCALVERSION=${LOCALVERSION-}
 
 case "$ACTION" in
-kernel|dtb|diag-ftrace)
+kernel|dtb|diag-ftrace|diag-pstore)
     JOBS=${JOBS:-2}
     [[ "$JOBS" =~ ^[1-9][0-9]*$ ]] || { echo 'JOBS must be positive.' >&2; exit 2; }
     python3 - "$OUT" "$ACTION" <<'PY'
 import shutil, sys
 free = shutil.disk_usage(sys.argv[1]).free
-needed = 4 * 1024**3 if sys.argv[2] == 'kernel' else 256 * 1024**2
+needed = 4 * 1024**3 if sys.argv[2] in ('kernel', 'diag-pstore') else 256 * 1024**2
 if free < needed:
     raise SystemExit(f'Build requires at least {needed} bytes free space.')
 PY
@@ -60,10 +61,21 @@ PY
         "$ROOT/scripts/kconfig/merge_config.sh" -m -O "$OUT/kernel" \
             "$OUT/kernel/.config" "$ROOT/lgg8/configs/pstore-ftrace-diagnostic.config"
     fi
+    if [[ "$ACTION" == diag-pstore ]]; then
+        "$ROOT/scripts/kconfig/merge_config.sh" -m -O "$OUT/kernel" \
+            "$OUT/kernel/.config" "$ROOT/lgg8/configs/dpu-pstore-diagnostic.config"
+    fi
     make -C "$ROOT" O="$OUT/kernel" ARCH=arm64 LLVM=1 olddefconfig
     TARGETS=(qcom/sm8150-lg-alphalm.dtb)
     [[ "$ACTION" == dtb ]] || TARGETS=(Image "${TARGETS[@]}")
     make -C "$ROOT" O="$OUT/kernel" ARCH=arm64 LLVM=1 -j"$JOBS" "${TARGETS[@]}"
+    if [[ "$ACTION" != dtb ]]; then
+        python3 "$ROOT/lgg8/tools/bootimg.py" record-kernel-build \
+            --kernel "$OUT/kernel/arch/arm64/boot/Image" \
+            --dtb "$OUT/kernel/arch/arm64/boot/dts/qcom/sm8150-lg-alphalm.dtb" \
+            --config "$OUT/kernel/.config" --profile "$ACTION" \
+            --output "$OUT/kernel/build-provenance.json"
+    fi
     ;;
 initramfs)
     mkdir -p -- "$OUT/initramfs"
@@ -79,6 +91,8 @@ boot)
     python3 "$ROOT/lgg8/tools/bootimg.py" build \
         --kernel "$OUT/kernel/arch/arm64/boot/Image" \
         --dtb "$OUT/kernel/arch/arm64/boot/dts/qcom/sm8150-lg-alphalm.dtb" \
+        --config "$OUT/kernel/.config" \
+        --build-provenance "$OUT/kernel/build-provenance.json" \
         --initramfs "${INITRAMFS:-$OUT/initramfs/initramfs.cpio}" \
         --template "$TEMPLATE_DIR" \
         --cmdline-file "${CMDLINE_FILE:-$ROOT/lgg8/boot/cmdline.txt}" \

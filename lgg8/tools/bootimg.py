@@ -17,6 +17,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shlex
+import shutil
 import stat
 import struct
 import subprocess
@@ -436,6 +437,132 @@ def compile_shim(source, payload, dtb_address):
     return raw
 
 
+def build_provenance(repo_root, config_path=None):
+    """Record source/config/tool identity without making Git availability a build dependency."""
+    repo_root = Path(repo_root).resolve()
+
+    def git_output(*args):
+        try:
+            result = subprocess.run(["git", "-C", str(repo_root), *args], check=True,
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            output = result.stdout
+            return output.encode() if isinstance(output, str) else output
+        except (OSError, subprocess.CalledProcessError):
+            return None
+
+    status = git_output("status", "--porcelain=v1", "--untracked-files=all")
+    commit = git_output("rev-parse", "--verify", "HEAD")
+    diff = git_output("diff", "--binary", "HEAD")
+    untracked = git_output("ls-files", "--others", "--exclude-standard", "-z")
+
+    untracked_hash = hashlib.sha256()
+    untracked_count = 0
+    if untracked is not None:
+        for name in untracked.split(b"\0"):
+            if not name:
+                continue
+            path = repo_root / os.fsdecode(name)
+            untracked_hash.update(name + b"\0")
+            try:
+                if path.is_symlink():
+                    untracked_hash.update(b"L" + os.fsencode(os.readlink(path)))
+                elif path.is_file():
+                    with path.open("rb") as stream:
+                        while block := stream.read(1024 * 1024):
+                            untracked_hash.update(block)
+                else:
+                    untracked_hash.update(b"MISSING")
+            except OSError:
+                untracked_hash.update(b"UNREADABLE")
+            untracked_hash.update(b"\0")
+            untracked_count += 1
+
+    def version(command, *args):
+        executable = shutil.which(command)
+        if not executable:
+            return None
+        try:
+            result = subprocess.run([executable, *args], check=True, capture_output=True,
+                                    text=True, timeout=5, env={**os.environ, "LC_ALL": "C"})
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return None
+        output = result.stdout or result.stderr
+        return output.splitlines()[0][:160] if output else None
+
+    config = None
+    symbols = {}
+    if config_path is not None:
+        config_bytes = Path(config_path).read_bytes()
+        config_lines = config_bytes.decode("ascii", errors="replace").splitlines()
+        wanted = ("CONFIG_DRM_MSM", "CONFIG_DRM_MSM_DPU_PSTORE_DIAG",
+                  "CONFIG_PSTORE_CONSOLE", "CONFIG_PSTORE_RAM", "CONFIG_PSTORE_FTRACE")
+        for symbol in wanted:
+            value = next((line.split("=", 1)[1] for line in config_lines
+                          if line.startswith(symbol + "=")), None)
+            if value is None and f"# {symbol} is not set" in config_lines:
+                value = "n"
+            symbols[symbol] = value
+        config = describe(config_bytes)
+
+    seed_path = repo_root / "lgg8/configs/lgg8.config"
+    seed_config = describe(seed_path.read_bytes()) if seed_path.is_file() else None
+    return {
+        "schema": "lgg8-build-provenance-v1",
+        "source_commit": commit.decode().strip() if commit else None,
+        "source_dirty": bool(status) if status is not None else None,
+        "tracked_diff_sha256": sha(diff) if diff is not None else None,
+        "untracked_file_count": untracked_count if untracked is not None else None,
+        "untracked_tree_sha256": untracked_hash.hexdigest() if untracked is not None else None,
+        "effective_config": config,
+        "config_symbols": symbols,
+        "seed_config": seed_config,
+        "toolchain": {
+            "clang": version("clang", "--version"),
+            "ld_lld": version("ld.lld", "--version"),
+            "dtc": version("dtc", "--version"),
+            "make": version("make", "--version"),
+            "aarch64_gcc": version("aarch64-linux-gnu-gcc", "--version"),
+            "python": sys.version.split()[0],
+        },
+    }
+
+
+def record_kernel_build(args):
+    kernel, dtb = args.kernel.read_bytes(), args.dtb.read_bytes()
+    config = args.config.read_bytes()
+    receipt = {
+        "schema": "lgg8-kernel-build-v1",
+        "profile": args.profile,
+        "components": {"kernel": describe(kernel), "dtb": describe(dtb), "effective_config": describe(config)},
+        "provenance": build_provenance(Path(__file__).resolve().parents[2], args.config),
+    }
+    destination = args.output
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix="." + destination.name + ".", dir=destination.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(json_bytes(receipt))
+        os.replace(temporary, destination)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+    return receipt
+
+
+def load_kernel_build_provenance(path, kernel, dtb, config):
+    receipt = json.loads(Path(path).read_text())
+    require(receipt.get("schema") == "lgg8-kernel-build-v1", "kernel build provenance schema")
+    for name, data in (("kernel", kernel), ("dtb", dtb), ("effective_config", config)):
+        require(receipt.get("components", {}).get(name) == describe(data),
+                "kernel build provenance input mismatch: " + name)
+    require(receipt.get("provenance", {}).get("schema") == "lgg8-build-provenance-v1",
+            "kernel build provenance source record")
+    return {**receipt["provenance"], "capture_stage": "kernel-build", "profile": receipt.get("profile")}
+
+
 def build(args):
     require(not args.output.exists() and not args.output.is_symlink(), "output already exists")
     require(args.partition_size > 0, "--partition-size must be confirmed positive bytes")
@@ -443,11 +570,20 @@ def build(args):
     minimum_size = PAGE + align(18 + len(template["stock_dtbs"]), PAGE) + align(len(template["external_ramdisk"]), PAGE)
     require(args.partition_size >= minimum_size, "boot image exceeds explicitly supplied partition size (envelope alone cannot fit)")
     kernel, initrd = args.kernel.read_bytes(), args.initramfs.read_bytes()
+    source_dtb = args.dtb.read_bytes()
+    config_path = getattr(args, "config", None)
+    build_provenance_path = getattr(args, "build_provenance", None)
+    config_bytes = Path(config_path).read_bytes() if config_path is not None else None
+    if build_provenance_path is not None:
+        require(config_bytes is not None, "--config is required with --build-provenance")
+        provenance = load_kernel_build_provenance(build_provenance_path, kernel, source_dtb, config_bytes)
+    else:
+        provenance = build_provenance(Path(__file__).resolve().parents[2], config_path)
+        provenance["capture_stage"] = "package"
     image_size = kernel_header(kernel)
     cmdline_file = args.cmdline_file.read_bytes()
     bootargs = cmdline(cmdline_file)
     init = check_init(cpio(initrd), bootargs)
-    source_dtb = args.dtb.read_bytes()
     tree = Fdt(source_dtb)
     initrd_offset = align(image_size, ALIGN)
     dtb_offset = align(initrd_offset + len(initrd), ALIGN)
@@ -480,7 +616,8 @@ def build(args):
                 "initrd_address": LOAD + initrd_offset, "initrd_end": LOAD + initrd_offset + len(initrd),
                 "dtb_address": LOAD + dtb_offset, "payload_end": LOAD + payload_size, "memory": memory,
                 "bootargs": bootargs, "init": init, "shim_defines": ["DIAGNOSTIC_PSCI_RESET"],
-                "device_acceptance": "NOT_TESTED", "partition_size_source": "explicit caller argument; not probed"}
+                "device_acceptance": "NOT_TESTED", "partition_size_source": "explicit caller argument; not probed",
+                "provenance": provenance}
     verify_bytes(blob, manifest)
     publish(args.output, {"boot.img": blob, "manifest.json": json_bytes(manifest), "linux.dtb": dtb})
     return manifest
@@ -567,7 +704,13 @@ def main(argv=None):
     pack = sub.add_parser("build", help="build boot.img, manifest.json and patched linux.dtb")
     for name in ("kernel", "dtb", "initramfs", "template", "cmdline-file", "output"):
         pack.add_argument("--" + name, required=True, type=Path)
+    pack.add_argument("--config", type=Path, help="effective kernel .config used to build the Image")
+    pack.add_argument("--build-provenance", type=Path, help="kernel-build receipt; rejects inputs that differ from the recorded build")
     pack.add_argument("--partition-size", required=True, type=number, help="confirmed partition capacity in bytes; decimal or 0x hex, no default")
+    record = sub.add_parser("record-kernel-build", help="record source/config and exact kernel/DTB hashes after a build")
+    for name in ("kernel", "dtb", "config", "output"):
+        record.add_argument("--" + name, required=True, type=Path)
+    record.add_argument("--profile", required=True, help="build.sh action that produced these outputs")
     verify = sub.add_parser("verify", help="independently inspect embedded components against a trusted manifest",
                             description="The trusted manifest pins the compiled shim bytes. Verification does not recompile the shim or prove its instruction semantics/device acceptance.")
     verify.add_argument("--image", required=True, type=Path)
@@ -578,6 +721,8 @@ def main(argv=None):
             result = prepare_template(args)
         elif args.command == "build":
             result = build(args)
+        elif args.command == "record-kernel-build":
+            result = record_kernel_build(args)
         else:
             result = verify_bytes(args.image.read_bytes(), json.loads(args.manifest.read_text()))
         print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))

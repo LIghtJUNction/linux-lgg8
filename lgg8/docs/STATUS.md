@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | 官方基线与独立完整源码仓库 | 已建立 | 标签/提交明确，LG 代码独立维护 |
 | 本仓源码内核编译 | **通过** | 完整 ARM64 Image 与板 DTB；版本 `7.3.0-lgg8` |
-| 封装与本地测试 | **46 项通过，最终 verify 通过** | 使用本仓新 Image/DTB/CPIO，11,853,824 字节 boot.img，未上机 |
+| 封装与本地测试 | **62 项通过，最终 verify 通过** | 当前回归覆盖打包来源收据与输入哈希拒绝路径；硬件验收仍独立 |
 | 默认诊断 PID 1 | **QEMU virt 实际运行通过** | 同一内核进入 PID 1 并按期复位；非 PID 1 返回 91 保护也通过；不代表手机通过 |
 | 原生 initramfs | **GNU cpio 解析通过** | 说明归档可解析，不证明真机能启动 |
 | 本仓新内核真机启动 | **完整默认参数已运行** | C160 与 C162–169 使用 GPIO 保护、启用 TLMM、默认无 blacklist；每轮均回收 Android 且 A/B boot 哈希不变 |
@@ -36,6 +36,17 @@
 | EDL 9008 恢复 | **未验证** | 不能作为必然可用的兜底 |
 
 源码来源与文件指纹见 [PROVENANCE.md](PROVENANCE.md)；本地命令、制品哈希及检查结果见 [LOCAL-VALIDATION.md](LOCAL-VALIDATION.md)。当前源码已完成本机验证，后续真机结果需另行更新。
+
+## C187–C190：pstore writer 诊断静态门已通过
+
+四轮 RAM-only 测试均回收 Android；C187–C189 的 boot SHA 分别为
+`8e0cabd2…`、`85ca12e0…`、`d892c3cc…`，C190 为
+`d07408e631bb9570a3e787a9c2d2801f98668b359d232aff0953fc37cf050926`。
+C190 的主机观测到 Android USB 返回约 148 秒后完成回收，总计约 159 秒；这是主机时钟，不是 Linux uptime。slot `_b`、boot_a/boot_b 哈希不变。启动前、早期及回收后 pstore 快照均为空；recovery `last_kmsg` 不是可归属的候选 Linux 日志，C190 没有屏幕观察、Linux USB gadget 或 shell 证据。
+
+C190 实际 DTB 的 ramoops 区为 `0xb0000000–0xb0280000`，console 子区为 256 KiB。打包内核 SHA-256 `eccd43a30dd2559b7f1b4a27ceb2188ae77bbef541c618ffab2e7890a2b69db0` 与保留 ARM64 Image 完全相同；同目录 `vmlinux`/System.map 含 worker、ramoops probe/write 和 `pstore_write_console_and_seal()`。反汇编确认：容量字段在注册前由 ramoops console zone 初始化；backend `.write()` 返回 0 才 seal；可达失败路径释放锁并返回原始错误。**离线静态通过**，不证明真机执行过 worker 或写入成功，也不证明复位后 RAM 保持。
+
+下一轮若继续，必须使用不受 console seal 影响的独立可读记录，分别标记注册返回、worker 入口和 helper 调用者实际收到的 errno。三者都为空时只能记为“不可判定”。本轮之后未追加设备操作。
 
 ## C108 / C109 留下了什么证据
 

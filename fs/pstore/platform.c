@@ -391,11 +391,13 @@ static void pstore_unregister_kmsg(void)
 }
 
 #ifdef CONFIG_PSTORE_CONSOLE
+static bool pstore_console_sealed;
+
 static void pstore_console_write(struct console *con, const char *s, unsigned c)
 {
 	struct pstore_record record;
 
-	if (!c)
+	if (!c || READ_ONCE(pstore_console_sealed))
 		return;
 
 	pstore_record_init(&record, psinfo);
@@ -406,6 +408,55 @@ static void pstore_console_write(struct console *con, const char *s, unsigned c)
 	psinfo->write(&record);
 }
 
+/**
+ * pstore_write_console_and_seal - persist one final console record
+ * @buf: record bytes
+ * @size: number of bytes, bounded by the caller
+ *
+ * This is for a process-context diagnostic worker. It serializes against
+ * normal console writes and backend registration, then prevents later
+ * console output from overwriting the saved record during this boot.
+ */
+int pstore_write_console_and_seal(const char *buf, size_t size)
+{
+	struct pstore_record record;
+	int ret = 0;
+
+	if (!buf || !size || size > 4096)
+		return -EINVAL;
+
+	mutex_lock(&psinfo_lock);
+	if (!psinfo || !(psinfo->flags & PSTORE_FLAGS_CONSOLE)) {
+		ret = -ENODEV;
+		goto out_mutex;
+	}
+	if (!psinfo->name || strcmp(psinfo->name, "ramoops")) {
+		ret = -EOPNOTSUPP;
+		goto out_mutex;
+	}
+	if (!psinfo->console_bufsize || size > psinfo->console_bufsize) {
+		ret = -ENOSPC;
+		goto out_mutex;
+	}
+
+	console_lock();
+	if (pstore_console_sealed) {
+		ret = -EALREADY;
+	} else {
+		pstore_record_init(&record, psinfo);
+		record.type = PSTORE_TYPE_CONSOLE;
+		record.buf = (char *)buf;
+		record.size = size;
+		ret = psinfo->write(&record);
+		if (!ret)
+			WRITE_ONCE(pstore_console_sealed, true);
+	}
+	console_unlock();
+out_mutex:
+	mutex_unlock(&psinfo_lock);
+	return ret;
+}
+
 static struct console pstore_console = {
 	.write	= pstore_console_write,
 	.index	= -1,
@@ -413,6 +464,7 @@ static struct console pstore_console = {
 
 static void pstore_register_console(void)
 {
+	WRITE_ONCE(pstore_console_sealed, false);
 	/* Show which backend is going to get console writes. */
 	strscpy(pstore_console.name, psinfo->name,
 		sizeof(pstore_console.name));

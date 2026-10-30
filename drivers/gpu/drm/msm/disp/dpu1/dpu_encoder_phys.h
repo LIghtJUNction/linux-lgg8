@@ -243,8 +243,15 @@ struct dpu_encoder_phys_wb {
  * @pending_vblank_cnt: Atomic counter tracking pending wait for VBLANK
  * @pending_vblank_wq: Wait queue for blocking until VBLANK received
  */
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
+struct dpu_timeout_recorder;
+#endif
+
 struct dpu_encoder_phys_cmd {
 	struct dpu_encoder_phys base;
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
+	struct dpu_timeout_recorder *timeout_recorder;
+#endif
 	int stream_sel;
 	bool serialize_wait4pp;
 	int pp_timeout_report_cnt;

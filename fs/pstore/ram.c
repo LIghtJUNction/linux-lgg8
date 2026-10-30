@@ -795,6 +795,8 @@ static int ramoops_probe(struct platform_device *pdev)
 			       cxt->console_size, 0);
 	if (err)
 		goto fail_init;
+	if (cxt->cprz)
+		cxt->pstore.console_bufsize = cxt->cprz->buffer_size;
 
 	err = ramoops_init_prz("pmsg", dev, cxt, &cxt->mprz, &paddr,
 				cxt->pmsg_size, 0);

@@ -119,3 +119,20 @@ buffer/damage/commit/frame callback 链及 guest/Weston 的 printk 镜像均通�
 通过，原始 RAM 载荷末端为 `0xaea17720`，通过 bank 与保留区检查。
 本机另通过新增 shell 的 ShellCheck、supervisor 的 `-Wall -Wextra -Werror`
 语法检查及 Python AST 解析。真机完整组合结果仍须单独记录，不能由本节推导。
+
+## 构建来源收据回归（2026-10-30）
+
+本次变更为常规 `kernel`、`diag-ftrace`、`diag-pstore` 构建写入
+`build-provenance.json`，绑定构建时源码指纹、Image、DTB 与有效配置哈希；
+`boot` 打包时要求输入仍匹配收据。直接调用打包工具的 manifest 标注
+`capture_stage=package`，避免把打包时观察到的源码状态误称为编译来源。
+
+| 检查 | 结果 | 范围 |
+| --- | --- | --- |
+| 本地单元测试 | **62 项通过，0 跳过，4.229 秒** | `PYTHONDONTWRITEBYTECODE=1 ./lgg8/build.sh test`；含收据有效路径与 DTB 哈希不匹配拒绝路径 |
+| 构建脚本语法 | 通过 | `bash -n lgg8/build.sh` |
+| 打包工具 CLI | 通过 | `python3 lgg8/tools/bootimg.py --help` |
+| 差异空白检查 | 通过 | `git diff --check` |
+
+本次没有重编内核，也没有新生成 boot.img；这组检查验证工具与测试夹具，
+不改变既有候选镜像及其真机验收状态。

@@ -236,6 +236,7 @@ TEMPLATE_DIR="$PWD/private/template" PARTITION_SIZE='<BOOT_B_BYTES>' \
 python3 lgg8/tools/bootimg.py build \
   --kernel out/lgg8/kernel/arch/arm64/boot/Image \
   --dtb out/lgg8/kernel/arch/arm64/boot/dts/qcom/sm8150-lg-alphalm.dtb \
+  --config out/lgg8/kernel/.config \
   --initramfs out/lgg8/initramfs/initramfs.cpio \
   --template private/template \
   --cmdline-file lgg8/boot/cmdline.txt \
@@ -244,6 +245,10 @@ python3 lgg8/tools/bootimg.py build \
 ```
 
 将 `TIMESTAMP` 替换为本次唯一标识，避免覆盖其他候选。记录工具实际打印的镜像和 manifest 路径。默认命令行不含 `initcall_blacklist`，不得为复用旧候选而悄悄加回它。分区容量检查只防止镜像越界，不证明 bootloader 接受、签名有效或设备可启动。
+
+新生成的 `manifest.json` 还包含 `provenance`：源码 HEAD、工作树是否有改动、已跟踪差异哈希、未跟踪文件内容的汇总哈希、有效 `.config` 与基线配置哈希、关键配置项，以及 Clang/LLD/DTC/make/GCC/Python 版本。它不复制源码差异；发布前应先提交源码，或保留能匹配差异哈希的本地源码状态。没有 Git 元数据或未提供 `--config` 时，相应字段会为空。旧 manifest 没有此字段仍可验证。
+
+通过 `./lgg8/build.sh kernel|diag-ftrace|diag-pstore` 构建时，脚本在 make 成功后写入 `out/.../kernel/build-provenance.json`，其中固定当时的源码状态和 Image/DTB/有效配置 SHA-256。随后 `build.sh boot` 要求该收据与实际打包输入完全匹配；只运行 `dtb` 或修改 kernel/config 后，旧收据会拒绝打包，需先完成对应的 kernel 构建。直接使用 `bootimg.py build` 可不传收据，但 manifest 会明确标成 `capture_stage=package`，表示来源状态是在打包时记录，不能证明早先编译 Image 时的源码状态。
 
 ## 离线测试与产物验证
 
@@ -260,7 +265,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
   -s lgg8/tests -p 'test_*.py' -v
 ```
 
-必须看到实际发现并运行的测试数量；`Ran 0 tests` 不算通过。测试应覆盖正确输入及错误 SHA、格式/页尺寸、模板损坏、镜像篡改、manifest 不一致、分区容量不足等拒绝路径；截至 2026-10-29，46 项本地测试已通过；修改工具或输入约束后应重新运行。
+必须看到实际发现并运行的测试数量；`Ran 0 tests` 不算通过。测试覆盖正确输入及错误 SHA、格式/页尺寸、模板损坏、镜像篡改、manifest 不一致、分区容量不足、源码/config provenance 与 build receipt 不匹配等拒绝路径；截至 2026-10-30，62 项本地测试已通过；修改工具或输入约束后应重新运行。
 
 默认脚本产物使用：
 

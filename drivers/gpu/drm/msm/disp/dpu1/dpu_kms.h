@@ -8,7 +8,11 @@
 #ifndef __DPU_KMS_H__
 #define __DPU_KMS_H__
 
+#include <linux/atomic.h>
 #include <linux/interconnect.h>
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
+#include <linux/workqueue.h>
+#endif
 
 #include <drm/drm_drv.h>
 
@@ -101,6 +105,13 @@ struct dpu_kms {
 	atomic_t bandwidth_ref;
 	struct icc_path *path[2];
 	u32 num_paths;
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
+	struct delayed_work pstore_diag_work;
+	atomic_t diag_cmd_phys_init;
+	atomic_t diag_first_prepare;
+	atomic_t diag_pp_timeout;
+	unsigned int diag_pstore_attempts;
+#endif
 };
 
 struct vsync_info {

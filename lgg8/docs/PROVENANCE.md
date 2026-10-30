@@ -20,6 +20,19 @@ BSD-3-Clause 许可，驱动遵循文件头的 GPL-2.0-only，启动 shim 使用
 | `drivers/gpu/drm/panel/panel-lg-sw43410-cmds.h` | `08fa4b54c4e9fa5ad6dc8de21be8f43a25f5f8932ad4e7c94463b0053844153e` |
 | `lgg8/boot/shim-mmu-off.S` | `fc159aab0a67037b96979618d1062aae56a991f2a1e5064b81b41a682bbf1ec4` |
 
+## 每个 boot.img 的构建来源
+
+`bootimg.py build` 会把构建来源写入 manifest 的 `provenance` 对象：HEAD commit、工作树是否有改动、相对 HEAD 的 tracked diff SHA-256、未跟踪文件的数量及路径/内容汇总 SHA-256、实际 `.config` 与基线配置的大小和 SHA-256、关键配置项，以及 Clang、LLD、DTC、make、GNU AArch64 GCC 和 Python 版本。`build.sh boot` 自动传入构建目录里的有效 `.config`；直接调用打包器时可用 `--config` 指定。
+
+manifest 不嵌入源码补丁，也不暴露未跟踪文件名。若构建时工作树有改动，哈希可用于之后核对保留的源码状态，但不能单独重建这些改动；交付候选前优先先提交源代码并重新打包。Git 不可用时 commit/diff 字段为空；旧版 manifest 没有 `provenance` 字段仍可按原方式验证。所有字段都是来源记录，不代替对输入镜像、可信模板和设备验收的检查。
+
+标准构建在 `kernel`、`diag-ftrace` 或 `diag-pstore` 完成后写入
+`build-provenance.json`，把源码状态与 Image、DTB、`.config` 的字节级哈希绑定。
+`build.sh boot` 会重新核对三项输入；任一项变化都会停止打包。单独运行 `dtb`
+不会刷新收据，因此 DTB 变化后须先完成一次完整 kernel 构建。绕过收据直接打包时，
+manifest 标记 `capture_stage=package`，只代表打包时记录到的源码状态，不证明较早的
+Image 编译来源。
+
 面板命令头保存的是寄存器命令序列，源自这台 Alpha_lao 的运行时设备树。
 每组命令的数量与数据哈希写在头文件中。整个 OEM DTB 包、原厂 boot、分区备份、
 手机序列号和 pstore 原始记录均不作为 Git 项目内容；打包需要用户自己提供

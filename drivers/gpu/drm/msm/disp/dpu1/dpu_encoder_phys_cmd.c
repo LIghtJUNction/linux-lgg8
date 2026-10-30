@@ -4,8 +4,15 @@
  */
 
 #define pr_fmt(fmt)	"[drm:%s:%d] " fmt, __func__, __LINE__
+#include <linux/crc32.h>
 #include <linux/delay.h>
+#include <linux/ktime.h>
+#include <linux/pstore.h>
+#include <linux/random.h>
+#include <linux/spinlock.h>
 #include <linux/string_choices.h>
+#include <linux/wait.h>
+#include <linux/workqueue.h>
 #include "dpu_encoder_phys.h"
 #include "dpu_hw_interrupts.h"
 #include "dpu_hw_pingpong.h"
@@ -30,6 +37,341 @@
 	container_of(x, struct dpu_encoder_phys_cmd, base)
 
 #define PP_TIMEOUT_MAX_TRIALS	10
+#define DPU_TIMEOUT_RECORD_DELAY_SECONDS	20
+#define DPU_TIMEOUT_PROBE_DELAY_SECONDS	45
+
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
+enum dpu_timeout_recorder_state {
+	DPU_TIMEOUT_RECORDER_IDLE,
+	DPU_TIMEOUT_RECORDER_PREPARE_CAPTURE,
+	DPU_TIMEOUT_RECORDER_ARMED,
+	DPU_TIMEOUT_RECORDER_TIMEOUT_CAPTURE,
+	DPU_TIMEOUT_RECORDER_TIMEOUT_READY,
+	DPU_TIMEOUT_RECORDER_WRITING,
+	DPU_TIMEOUT_RECORDER_DONE,
+	DPU_TIMEOUT_RECORDER_FAILED,
+	DPU_TIMEOUT_RECORDER_STOPPED,
+};
+
+struct dpu_timeout_snapshot {
+	u64 nonce;
+	u64 arm_ns;
+	u64 deadline_ns;
+	u64 timeout_ns;
+	u64 sample_ns;
+	u64 freeze_ns;
+	int encoder_id;
+	int pp_id;
+	int ctl_id;
+	int intf_id;
+	int timeout_count;
+	int flush_calls;
+	int start_calls;
+	int pp_done_irqs;
+	int te_rdptr_irqs;
+	int ctl_start_irqs;
+	int underrun_irqs;
+	int pending_kickoffs;
+	int pending_ctlstarts;
+	bool ftrace_counters_available;
+	bool prepare_seen;
+	bool pp_timeout;
+	u32 pending_flush_shadow;
+	u32 ctl_flush_register;
+	bool ctl_start_bit;
+};
+
+struct dpu_timeout_recorder {
+	struct delayed_work work;
+	spinlock_t lock;
+	wait_queue_head_t producer_wait;
+	atomic_t producers;
+	struct dpu_timeout_snapshot snapshot;
+	u64 run_nonce;
+	u64 arm_ns;
+	enum dpu_timeout_recorder_state state;
+	bool stopped;
+};
+
+static bool dpu_timeout_recorder_enter(struct dpu_timeout_recorder *recorder)
+{
+	unsigned long flags;
+	bool entered = false;
+
+	spin_lock_irqsave(&recorder->lock, flags);
+	if (!recorder->stopped) {
+		atomic_inc(&recorder->producers);
+		entered = true;
+	}
+	spin_unlock_irqrestore(&recorder->lock, flags);
+
+	return entered;
+}
+
+static void dpu_timeout_recorder_exit(struct dpu_timeout_recorder *recorder)
+{
+	if (atomic_dec_and_test(&recorder->producers))
+		wake_up_all(&recorder->producer_wait);
+}
+
+static void dpu_timeout_snapshot_capture(struct dpu_encoder_phys *phys_enc,
+					struct dpu_encoder_phys_cmd *cmd_enc,
+					struct dpu_timeout_snapshot *s)
+{
+	struct dpu_hw_ctl *ctl = phys_enc->hw_ctl;
+
+	s->sample_ns = ktime_get_ns();
+	s->encoder_id = phys_enc->parent ? phys_enc->parent->base.id : -1;
+	s->pp_id = phys_enc->hw_pp ? phys_enc->hw_pp->idx - PINGPONG_0 : -1;
+	s->ctl_id = ctl ? ctl->idx - CTL_0 : -1;
+	s->intf_id = phys_enc->hw_intf ? phys_enc->hw_intf->idx - INTF_0 : -1;
+	s->timeout_count = cmd_enc->pp_timeout_report_cnt;
+#ifdef CONFIG_FTRACE
+	s->ftrace_counters_available = true;
+	s->flush_calls = atomic_read(&phys_enc->diag_flush_call_cnt);
+	s->start_calls = atomic_read(&phys_enc->diag_start_call_cnt);
+	s->pp_done_irqs = atomic_read(&cmd_enc->diag_pp_done_irq_cnt);
+	s->te_rdptr_irqs = atomic_read(&cmd_enc->diag_te_rdptr_irq_cnt);
+	s->ctl_start_irqs = atomic_read(&cmd_enc->diag_ctl_start_irq_cnt);
+	s->underrun_irqs = atomic_read(&cmd_enc->diag_underrun_irq_cnt);
+#else
+	s->ftrace_counters_available = false;
+	s->flush_calls = -1;
+	s->start_calls = -1;
+	s->pp_done_irqs = -1;
+	s->te_rdptr_irqs = -1;
+	s->ctl_start_irqs = -1;
+	s->underrun_irqs = -1;
+#endif
+	s->pending_kickoffs = atomic_read(&phys_enc->pending_kickoff_cnt);
+	s->pending_ctlstarts = atomic_read(&phys_enc->pending_ctlstart_cnt);
+	s->pending_flush_shadow = ctl && ctl->ops.get_pending_flush ?
+		ctl->ops.get_pending_flush(ctl) : 0;
+	s->ctl_flush_register = ctl && ctl->ops.get_flush_register ?
+		ctl->ops.get_flush_register(ctl) : 0;
+	s->ctl_start_bit = ctl && ctl->ops.is_started ?
+		ctl->ops.is_started(ctl) : false;
+}
+
+static void dpu_timeout_snapshot_probe(struct dpu_encoder_phys *phys_enc,
+				       struct dpu_encoder_phys_cmd *cmd_enc,
+				       struct dpu_timeout_recorder *recorder)
+{
+	struct dpu_timeout_snapshot *s = &recorder->snapshot;
+
+	recorder->run_nonce = get_random_u64();
+	s->nonce = recorder->run_nonce;
+	s->sample_ns = ktime_get_ns();
+	s->deadline_ns = s->sample_ns +
+		DPU_TIMEOUT_PROBE_DELAY_SECONDS * NSEC_PER_SEC;
+	s->encoder_id = phys_enc->parent ? phys_enc->parent->base.id : -1;
+	s->pp_id = phys_enc->hw_pp ? phys_enc->hw_pp->idx - PINGPONG_0 : -1;
+	s->ctl_id = phys_enc->hw_ctl ? phys_enc->hw_ctl->idx - CTL_0 : -1;
+	s->intf_id = phys_enc->hw_intf ? phys_enc->hw_intf->idx - INTF_0 : -1;
+	s->timeout_count = cmd_enc->pp_timeout_report_cnt;
+	s->flush_calls = -1;
+	s->start_calls = -1;
+	s->pp_done_irqs = -1;
+	s->te_rdptr_irqs = -1;
+	s->ctl_start_irqs = -1;
+	s->underrun_irqs = -1;
+	s->pending_kickoffs = atomic_read(&phys_enc->pending_kickoff_cnt);
+	s->pending_ctlstarts = atomic_read(&phys_enc->pending_ctlstart_cnt);
+	s->ftrace_counters_available = false;
+}
+
+static void dpu_timeout_snapshot_work(struct work_struct *work)
+{
+	char record[1024];
+	struct dpu_timeout_recorder *recorder = container_of(to_delayed_work(work),
+								     struct dpu_timeout_recorder,
+								     work);
+	struct dpu_timeout_snapshot s;
+	unsigned long flags;
+	bool no_prepare;
+	int len, crc_len;
+	int ret;
+	u32 crc;
+
+	spin_lock_irqsave(&recorder->lock, flags);
+	if (recorder->stopped ||
+	    (recorder->state != DPU_TIMEOUT_RECORDER_IDLE &&
+	     recorder->state != DPU_TIMEOUT_RECORDER_ARMED &&
+	     recorder->state != DPU_TIMEOUT_RECORDER_TIMEOUT_READY)) {
+		spin_unlock_irqrestore(&recorder->lock, flags);
+		return;
+	}
+	no_prepare = recorder->state == DPU_TIMEOUT_RECORDER_IDLE;
+	recorder->state = DPU_TIMEOUT_RECORDER_WRITING;
+	recorder->snapshot.freeze_ns = ktime_get_ns();
+	s = recorder->snapshot;
+	spin_unlock_irqrestore(&recorder->lock, flags);
+
+	len = scnprintf(record, sizeof(record),
+		"LGG8_DPU_DIAG v=2 nonce=%016llx phase=%s sample=%s\n"
+		"arm_ns=%llu deadline_ns=%llu timeout_ns=%llu "
+		"sample_ns=%llu freeze_ns=%llu\n"
+		"enc=%d pp=%d ctl=%d intf=%d timeout=%d\n"
+		"flush_calls=%d start_calls=%d pending_flush_shadow=0x%x "
+		"ctl_flush_register=0x%x ctl_start_bit=%u\n"
+		"ftrace_counters_available=%u irq_cb_pp_done=%d "
+		"te_rdptr=%d ctl_start=%d underrun=%d "
+		"pending_kickoff=%d pending_ctlstart=%d\n",
+		(unsigned long long)s.nonce,
+		s.pp_timeout ? "ppdone-timeout" :
+			(no_prepare ? "no-first-prepare-45s" : "no-pp-timeout-20s"),
+		s.pp_timeout ? "timeout" :
+			(no_prepare ? "encoder-created" : "first-prepare"),
+		(unsigned long long)s.arm_ns,
+		(unsigned long long)s.deadline_ns,
+		(unsigned long long)s.timeout_ns,
+		(unsigned long long)s.sample_ns,
+		(unsigned long long)s.freeze_ns,
+		s.encoder_id, s.pp_id, s.ctl_id, s.intf_id, s.timeout_count,
+		s.flush_calls, s.start_calls, s.pending_flush_shadow,
+		s.ctl_flush_register, s.ctl_start_bit,
+		s.ftrace_counters_available, s.pp_done_irqs,
+		s.te_rdptr_irqs, s.ctl_start_irqs, s.underrun_irqs,
+		s.pending_kickoffs, s.pending_ctlstarts);
+	crc_len = len;
+	crc = crc32_le(~0U, record, crc_len) ^ ~0U;
+	len += scnprintf(record + len, sizeof(record) - len,
+			 "crc32=%08x bytes=%d\n", crc, crc_len);
+
+	if (len < sizeof(record))
+		ret = pstore_write_console_and_seal(record, len);
+	else
+		ret = -EOVERFLOW;
+	if (ret && ret != -EALREADY)
+		pr_err("LGG8_DPU_DIAG pstore write failed: %d\n", ret);
+
+	spin_lock_irqsave(&recorder->lock, flags);
+	if (!recorder->stopped &&
+	    recorder->state == DPU_TIMEOUT_RECORDER_WRITING)
+		recorder->state = ret ? DPU_TIMEOUT_RECORDER_FAILED :
+					     DPU_TIMEOUT_RECORDER_DONE;
+	spin_unlock_irqrestore(&recorder->lock, flags);
+}
+
+static void dpu_timeout_recorder_cleanup(struct drm_device *dev, void *data)
+{
+	struct dpu_timeout_recorder *recorder = data;
+	unsigned long flags;
+
+	(void)dev;
+	spin_lock_irqsave(&recorder->lock, flags);
+	recorder->stopped = true;
+	recorder->state = DPU_TIMEOUT_RECORDER_STOPPED;
+	spin_unlock_irqrestore(&recorder->lock, flags);
+
+	wait_event(recorder->producer_wait,
+		   !atomic_read(&recorder->producers));
+	cancel_delayed_work_sync(&recorder->work);
+}
+
+static void dpu_timeout_snapshot_arm(struct dpu_encoder_phys *phys_enc,
+				     struct dpu_encoder_phys_cmd *cmd_enc)
+{
+	struct dpu_timeout_recorder *recorder = cmd_enc->timeout_recorder;
+	struct dpu_timeout_snapshot snapshot = {};
+	unsigned long flags;
+	bool captured = false;
+	u64 nonce = 0;
+	u64 arm_ns = 0;
+
+	if (!recorder || !dpu_timeout_recorder_enter(recorder))
+		return;
+
+	spin_lock_irqsave(&recorder->lock, flags);
+	if (recorder->state == DPU_TIMEOUT_RECORDER_IDLE) {
+		recorder->state = DPU_TIMEOUT_RECORDER_PREPARE_CAPTURE;
+		recorder->arm_ns = ktime_get_ns();
+		if (!recorder->run_nonce)
+			recorder->run_nonce = get_random_u64();
+		nonce = recorder->run_nonce;
+		arm_ns = recorder->arm_ns;
+		snapshot.deadline_ns = arm_ns +
+			DPU_TIMEOUT_RECORD_DELAY_SECONDS * NSEC_PER_SEC;
+		captured = true;
+	}
+	spin_unlock_irqrestore(&recorder->lock, flags);
+
+	if (captured) {
+		if (phys_enc->dpu_kms)
+			atomic_inc(&phys_enc->dpu_kms->diag_first_prepare);
+		dpu_timeout_snapshot_capture(phys_enc, cmd_enc, &snapshot);
+		snapshot.nonce = nonce;
+		snapshot.arm_ns = arm_ns;
+		snapshot.prepare_seen = true;
+		spin_lock_irqsave(&recorder->lock, flags);
+		if (!recorder->stopped &&
+		    recorder->state == DPU_TIMEOUT_RECORDER_PREPARE_CAPTURE) {
+			snapshot.pp_timeout = false;
+			recorder->snapshot = snapshot;
+			recorder->state = DPU_TIMEOUT_RECORDER_ARMED;
+			mod_delayed_work(system_percpu_wq, &recorder->work,
+					 DPU_TIMEOUT_RECORD_DELAY_SECONDS * HZ);
+		}
+		spin_unlock_irqrestore(&recorder->lock, flags);
+	}
+
+	dpu_timeout_recorder_exit(recorder);
+}
+
+static void dpu_timeout_snapshot_queue(struct dpu_encoder_phys *phys_enc,
+				       struct dpu_encoder_phys_cmd *cmd_enc,
+				       int timeout_count)
+{
+	struct dpu_timeout_recorder *recorder = cmd_enc->timeout_recorder;
+	struct dpu_timeout_snapshot snapshot = {};
+	unsigned long flags;
+	u64 nonce = 0;
+	u64 arm_ns = 0;
+	bool captured = false;
+
+	if (!recorder || !dpu_timeout_recorder_enter(recorder))
+		return;
+	if (phys_enc->dpu_kms)
+		atomic_inc(&phys_enc->dpu_kms->diag_pp_timeout);
+
+	spin_lock_irqsave(&recorder->lock, flags);
+	if (recorder->state == DPU_TIMEOUT_RECORDER_IDLE ||
+	    recorder->state == DPU_TIMEOUT_RECORDER_PREPARE_CAPTURE ||
+	    recorder->state == DPU_TIMEOUT_RECORDER_ARMED) {
+		if (!recorder->run_nonce)
+			recorder->run_nonce = get_random_u64();
+		if (!recorder->arm_ns)
+			recorder->arm_ns = ktime_get_ns();
+		recorder->state = DPU_TIMEOUT_RECORDER_TIMEOUT_CAPTURE;
+		nonce = recorder->run_nonce;
+		arm_ns = recorder->arm_ns;
+		snapshot.deadline_ns = arm_ns +
+			DPU_TIMEOUT_RECORD_DELAY_SECONDS * NSEC_PER_SEC;
+		snapshot.timeout_ns = ktime_get_ns();
+		captured = true;
+	}
+	spin_unlock_irqrestore(&recorder->lock, flags);
+
+	if (captured) {
+		dpu_timeout_snapshot_capture(phys_enc, cmd_enc, &snapshot);
+		snapshot.nonce = nonce;
+		snapshot.arm_ns = arm_ns;
+		snapshot.prepare_seen = true;
+		snapshot.timeout_count = timeout_count;
+		snapshot.pp_timeout = true;
+		spin_lock_irqsave(&recorder->lock, flags);
+		if (!recorder->stopped &&
+		    recorder->state == DPU_TIMEOUT_RECORDER_TIMEOUT_CAPTURE) {
+			recorder->snapshot = snapshot;
+			recorder->state = DPU_TIMEOUT_RECORDER_TIMEOUT_READY;
+			mod_delayed_work(system_percpu_wq, &recorder->work, 0);
+		}
+		spin_unlock_irqrestore(&recorder->lock, flags);
+	}
+
+	dpu_timeout_recorder_exit(recorder);
+}
+#endif
 
 /*
  * Tearcheck sync start and continue thresholds are empirically found
@@ -87,7 +429,9 @@ static void _dpu_encoder_phys_cmd_update_intf_cfg(
 static void dpu_encoder_phys_cmd_pp_tx_done_irq(void *arg)
 {
 	struct dpu_encoder_phys *phys_enc = arg;
+#ifdef CONFIG_FTRACE
 	struct dpu_encoder_phys_cmd *cmd_enc = to_dpu_encoder_phys_cmd(phys_enc);
+#endif
 	unsigned long lock_flags;
 	int new_cnt;
 	u32 event = DPU_ENCODER_FRAME_EVENT_DONE;
@@ -138,7 +482,9 @@ static void dpu_encoder_phys_cmd_te_rd_ptr_irq(void *arg)
 static void dpu_encoder_phys_cmd_ctl_start_irq(void *arg)
 {
 	struct dpu_encoder_phys *phys_enc = arg;
+#ifdef CONFIG_FTRACE
 	struct dpu_encoder_phys_cmd *cmd_enc = to_dpu_encoder_phys_cmd(phys_enc);
+#endif
 
 	DPU_ATRACE_BEGIN("ctl_start_irq");
 
@@ -156,7 +502,9 @@ static void dpu_encoder_phys_cmd_ctl_start_irq(void *arg)
 static void dpu_encoder_phys_cmd_underrun_irq(void *arg)
 {
 	struct dpu_encoder_phys *phys_enc = arg;
+#ifdef CONFIG_FTRACE
 	struct dpu_encoder_phys_cmd *cmd_enc = to_dpu_encoder_phys_cmd(phys_enc);
+#endif
 
 #ifdef CONFIG_FTRACE
 	atomic_inc(&cmd_enc->diag_underrun_irq_cnt);
@@ -209,6 +557,12 @@ static int _dpu_encoder_phys_cmd_handle_ppdone_timeout(
 		     cmd_enc->pp_timeout_report_cnt,
 		     atomic_read(&phys_enc->pending_kickoff_cnt),
 		     frame_event);
+
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
+	if (cmd_enc->pp_timeout_report_cnt == 1)
+		dpu_timeout_snapshot_queue(phys_enc, cmd_enc,
+					   cmd_enc->pp_timeout_report_cnt);
+#endif
 
 	/* to avoid flooding, only log first time, and "dead" time */
 	if (do_log) {
@@ -622,6 +976,9 @@ static void dpu_encoder_phys_cmd_prepare_for_kickoff(
 		DPU_ERROR("invalid encoder\n");
 		return;
 	}
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
+	dpu_timeout_snapshot_arm(phys_enc, cmd_enc);
+#endif
 	DRM_DEBUG_KMS("id:%u pp:%d pending_cnt:%d\n", DRMID(phys_enc->parent),
 		      phys_enc->hw_pp->idx - PINGPONG_0,
 		      atomic_read(&phys_enc->pending_kickoff_cnt));
@@ -775,6 +1132,10 @@ struct dpu_encoder_phys *dpu_encoder_phys_cmd_init(struct drm_device *dev,
 {
 	struct dpu_encoder_phys *phys_enc = NULL;
 	struct dpu_encoder_phys_cmd *cmd_enc = NULL;
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
+	struct dpu_timeout_recorder *recorder;
+	int ret;
+#endif
 
 	DPU_DEBUG("intf\n");
 
@@ -786,6 +1147,8 @@ struct dpu_encoder_phys *dpu_encoder_phys_cmd_init(struct drm_device *dev,
 	phys_enc = &cmd_enc->base;
 
 	dpu_encoder_phys_init(phys_enc, p);
+	if (phys_enc->dpu_kms)
+		atomic_inc(&phys_enc->dpu_kms->diag_cmd_phys_init);
 
 	mutex_init(&phys_enc->vblank_ctl_lock);
 	phys_enc->vblank_refcount = 0;
@@ -815,6 +1178,33 @@ struct dpu_encoder_phys *dpu_encoder_phys_cmd_init(struct drm_device *dev,
 	atomic_set(&cmd_enc->diag_te_rdptr_irq_cnt, 0);
 	atomic_set(&cmd_enc->diag_ctl_start_irq_cnt, 0);
 	atomic_set(&cmd_enc->diag_underrun_irq_cnt, 0);
+#endif
+
+#ifdef CONFIG_DRM_MSM_DPU_PSTORE_DIAG
+	recorder = drmm_kzalloc(dev, sizeof(*recorder), GFP_KERNEL);
+	if (recorder) {
+		spin_lock_init(&recorder->lock);
+		init_waitqueue_head(&recorder->producer_wait);
+		atomic_set(&recorder->producers, 0);
+		INIT_DELAYED_WORK(&recorder->work, dpu_timeout_snapshot_work);
+		ret = drmm_add_action_or_reset(dev,
+					       dpu_timeout_recorder_cleanup,
+					       recorder);
+		if (ret)
+			DPU_ERROR_CMDENC(cmd_enc,
+					 "diagnostic recorder cleanup unavailable: %d\n",
+					 ret);
+		else
+			cmd_enc->timeout_recorder = recorder;
+		if (!ret && cmd_enc->timeout_recorder) {
+			dpu_timeout_snapshot_probe(phys_enc, cmd_enc, recorder);
+			mod_delayed_work(system_percpu_wq, &recorder->work,
+					 DPU_TIMEOUT_PROBE_DELAY_SECONDS * HZ);
+		}
+	} else {
+		DPU_ERROR_CMDENC(cmd_enc,
+				 "diagnostic recorder allocation failed\n");
+	}
 #endif
 
 	DPU_DEBUG_CMDENC(cmd_enc, "created\n");

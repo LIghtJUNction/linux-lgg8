@@ -1,6 +1,6 @@
 # RAM 桌面根文件系统
 
-这是 Alpine 3.24.3 / AArch64 的文件级精简桌面：Weston 14.0.2、DRM + pixman、desktop-shell、终端、seatd、eudev 和 Liberation Mono。另保留小型 headless 后端供 QEMU 系统测试。**本地 headless 用户态已通过；LG G8 的 DRM、面板、触控和桌面仍未验收。**
+这是 Alpine 3.24.3 / AArch64 的文件级精简桌面：Weston 14.0.2、DRM + pixman、desktop-shell、终端、seatd、eudev 和 Liberation Mono。另保留小型 headless 后端供 QEMU 系统测试。**C198 已在 LG G8 真机验证 USB ACM root shell 命令往返；DRM scanout、可读桌面、面板和触控仍未验收。**
 
 源文件仅在本目录，默认生成物位于 `out/lgg8/desktop`。可用 `LGG8_DESKTOP_OUT=/absolute/path` 指定独立输出目录；构建缓存可通过该目录的 `cache` 符号链接复用。构建器没有设备、Git、主机软件安装或主机挂载操作。它不修改内核、DTS、通用 bootpacker 或 `build.sh`。
 
@@ -63,7 +63,7 @@ python3 lgg8/rootfs/test_pmsg_beacon_qemu.py --mode shell
 
 这些测试验证虚拟主机实际读到的 gadget iSerial、pmsg 探针挂起时 PID 1 仍
 能绑定并枚举，以及复位监督进程仍存活。`shell` 模式还会通过虚拟 ttyACM0
-发送一条命令并检查返回字节；这些测试不代替 LG G8 的物理枚举或真机 shell 验收。
+发送一条命令并检查返回字节；这些虚拟测试不代替 LG G8 的物理枚举或真机 shell 验收。C198 真机结果见 [`docs/STATUS.md`](../docs/STATUS.md#c198-真机-usb-acm-shell-命令往返通过)。
 
 `--base` 只读取调用者明确指定的本地归档并校验 SHA-256；指定路径不存在就停止，不猜测私人目录。不传它时，向专用 cache 获取锁定的官方 ARM mini，已有缓存则核验后复用。公开锁文件不包含本地用户路径。`build` 每次重新生成唯一工作根，并重新核验缓存 APK 的 SHA-256、签名、名称、版本和 aarch64/noarch 架构；没有包安装事务。`--record-lock` 仅用于首次经过签名验证后补入缺失的包 SHA-256，已有 SHA 不会被静默替换。当前锁文件已完整，不需要此选项。
 
@@ -108,7 +108,7 @@ RAM 日志有 `desktop-events.log`、`weston.log`、`client.log`、`seatd.log`�
 
 仅对 `/sys/class/udc` 中唯一的实际控制器创建 configfs ACM：VID:PID 为 `18d1:4ee7`，默认保留原 iSerial；启用 pmsg 探针时 serial 携带冻结回执，最多写一次 UDC 绑定。默认不打开 `/dev/ttyGS0`，不导出网络或存储，不访问持久分区。configfs 状态和阶段文件都只在 RAM。
 
-交互 shell 是另一项显式开关：只有同时设置 `lgg8.usb_beacon=1 lgg8.usb_shell=1`，且 ACM 的 UDC 绑定成功后，beacon worker 才在 `/dev/ttyGS0` 上启动 `/bin/sh -i`。shell 以 root 运行；绑定成功后会取消 3 秒 setup alarm，独立 PID 1 guardian 仍会在约 90 秒时复位。默认不开 shell。主机看到 `18d1:4ee7` 后可打开对应 `/dev/ttyACM*`。本机 `--mode shell` 测试覆盖虚拟 ACM 命令往返，但不代替 LG G8 真机 shell 验收。
+交互 shell 是另一项显式开关：只有同时设置 `lgg8.usb_beacon=1 lgg8.usb_shell=1`，且 ACM 的 UDC 绑定成功后，beacon worker 才在 `/dev/ttyGS0` 上启动 `/bin/sh -i`。shell 以 root 运行；绑定成功后会取消 3 秒 setup alarm，独立 PID 1 guardian 仍会在约 90 秒时复位。默认不开 shell。主机看到 `18d1:4ee7` 后可打开对应 `/dev/ttyACM*`。本机 `--mode shell` 覆盖虚拟 ACM 命令往返；C198 已在 LG G8 真机完成独立端口核验和命令输出校验（详情见 `docs/STATUS.md`）。这不代表屏幕显示或触控验收通过。
 
 产品字符串示例：
 

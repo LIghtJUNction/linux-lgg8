@@ -465,3 +465,11 @@ RAM-only `fastboot boot` 返回 0。物理口 1-2 时序：+0.001s Fastboot `18d
 此结果反证“DWC3 永远不会拉高 D+”这一强断言：在当前 USB2 peripheral 配置下，真机至少一次完成了物理连接和描述符枚举。它不定位先前候选为什么没有运行 beacon，也不证明枚举稳定或 shell 可用。
 
 独立源码审阅还发现两个尚未修正的诊断/错误传播缺口：`dwc3_gadget_soft_connect()` 忽略 `__dwc3_gadget_start()` 返回值，`dwc3_resume_common()` 未传播 `dwc3_gadget_resume()` 返回值；以及 `phy-qcom-snps-femto-v2.c` 的 REFCLK `write_mask()` 调用把 `mask` 与 `value` 参数倒置。C197 在这些源码保持原样时仍成功枚举，因此它们不是本轮枚举的阻断条件；PHY 实际复位位值未知，后续应作为独立、可验证的维护项处理，不回填成 C196 根因，也不据此做寄存器写入。
+
+### C198：真机 USB ACM shell 命令往返通过（2026-10-31）
+
+C198 在 C197 基础上加入显式开关 `lgg8.usb_shell=1`：仅在 `lgg8.usb_beacon=1` 且 ACM UDC 绑定成功后，PID1 子进程才在 `/dev/ttyGS0` 启动交互式 root shell。默认关闭，独立 PID1 90 秒恢复 watchdog 保留。源码提交 `fd841233502f939bc21f80c2ca433d3d7afcc2e3` 已推送至 `origin/lgg8/mainline`。本机 `build.sh test` 62/62 通过；隔离 dummy_hcd ACM shell 往返通过；AArch64 QEMU headless Weston 同 surface frame 流程通过。boot.img SHA-256 `04857cdb56d247ad1da95cecc660095b271c3141cfd9f277ee4d4a9aaf21e02d`，CPIO SHA-256 `0e26a5bcd088b78f7f9a4fe4bbffab942c63a099ed6a8e729b920ae5149fd449`，离线 bootimg verify 通过。
+
+真机使用 RAM-only `fastboot boot`，没有分区写入。物理口 1-2：+0.001 秒 Fastboot `18d1:4ee0`，+16.037 秒断开，+38.463 秒出现 Linux Gadget `18d1:4ee7`，iSerial 回执 `T=C198;O=OK;W=OK`；product 快照为 `DRM=1 CON=2 FB0=1 SEATSOCK=1 WPROC=1 ST=8`。+119.441 秒 gadget 断开，+137.263 秒 Android USB `1004:631f` 返回，ADB +137.553 秒上线。首次由普通权限 runner 打开 tty 被系统拒绝（`EACCES`，未发送命令）；随后先核实 tty 的 sysfs parent 正是物理端口 `1-2`、设备 ID `18d1:4ee7`，再用提权探针发送 `echo $((23*31))`，收到 `713`，证明 shell 实际执行命令并回传输出。原始权限失败记录保留在 run result，提权往返证据单独保存在 `out/lgg8-c198-usb-shell-20261031/run-02/physical-shell-roundtrip.json`。
+
+Android 回收为 `LM-G820 / alphalm_lao_com`、slot `_b`、`boot_completed=1`，boot ID 轮转。`boot_a` 和 `boot_b` 前后哈希不变；启动前、早期回连和回收后 pstore 均核验为空。屏幕没有可用观察记录；`ST=8` 和 Weston 进程只说明桌面启动阶段到达终端派生，不能证明 scanout 或可读画面。因此 C198 新增的已验收里程碑是**真机 Linux USB Gadget 枚举并通过 ACM shell 执行/回传命令**；显示花屏、触控与 pstore 读回仍未解决。完整证据摘要见候选目录 `acceptance.json`。

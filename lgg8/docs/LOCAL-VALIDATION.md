@@ -188,3 +188,13 @@ C196 使用 `diag-pstore` Image `2962224f1fda3031af28c01b05f3b0a9e15101cb266fcca
 RAM-only `fastboot boot` 返回 0。物理口 1-2 的 Fastboot 于 +0.001 秒出现、+16.238 秒断开；断开窗口没有观察到 Linux `18d1:4ee7` gadget。Android `1004:631f` 于 +137.164 秒返回，ADB 于 +137.452 秒恢复，总计 147.615 秒。设备恢复 `LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1`，boot ID 轮转；boot_a、boot_b SHA 均与启动前相同，全程无分区写入。
 
 启动前及回收后的 Android pstore 均经挂载范围、完整 tar 清单和源文件哈希核验为空，没有发现 `LGG8_USER_PMSG_PROBE` 或 DPU 记录。因为 beacon 参数缺失，C196 没有创建 gadget，也没有冻结或暴露 iSerial 回执；因此该轮不能判断 pmsg open/write 结果，更不能用“未枚举”判断 DWC3/D+。这是一轮 pmsg-probe-enabled 的 RAM 启动与恢复记录。当前 ACM beacon 代码也未启动 `/dev/ttyGS0` shell。屏幕观察未记录。完整运行器和证据位于 `out/lgg8-c196-pmsg-beacon-receipt-20261031/`。
+
+## C197 启用 USB beacon：真机枚举与 pmsg 写入（2026-10-31）
+
+从 C196 的最终 manifest bootargs 原样追加 `lgg8.usb_beacon=1`。C197 boot.img SHA-256 `25e8c8df9e496fb3a947d5860baa58c1a468af0cfa36bdec731cfb3f9521d13a`，30,818,304 字节。命令 `python3 -B lgg8/tools/bootimg.py verify --image out/lgg8-c197-usb-beacon-enabled-20261031/boot/boot.img --manifest out/lgg8-c197-usb-beacon-enabled-20261031/boot/manifest.json` 返回 PASSED。独立 manifest 差异门禁确认 C196→C197 只增加该启动参数；基础 kernel、源 DTB、CPIO、stock DTB、外部 ramdisk、template、shim source 和内存布局保持一致，变化组件是 cmdline_file、最终 DTB、gzip、payload、raw、shim、boot.img 等封装派生物。C197 继续使用既有 kernel build receipt；C196 的 manifest 是 package-stage provenance（没有 effective_config 字段），所以仅 provenance 元数据形态不同。
+
+真机运行沿用被动 RAM-only runner：Fastboot +0.001s `18d1:4ee0`，USB 断开 +16.234s，Linux `18d1:4ee7` +38.660s；manufacturer、product 和 iSerial 均可读，主机 `cdc_acm` 绑定并创建 `ttyACM0`，iSerial 显示 `T=C196;O=OK;W=OK`。Android USB `1004:631f` +137.286s 返回，物理 ADB +137.590s 恢复，总计 148.155s。Fastboot boot 命令返回 0；设备型号/codename、slot `_b`、`boot_completed=1`、boot ID 轮转均通过，`boot_a` 与 `boot_b` SHA 前后相同，无分区写入。运行器只被动观察 USB，没有打开 ACM TTY 或发数据。
+
+启动前、ADB 早期回连、Android 回收后 pstore 快照均为 `verified-empty`，目录清单与源文件哈希一致。由 iSerial 可确认 `/dev/pmsg0` open/write 成功；空 pstore 只说明 Android 回收路径没有读到记录，不能否定写入回执。屏幕未记录。运行器和原始证据位于 `out/lgg8-c197-usb-beacon-enabled-20261031/`。
+
+这轮通过的是物理 USB 枚举与描述符读取。ACM 字节往返、`ttyGS0` shell 和显示仍是独立验收项。

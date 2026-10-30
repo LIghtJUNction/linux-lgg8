@@ -453,3 +453,15 @@ C195 boot.img SHA-256 `ce1d56eab8fbc0e5922838d0df859c4047d28520aac2efd44eaa6c9bb
 C196 boot.img SHA-256 `527934b7c5e050d26567f72c40c3cfb63fe106c62ccfb639b98c7f49ff00844f`；RAM-only `fastboot boot` 返回 0。物理 USB 1-2 于 +16.238 秒断开，Android USB 于 +137.164 秒返回，ADB 于 +137.452 秒恢复。型号/设备、slot `_b`、`boot_completed=1`、boot ID 轮转及 boot_a/boot_b 不变全部核验通过；无分区写入。
 
 启动前与回收后 pstore 均经完整校验为空，没有 pmsg marker。关键勘误：C196 的最终 manifest bootargs 含 `lgg8.pmsg_probe=1 lgg8.pmsg_tag=C196`，但缺少 `lgg8.usb_beacon=1`；`supervisor.c` 默认 `beacon=0`，只有显式传入该参数才会创建并绑定 configfs ACM gadget。因此 C196 没有尝试 gadget 创建或 UDC bind，未见 `18d1:4ee7` 是预期结果，不能据此判断 DWC3、D+ 或 gadget bind。该轮 pmsg 探针结果仍未知；没有创建或暴露 iSerial 回执。当前 ACM 路径也没有启动 `/dev/ttyGS0` shell。屏幕未观察。设备证据在 `out/lgg8-c196-pmsg-beacon-receipt-20261031/run-01/`。该轮只证明 RAM-only 集成启动与 Android 安全回收，没有推进 Linux USB 枚举或 pmsg 读回里程碑。
+
+### C197：启用 USB beacon 后首次真机枚举成功（2026-10-31）
+
+C197 仅在 C196 原完整 bootargs 末尾增加 `lgg8.usb_beacon=1`，复用同一 kernel、源 DTB、CPIO 和 boot 模板；boot.img SHA-256 `25e8c8df9e496fb3a947d5860baa58c1a468af0cfa36bdec731cfb3f9521d13a`，30,818,304 字节。离线 `bootimg.py verify` 通过。manifest 差异核验确认实际功能变化只有 beacon 参数；kernel、源 DTB、CPIO、模板、shim 源码及硬件地址/显示配置保持一致，封装 DTB、压缩载荷和镜像 hash 随 bootargs 变化。C197 manifest 使用现有 kernel-build receipt；C196 的 package-time provenance 没有 effective-config 指纹，二者 provenance 字段形态不同，但基础构建输入哈希相同。
+
+RAM-only `fastboot boot` 返回 0。物理口 1-2 时序：+0.001s Fastboot `18d1:4ee0`，+16.234s 断开，+38.660s Linux Gadget `18d1:4ee7` 出现且 manufacturer/product/iSerial 可读；主机内核随后绑定 `cdc_acm` 并创建 `ttyACM0`。+119.465s 断开，+137.286s Android `1004:631f` 返回，ADB +137.590s 恢复；整轮 148.155s。iSerial 回执 `T=C196;O=OK;W=OK`（复用的 CPIO 标签仍为 C196，按本轮镜像 SHA、时序和空前置基线归属 C197），证明 PID1 的 `/dev/pmsg0` open 与完整 write 均成功。主机没有打开 ACM TTY 或发送数据，因此双向 ACM 通信和 shell 尚未验证；当前 CPIO 也没有 `/dev/ttyGS0` shell。
+
+回收后 `LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1` 核验通过，boot ID 轮转；`boot_a`、`boot_b` SHA 前后相同，无分区写入。启动前、早期 Android 回连、回收后 pstore 均通过完整目录/哈希校验且为空：pmsg write 成功已证实，但本轮 Android pstore 没读到该记录。屏幕观察未记录。运行器及证据：`out/lgg8-c197-usb-beacon-enabled-20261031/run-01/`。
+
+此结果反证“DWC3 永远不会拉高 D+”这一强断言：在当前 USB2 peripheral 配置下，真机至少一次完成了物理连接和描述符枚举。它不定位先前候选为什么没有运行 beacon，也不证明枚举稳定或 shell 可用。
+
+独立源码审阅还发现两个尚未修正的诊断/错误传播缺口：`dwc3_gadget_soft_connect()` 忽略 `__dwc3_gadget_start()` 返回值，`dwc3_resume_common()` 未传播 `dwc3_gadget_resume()` 返回值；以及 `phy-qcom-snps-femto-v2.c` 的 REFCLK `write_mask()` 调用把 `mask` 与 `value` 参数倒置。C197 在这些源码保持原样时仍成功枚举，因此它们不是本轮枚举的阻断条件；PHY 实际复位位值未知，后续应作为独立、可验证的维护项处理，不回填成 C196 根因，也不据此做寄存器写入。

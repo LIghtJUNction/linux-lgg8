@@ -87,12 +87,17 @@ static void _dpu_encoder_phys_cmd_update_intf_cfg(
 static void dpu_encoder_phys_cmd_pp_tx_done_irq(void *arg)
 {
 	struct dpu_encoder_phys *phys_enc = arg;
+	struct dpu_encoder_phys_cmd *cmd_enc = to_dpu_encoder_phys_cmd(phys_enc);
 	unsigned long lock_flags;
 	int new_cnt;
 	u32 event = DPU_ENCODER_FRAME_EVENT_DONE;
 
 	if (!phys_enc->hw_pp)
 		return;
+
+#ifdef CONFIG_FTRACE
+	atomic_inc(&cmd_enc->diag_pp_done_irq_cnt);
+#endif
 
 	DPU_ATRACE_BEGIN("pp_done_irq");
 	/* notify all synchronous clients first, then asynchronous clients */
@@ -119,6 +124,10 @@ static void dpu_encoder_phys_cmd_te_rd_ptr_irq(void *arg)
 	DPU_ATRACE_BEGIN("rd_ptr_irq");
 	cmd_enc = to_dpu_encoder_phys_cmd(phys_enc);
 
+#ifdef CONFIG_FTRACE
+	atomic_inc(&cmd_enc->diag_te_rdptr_irq_cnt);
+#endif
+
 	dpu_encoder_vblank_callback(phys_enc->parent, phys_enc);
 
 	atomic_add_unless(&cmd_enc->pending_vblank_cnt, -1, 0);
@@ -129,8 +138,13 @@ static void dpu_encoder_phys_cmd_te_rd_ptr_irq(void *arg)
 static void dpu_encoder_phys_cmd_ctl_start_irq(void *arg)
 {
 	struct dpu_encoder_phys *phys_enc = arg;
+	struct dpu_encoder_phys_cmd *cmd_enc = to_dpu_encoder_phys_cmd(phys_enc);
 
 	DPU_ATRACE_BEGIN("ctl_start_irq");
+
+#ifdef CONFIG_FTRACE
+	atomic_inc(&cmd_enc->diag_ctl_start_irq_cnt);
+#endif
 
 	atomic_add_unless(&phys_enc->pending_ctlstart_cnt, -1, 0);
 
@@ -142,6 +156,11 @@ static void dpu_encoder_phys_cmd_ctl_start_irq(void *arg)
 static void dpu_encoder_phys_cmd_underrun_irq(void *arg)
 {
 	struct dpu_encoder_phys *phys_enc = arg;
+	struct dpu_encoder_phys_cmd *cmd_enc = to_dpu_encoder_phys_cmd(phys_enc);
+
+#ifdef CONFIG_FTRACE
+	atomic_inc(&cmd_enc->diag_underrun_irq_cnt);
+#endif
 
 	dpu_encoder_underrun_callback(phys_enc->parent, phys_enc);
 }
@@ -199,6 +218,20 @@ static int _dpu_encoder_phys_cmd_handle_ppdone_timeout(
 			  phys_enc->hw_ctl->idx - CTL_0,
 			  cmd_enc->pp_timeout_report_cnt,
 			  atomic_read(&phys_enc->pending_kickoff_cnt));
+#ifdef CONFIG_FTRACE
+		DRM_ERROR("DPU_DIAG flush/start=%d/%d pending=0x%x busy=%d irq=%d/%d/%d/%d pk=%d/%d\n",
+			  atomic_read(&phys_enc->diag_flush_call_cnt),
+			  atomic_read(&phys_enc->diag_start_call_cnt),
+			  phys_enc->hw_ctl->ops.get_pending_flush ?
+				  phys_enc->hw_ctl->ops.get_pending_flush(phys_enc->hw_ctl) : 0,
+			  phys_enc->hw_ctl->ops.is_started(phys_enc->hw_ctl),
+			  atomic_read(&cmd_enc->diag_pp_done_irq_cnt),
+			  atomic_read(&cmd_enc->diag_te_rdptr_irq_cnt),
+			  atomic_read(&cmd_enc->diag_ctl_start_irq_cnt),
+			  atomic_read(&cmd_enc->diag_underrun_irq_cnt),
+			  atomic_read(&phys_enc->pending_kickoff_cnt),
+			  atomic_read(&phys_enc->pending_ctlstart_cnt));
+#endif
 		msm_disp_snapshot_state(drm_enc->dev);
 		dpu_core_irq_unregister_callback(phys_enc->dpu_kms,
 				phys_enc->irq[INTR_IDX_RDPTR]);
@@ -777,6 +810,12 @@ struct dpu_encoder_phys *dpu_encoder_phys_cmd_init(struct drm_device *dev,
 
 	atomic_set(&cmd_enc->pending_vblank_cnt, 0);
 	init_waitqueue_head(&cmd_enc->pending_vblank_wq);
+#ifdef CONFIG_FTRACE
+	atomic_set(&cmd_enc->diag_pp_done_irq_cnt, 0);
+	atomic_set(&cmd_enc->diag_te_rdptr_irq_cnt, 0);
+	atomic_set(&cmd_enc->diag_ctl_start_irq_cnt, 0);
+	atomic_set(&cmd_enc->diag_underrun_irq_cnt, 0);
+#endif
 
 	DPU_DEBUG_CMDENC(cmd_enc, "created\n");
 

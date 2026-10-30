@@ -24,7 +24,7 @@
 | `lgg8/boot/shim-mmu-off.S` | 启动交接 shim 源码，具体布局由打包工具维护 |
 | `lgg8/initramfs/` | 原生诊断 PID 1 及最小 initramfs 输入 |
 | `lgg8/rootfs/` | 可选 RAM 桌面构建、签名与 ELF 依赖核验、QEMU 会话检查 |
-| `lgg8/build.sh` | `kernel`、`dtb`、`initramfs`、`boot`、`test`、`verify` 入口 |
+| `lgg8/build.sh` | `kernel`、`dtb`、`diag-ftrace`、`initramfs`、`boot`、`test`、`verify` 入口 |
 | `lgg8/tools/bootimg.py` | `prepare-template`、`build`、`verify` 离线工具 |
 | `lgg8/tests/` | 打包工具离线回归测试 |
 | `out/lgg8/` | 默认独立输出目录，避免污染源码树 |
@@ -40,6 +40,8 @@ cd linux-lgg8
 ```
 
 内核默认采用 `ARCH=arm64 LLVM=1`、并行任务数 2。显式输出目录的形式为 `./lgg8/build.sh kernel out/lgg8`；内存紧张时用 `JOBS=1`。原生 init 使用 `aarch64-linux-gnu-gcc` 静态编译，不能用主机 x86 ELF 代替。只修改板级设备树时，可用 `./lgg8/build.sh dtb` 单独构建 DTB，随后重新打包并验证。
+
+排查显示回调是否发生时，可用 `./lgg8/build.sh diag-ftrace out/lgg8` 构建带持久函数跟踪的诊断内核；它不会自动打开跟踪，候选 bootargs 必须提供过滤函数与 `pstore.record_ftrace=1`。详情和证据限制见 [BUILD.md](docs/BUILD.md#持久-dpu-dsi-函数跟踪候选)。
 
 打包前必须按 [BUILD.md](docs/BUILD.md) 准备已验证的 v0 模板，并取得准确的目标分区字节数：
 

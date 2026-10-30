@@ -87,6 +87,7 @@ static struct ftrace_ops pstore_ftrace_ops __read_mostly = {
 
 static DEFINE_MUTEX(pstore_ftrace_lock);
 static bool record_ftrace;
+static bool record_ftrace_enabled;
 module_param(record_ftrace, bool, 0400);
 MODULE_PARM_DESC(record_ftrace,
 		 "enable ftrace recording immediately (default: off)");
@@ -95,7 +96,7 @@ static int pstore_set_ftrace_enabled(bool on)
 {
 	ssize_t ret;
 
-	if (on == record_ftrace)
+	if (on == record_ftrace_enabled)
 		return 0;
 
 	if (on) {
@@ -109,7 +110,7 @@ static int pstore_set_ftrace_enabled(bool on)
 		pr_err("%s: unable to %sregister ftrace ops: %zd\n",
 		       __func__, on ? "" : "un", ret);
 	} else {
-		record_ftrace = on;
+		record_ftrace_enabled = on;
 	}
 
 	return ret;
@@ -138,7 +139,7 @@ static ssize_t pstore_ftrace_knob_write(struct file *f, const char __user *buf,
 static ssize_t pstore_ftrace_knob_read(struct file *f, char __user *buf,
 				       size_t count, loff_t *ppos)
 {
-	char val[] = { '0' + record_ftrace, '\n' };
+	char val[] = { '0' + record_ftrace_enabled, '\n' };
 
 	return simple_read_from_buffer(buf, count, ppos, val, sizeof(val));
 }
@@ -167,9 +168,9 @@ void pstore_register_ftrace(void)
 void pstore_unregister_ftrace(void)
 {
 	mutex_lock(&pstore_ftrace_lock);
-	if (record_ftrace) {
+	if (record_ftrace_enabled) {
 		unregister_ftrace_function(&pstore_ftrace_ops);
-		record_ftrace = false;
+		record_ftrace_enabled = false;
 	}
 	mutex_unlock(&pstore_ftrace_lock);
 

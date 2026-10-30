@@ -6,10 +6,11 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 ACTION=${1:-help}
 if [[ "$ACTION" == help || "$ACTION" == --help ]]; then
     cat <<'EOF'
-Usage: ./lgg8/build.sh {kernel|dtb|initramfs|boot|test|verify} [OUT]
+Usage: ./lgg8/build.sh {kernel|dtb|diag-ftrace|initramfs|boot|test|verify} [OUT]
 OUT defaults to <repository>/out/lgg8. No phone commands are executed.
 kernel:    build Image + qcom/sm8150-lg-alphalm.dtb (JOBS defaults to 2)
 dtb:       rebuild only the board device tree for a short local iteration
+diag-ftrace: build Image + DTB with filtered persistent function tracing support
 initramfs: build a static diagnostic PID 1 with a 45-second reset deadline
 boot:      package existing outputs; requires TEMPLATE_DIR and PARTITION_SIZE
            Optional INITRAMFS, CMDLINE_FILE, BOOT_OUTPUT override inputs/output.
@@ -18,7 +19,7 @@ test:      run local packaging and initramfs unit tests
 EOF
     exit 0
 fi
-case "$ACTION" in kernel|dtb|initramfs|boot|verify|test) ;; *) echo "Unknown action: $ACTION" >&2; exit 2;; esac
+case "$ACTION" in kernel|dtb|diag-ftrace|initramfs|boot|verify|test) ;; *) echo "Unknown action: $ACTION" >&2; exit 2;; esac
 if [[ "$ACTION" == test ]]; then
     exec python3 -m unittest discover -s "$ROOT/lgg8/tests" -p 'test_*.py' -v
 fi
@@ -43,7 +44,7 @@ export KBUILD_BUILD_USER=lgg8 KBUILD_BUILD_HOST=builder KBUILD_BUILD_VERSION=1
 export LOCALVERSION=${LOCALVERSION-}
 
 case "$ACTION" in
-kernel|dtb)
+kernel|dtb|diag-ftrace)
     JOBS=${JOBS:-2}
     [[ "$JOBS" =~ ^[1-9][0-9]*$ ]] || { echo 'JOBS must be positive.' >&2; exit 2; }
     python3 - "$OUT" "$ACTION" <<'PY'
@@ -55,6 +56,10 @@ if free < needed:
 PY
     mkdir -p -- "$OUT/kernel"
     cp -- "$ROOT/lgg8/configs/lgg8.config" "$OUT/kernel/.config"
+    if [[ "$ACTION" == diag-ftrace ]]; then
+        "$ROOT/scripts/kconfig/merge_config.sh" -m -O "$OUT/kernel" \
+            "$OUT/kernel/.config" "$ROOT/lgg8/configs/pstore-ftrace-diagnostic.config"
+    fi
     make -C "$ROOT" O="$OUT/kernel" ARCH=arm64 LLVM=1 olddefconfig
     TARGETS=(qcom/sm8150-lg-alphalm.dtb)
     [[ "$ACTION" == dtb ]] || TARGETS=(Image "${TARGETS[@]}")

@@ -1660,6 +1660,9 @@ static void _dpu_encoder_trigger_flush(struct drm_encoder *drm_enc,
 	if (extra_flush_bits && ctl->ops.update_pending_flush)
 		ctl->ops.update_pending_flush(ctl, extra_flush_bits);
 
+#ifdef CONFIG_FTRACE
+	atomic_inc(&phys->diag_flush_call_cnt);
+#endif
 	ctl->ops.trigger_flush(ctl);
 
 	if (ctl->ops.get_pending_flush)
@@ -1699,8 +1702,12 @@ static void _dpu_encoder_trigger_start(struct dpu_encoder_phys *phys)
 		return;
 	}
 
-	if (phys->ops.trigger_start && phys->enable_state != DPU_ENC_DISABLED)
+	if (phys->ops.trigger_start && phys->enable_state != DPU_ENC_DISABLED) {
+#ifdef CONFIG_FTRACE
+		atomic_inc(&phys->diag_start_call_cnt);
+#endif
 		phys->ops.trigger_start(phys);
+	}
 }
 
 /**

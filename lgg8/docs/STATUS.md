@@ -362,3 +362,42 @@ C178 的 PPS 在 HS 模式发送。Candidate 179 仅改变初始 128 字节 PPS 
 源码核对确认临时 LPM flag 会被 MIPI DSI helper 转成 `MIPI_DSI_MSG_USE_LPM` 并传至 MSM host；这验证了软件选择的消息模式，不证明面板电气链路已接受 PPS。静态检查还确认最终 DTB 的活动 DSI/panel endpoint 双向连接、GPIO8 配置为 `mdp_vsync`，以及 PPS 的保存/恢复路径。运行时 DPU/PP/CTL 分配、PP_DONE 硬件状态、TE 波形和面板收到的实际数据仍未证实。
 
 RAM-only `fastboot boot` 被接受。USB 1-2 于 +15.834 秒断开、+97.930 秒恢复 Android，ADB 于 +98.239 秒上线，总运行 108.431 秒；与 C178 时序基本相同。用户观察为“花屏5”（覆盖范围未说明），未取得可读画面，LP PPS 没有显示出可见修复。两次 pstore 快照均为空，因此本轮没有新增 PP_DONE 或 DPU timeout 运行证据。`boot_completed=1`、型号/设备/slot 保持 `LM-G820` / `alphalm_lao_com` / `_b`，`boot_a` 与 `boot_b` 哈希不变；无分区写入、ttyACM 打开或终端输入。完整候选及运行证据保存在相邻 `android-mainline-port/out/candidate-m3-desktop-direct-20261030-179/` 与 `run-candidate-m3-desktop-direct-20261030-179-attempt2/`。
+
+### Candidate 180：持久 DPU/DSI 跟踪与 ramoops 读回
+
+C179 的屏幕反馈后来被用户更正为“没来得及看/没看到，不确定”；早先的“花屏5”保留为先前回答，不能视作 C179 的可靠显示结论。
+
+Candidate 180 启用 `FTRACE`、`FUNCTION_TRACER`、`DYNAMIC_FTRACE` 与 `PSTORE_FTRACE`，并只筛选 12 个已在最终 `System.map` 中核实存在的 DPU/DSI 函数。boot.img SHA-256 为 `0d0ceeff378e3adb61b5e284e52554d8423a42173806eabe9b73bb64dbb89c9f`；镜像 31,076,352 字节，离线校验通过，低于实测 100,663,296 字节 boot 容量。
+
+RAM-only `fastboot boot` 被接受；USB 1-2 于 +16.230 秒断开、+100.135 秒以 Android `1004:631f` 返回。ADB +100.221 秒上线，`boot_completed=1`；设备身份和 slot `_b` 保持，boot ID 轮转，`boot_a`/`boot_b` SHA 均未变化，boot_b 仍为既有基线。无分区写入、ttyACM 打开或输入。当前没有可靠的 C180 屏幕观察。
+
+复位后读回 85,284 字节 `console-ramoops-0`；设备端前后 SHA 与归档成员 SHA 均为 `1605297c84b342738dc110e2152cfde87c53702a342f3739e026689cde90064b`，确认字节传输稳定。日志字符有损坏，但可辨认多次 `frame done timeout` 与 `failed wait_for_idle`，支持 DPU command-mode 帧完成仍超时的诊断；它不能区分 TE、DPU 中断、DSI 传输或面板接受状态。
+
+本次未出现 `ftrace-ramoops-*`。源码路径审计发现启动参数布尔值 `record_ftrace=true` 与“回调已注册”状态共用同一变量，初始化的 `pstore_set_ftrace_enabled(true)` 因相等判断提前返回，跳过注册。已在工作树把参数请求与回调状态分开；Candidate 180 不包含该修复，因此不能据它判断过滤函数没有执行。Candidate 181 将验证该修复及持久轨迹读回。C180 镜像、完整运行采集、pstore 原始归档和符号表保存在 `android-mainline-port/out/candidate-m3-desktop-ftrace-20261030-180/` 与 `out/run-candidate-m3-desktop-ftrace-20261030-180-attempt1/`。
+
+
+### Candidate 181：验证 pstore 读取边界
+
+Candidate 181 仅在 C180 跟踪内核中加入 `record_ftrace` 请求值与实际回调注册状态分离修复。RAM-only 启动被接受；USB 1-2 于 +16.233 秒断开、+100.121 秒以 Android `1004:631f` 返回，ADB +100.384 秒上线。`boot_completed=1`，身份、slot `_b` 与两槽 boot 哈希均核验通过，无分区写入。读回 85,388 字节 console，前后与归档哈希一致；仍没有 ftrace 文件。
+
+只读检查确认返回 Android 使用 Linux `4.14.348-openela-perf+`；`/proc/config.gz` 有 `CONFIG_PSTORE_CONSOLE=y`、`CONFIG_PSTORE_RAM=y`，没有 `CONFIG_PSTORE_FTRACE`；设备未提供 `/dev/mem`。因此 Android 端的 pstore 导出器不能展示 Candidate 181 的 ftrace 区，文件缺失不构成回调修复失败的证据。C181 镜像与运行记录保存在 `android-mainline-port/out/candidate-m3-desktop-ftrace-20261030-181/` 与对应 `run-candidate-m3-desktop-ftrace-20261030-181-attempt1/`。
+
+### Candidate 182：首次量化 TE/read-pointer 与 PP_DONE 中断
+
+为绕过 Android 4.14 不支持 ftrace 区导出的限制，诊断配置下在 DPU command-mode 编入四个 IRQ 累计计数器；仅在第一次 PP_DONE 超时时向 ramoops console 输出 PP_DONE、TE/read-pointer、CTL_START 与 underrun 数量。普通配置不包含这些计数器。boot.img SHA-256 为 `646b9484fdd35a78098b51bbf1e968b369353d07a81483ec10fd6ee1f461dbf8`，大小 31,076,352 字节，离线验证通过。
+
+RAM-only 启动被接受；USB 1-2 于 +16.231 秒断开、+100.116 秒返回 Android，ADB +100.394 秒上线。`boot_completed=1`、身份/slot `_b` 与 boot_a/boot_b 哈希核验通过，无分区写入。稳定读回 86,948 字节 console，SHA-256 `7c2fae52919ca2d1b242a230e48c841b0b0af6395a91c67a9aa8bc663ac4ba93`。字符有损坏，但首次超时约 +6.2 秒处的新增计数行可对齐为：`pp_done=0 te_rdptr=2 ctl_start=0 underrun=0`。这表示 DPU 的 TE/read-pointer 回调路径至少运行两次，同时没有观察到 PP_DONE、CTL_START 或 underrun 回调；它把问题缩小到命令模式 kickoff/CTL 启动与完成中断路径，尚不能说明为何这些中断没有到达。该行不是对外部 TE 电气波形或面板接收数据的直接测量。
+
+C182 当前没有可靠屏幕观察。原始 console、哈希、候选与完整被动采集保存在 `android-mainline-port/out/candidate-m3-desktop-dpu-irqs-20261030-182/` 和 `out/run-candidate-m3-desktop-dpu-irqs-20261030-182-attempt1/`。
+
+### Candidate 183：软件 kickoff 与 CTL 状态采集
+
+C182 首超时计数显示 TE/read-pointer 回调出现两次，但 CTL_START/PP_DONE 为零。Candidate 183 继续在 `CONFIG_FTRACE` 诊断构建中记录软件 flush/start 调用数、pending-flush 位、CTL busy 与待处理计数，并沿用四类 IRQ 计数。boot.img SHA-256 为 `629fd2f889383ba7108dbe45f7a280e905c312a298be41f438ebc448a3207df0`，离线验证通过。
+
+RAM-only 启动被接受；USB 1-2 于 +16.231 秒断开、+100.116 秒返回 Android，ADB +100.374 秒上线。`boot_completed=1`，两槽 boot 哈希未变。稳定读回 87,055 字节 console，SHA-256 `a6158ff6151043d1eda12f1ac5605f60009a52f145b8de4b27b8dc7a498d1150`。字符损坏严重，本轮无法可靠恢复新增软件调用数/CTL 状态字段；所以没有据此把故障归到 CTL 写入侧或硬件响应侧。原始记录、脱敏回收摘要和候选保存在 `android-mainline-port/out/candidate-m3-desktop-dpu-state-20261030-183/` 与 `out/run-candidate-m3-desktop-dpu-state-20261030-183-attempt1/`。
+
+### Candidate 184：合并短日志的 kickoff/IRQ 诊断
+
+Candidate 184 只把 C183 的两条诊断输出合并为一条 `DPU_DIAG`，缩短 pstore 行长；boot.img SHA-256 `95904f00c382bb92f5e2cc368c642786b59adbdb81bac2ba49b96922a073d6bc`，大小 31,076,352 字节，桌面 initramfs SHA-256 `345d8001e7cbba1a29ba71adb9de33fa4ae0f3b8cb1dd408b4fb226c59e30b4e`。离线 boot.img 校验通过。
+
+RAM-only 测试于 +16.232 秒观察到 USB 1-2 断开，+104.120 秒返回 Android；`boot_completed=1`、设备 `LM-G820 / alphalm_lao_com`、slot `_b`、boot ID 轮转，boot_a/b 哈希均保持不变，boot_b 基线 `fec418e5…` 匹配。未写分区，未打开 ttyACM 或发送输入。Android 的 `console-ramoops-0` 在本轮前后相同，31,613 字节，SHA-256 `405025287678331468463de46b0eb50fe8a459660dd72c4208e0099786fa4230`；没有读到 `DPU_DIAG`，所以 C184 没有补上软件 kickoff/CTL 侧证据。屏幕观察缺失。候选及原始 pstore 证据位于 `android-mainline-port/out/candidate-m3-desktop-dpu-state-20261030-184/`，运行记录位于 `out/run-candidate-m3-desktop-dpu-state-20261030-184-attempt2/`。

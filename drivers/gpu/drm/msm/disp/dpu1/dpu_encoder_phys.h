@@ -198,6 +198,10 @@ struct dpu_encoder_phys {
 	wait_queue_head_t pending_kickoff_wq;
 	unsigned int irq[INTR_IDX_MAX];
 	bool has_intf_te;
+#ifdef CONFIG_FTRACE
+	atomic_t diag_flush_call_cnt;
+	atomic_t diag_start_call_cnt;
+#endif
 };
 
 static inline int dpu_encoder_phys_inc_pending(struct dpu_encoder_phys *phys)
@@ -246,6 +250,12 @@ struct dpu_encoder_phys_cmd {
 	int pp_timeout_report_cnt;
 	atomic_t pending_vblank_cnt;
 	wait_queue_head_t pending_vblank_wq;
+#ifdef CONFIG_FTRACE
+	atomic_t diag_pp_done_irq_cnt;
+	atomic_t diag_te_rdptr_irq_cnt;
+	atomic_t diag_ctl_start_irq_cnt;
+	atomic_t diag_underrun_irq_cnt;
+#endif
 };
 
 /**

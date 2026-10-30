@@ -40,6 +40,31 @@ test ! -d private || timeout 20s prefixlens private --summary
 
 超时不等于目录为空。根据目标配置、现有构建目录及并存候选预留数 GB 至数十 GB，不能把 100 MB 触发阈值当作容量预算。默认 `JOBS=2` 是保守并发起点，不是内存足够的保证；内存/交换空间紧张时改用 `JOBS=1`，避免与其他大型编译并行。不要使用无上限的 `-j$(nproc)` 来覆盖脚本默认值。
 
+## 持久 DPU/DSI 函数跟踪候选
+
+`./lgg8/build.sh diag-ftrace out/lgg8` 从完整基线配置合并
+`lgg8/configs/pstore-ftrace-diagnostic.config`，启用 function tracer 和
+`PSTORE_FTRACE`，然后增量构建 Image 与板级 DTB。该模式用于一次性的 RAM
+诊断，不作为默认产品配置。候选命令行还需显式指定：
+
+```text
+ftrace_filter=<逗号分隔的函数名> pstore.record_ftrace=1
+```
+
+`ftrace_filter` 将持久记录限制在指定函数；设备回 Android 后，应立即保存
+`/sys/fs/pstore/ftrace-ramoops-*` 的原始字节，并用本次 Image 对应的
+`System.map` 解读地址。空记录或没有目标函数只能说明该次采集没有留下可读内容，
+不能单凭缺失记录断言中断或面板链路没有运行。此配置是否能从 LG G8 的复位路径
+保留并由 Android 导出，仍须用 RAM-only 真机实验确认。
+
+Candidate 180 首次开启该功能时发现 `fs/pstore/ftrace.c` 将启动参数
+`record_ftrace` 与“回调已注册”共用同一布尔变量：参数为 true 时，初始化会误判为
+已经启用并跳过 `register_ftrace_function()`。源码现将请求值与实际注册状态分开；
+该改动已编入 Candidate 181，但 Android 返回内核为 4.14.348，配置没有
+`CONFIG_PSTORE_FTRACE`，因此 `/sys/fs/pstore` 只导出 console；没有 ftrace 文件不能
+判断 Candidate 181 是否在 Linux 阶段成功记录。后续使用 console 可读的有限事件计数，
+或另行设计 Linux 运行阶段的轨迹导出。
+
 复用一个 `out/lgg8` 做增量构建；只有确实需要对照时才保留第二套对象目录。清理时逐项确认属于本次任务、未被运行中的构建引用，保留最终镜像、对应 manifest、有效模板、未提交源码及唯一恢复备份。不为整理输出而执行 `git clean -fdx`。系统回收站内的文件仍占用磁盘，移入回收站不能算作已释放空间。
 
 ## 获取源码

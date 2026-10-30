@@ -493,3 +493,11 @@ Android 回收为 `LM-G820 / alphalm_lao_com`、slot `_b`、`boot_completed=1`�
 新的待验证线索：fault IOVA `0x9e30a700` 位于设备树预留的 splash 区间 `[0x9d200000, 0x9e400000)`；若把该物理区间起点当作缓冲区基址，fault 偏移 `0x110a700` 仍在一个 17,973,248 字节 framebuffer 范围内，距其末尾 `0x19900` 字节。R5 还列出 fbdev 的 `stolenfb` 对象，但该对象在当前 GEM VMA 列表中没有映射。现有证据没有证明 `stolenfb` 的物理 backing 就是 `splash_mem`，也没有证明故障发生时该对象仍在 scanout；“旧 splash/bootloader 地址被当作 IOVA”只是需要用早期 framebuffer IOVA 日志验证的假设，不能据此改映射或宣称根因已证实。
 
 R5 的脱敏运行与 ACM 输出保存在本机忽略目录 `out/lgg8-c198-usb-shell-20261031/run-05/`。下一步应在单变量候选中仅启用 DRM atomic-state 调试日志（核实 `DRM_UT_STATE` 位后），捕获 fbdev/早期 framebuffer prepare 时的 `FB[id] iova`，并与 `0x9e30a700` 比对；不要读取 per-CRTC 易触发问题的 `status`/`state` 节点。屏幕仍未取得可靠观察，可读显示里程碑仍未完成。
+
+#### C199：仅启用早期 DRM IOVA 日志，离线打包完成（2026-10-31）
+
+使用与 C198 完全相同的 kernel Image、source DTB、initramfs 和私有启动模板，只将两项日志参数追加到 C198 原始 bootargs：`drm.debug=0x40 log_buf_len=4M`。C198 对应的精确 `.config` 为 `CONFIG_LOG_BUF_SHIFT=17`（默认 128 KiB）、`CONFIG_LOG_CPU_MAX_BUF_SHIFT=12`，未启用 `CONFIG_DYNAMIC_DEBUG`。`include/drm/drm_print.h` 将 `DRM_UT_STATE` 定义为类别索引 6，过滤条件是 `__drm_debug & BIT(category)`，所以 `0x40` 只启用 state 类；`drivers/gpu/drm/msm/msm_fb.c` 的 `msm_framebuffer_prepare()` 在第 90 行用 `drm_dbg_state()` 打印 `FB[id] iova`。`kernel/printk/printk.c` 的 `log_buf_len` early parameter 接受 `4M`，用于保留早期日志到 ACM shell 可用时。没有改内核、设备树源码、initramfs、显示时序或 MMIO。
+
+离线构建产物为 `out/lgg8-c199-drm-state-20261031-1/boot/boot.img`，SHA-256 `03bb98ad7662809d0aa1fe733294b84ae6881e76811dab586eb41c13cc15f91c`，大小 30,818,304 字节。initramfs SHA-256 仍为 `0e26a5bcd088b78f7f9a4fe4bbffab942c63a099ed6a8e729b920ae5149fd449`，kernel SHA-256 仍为 `2962224f1fda3031af28c01b05f3b0a9e15101cb266fccafb38ce5c6848463d6`，source DTB SHA-256 仍为 `88207ff2e9b28cca8d0b98dc4e5ca64552c7023930d51b207a5546ebe71d4ef2`；derived DTB 因 bootargs 更新而变为 `0bdaf3e3d276f56ead6de981c9722bf3b01217329eb3c6517b6fd7ce38130965`。`lgg8/tools/bootimg.py verify` 返回 `PASSED`，`device_acceptance=NOT_TESTED`。尚未在手机启动。
+
+该候选沿用 `ignore_loglevel` 与 `console=tty0`，因此 state 调试日志也可能显示在屏幕上；C199 屏幕不能作为干净的显示验收结果。下一步只在完成物理口 1-2、Android/pstore/分区哈希前置检查后 RAM-only 启动，通过 root ACM shell 过滤采集 `FB[id] iova` 与 SMMU fault 相关 dmesg 行，随后核验 Android 完整回收。禁止写分区、改 splash 映射或读取 per-CRTC `status`/`state`。Pro Round 5 的完整独立审阅尚未进入 `30-response.md`；以上是离线已核实的候选产物和代码路径，不代表真机验证或显示里程碑完成。

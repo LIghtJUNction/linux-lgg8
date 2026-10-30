@@ -346,3 +346,11 @@ LineageOS LG 下游的整机 DTS 将 panel TE 接到 `TLMM GPIO8`，选择 panel
 下游 `mdss_dsi_panel_on()` 先发送完整 `on_cmds`，随后单独发送 DSC PPS；后续 `mdss_dsi_post_panel_on()` 才发送 `post_panel_on_cmds`（[下游 on/PPS 顺序](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/lineage-22.2/drivers/video/fbdev/msm/mdss_dsi_panel.c#L1014-L1018)、[下游 post-on 顺序](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/lineage-22.2/drivers/video/fbdev/msm/mdss_dsi_panel.c#L1031-L1050)）。原主线驱动在 35 个 on 命令中的早期 compression-mode packet 位置就发送 PPS；Candidate 177 保持 compression-mode packet 原位，只把 HS PPS 移到整组 on 命令之后、9 个 post-on 命令之前。这是与下游调用顺序一致的单变量候选。
 
 内核与 boot.img 构建、独立离线 verify 均通过。镜像 SHA-256 为 `8528ecea3318ca59d543e2143a1412770951ff82076f4fdf8a035dfe2fce12e8`；DTB、initramfs、bootargs 和 RAM boot envelope 均与 C176 哈希相同。RAM-only `fastboot boot` 被接受；USB 1-2 于 +15.841 秒断开、+136.043 秒恢复为 Android，ADB +136.356 秒上线。`boot_completed=1`、slot `_b`、boot ID 轮转，`boot_a` 与 `boot_b` 哈希均未变化；pstore 为空，没有分区写入或 ttyACM 输入。屏幕观察仍待用户确认，因此尚不能判断 PPS 时序是否改善可见画面。候选与完整运行材料见 `android-mainline-port/out/candidate-m3-panel-pps-after-on-commands-20261030-177/` 和相邻 `run-candidate-m3-panel-pps-after-on-commands-20261030-177-attempt1/`。
+
+### Candidate 178：关闭 DSI 测试图案，直接观察桌面
+
+C177 的启动参数仍启用 `lgg8_dsi_tpg=1`，驱动每 16 ms 重发测试图案，因而不能把显示结果归因到桌面合成器。Candidate 178 复用 C177 的内核、源 DTB、initramfs 和固定 boot 模板（各组件哈希相同），只改两个启动参数：关闭 TPG（`lgg8_dsi_tpg=0`），并把看门狗等待从 120 秒缩为 45 秒。boot.img 为 29,720,576 字节，SHA-256 `8f0fc9f981f06073e2d91c9f1dac9732660af9e02b8cda4b777b9605f2227888`；独立离线 verify 通过。
+
+RAM-only `fastboot boot` 被接受。物理 USB 1-2 于 +15.858 秒断开，Android USB 于 +97.770 秒返回，ADB +98.152 秒上线；总运行 108.062 秒。`boot_completed=1`、slot `_b`、boot ID 轮转，`boot_a` 与 `boot_b` 哈希均未变化。用户报告屏幕“花屏5”（原始回复；覆盖范围未说明）。这证明关闭测试图案后屏幕仍花，测试图案不是唯一原因；不能算作 Weston 桌面可见验收。
+
+本轮首次保存到 85,348 字节的 ramoops console，运行器校验了归档与源文件哈希一致。日志中可辨认出 DPU command-mode `failed wait_for_idle`（`ret=-110`）和多次 `frame done timeout`，末尾可见 watchdog 调用栈。原始日志有明显字符损坏，因此这些内容是 DPU/帧完成路径的诊断线索，不足以单独证明 TE、时钟、DSI 或 DPU 中哪一项是根因。等待参数确实缩短了 Linux 观察窗口，但从 USB 断开到 Android USB 返回仍约 98 秒。没有分区写入、ttyACM 打开或终端输入。候选和运行记录见 `android-mainline-port/out/candidate-m3-desktop-direct-20261030-178/` 与相邻 `run-candidate-m3-desktop-direct-20261030-178-attempt1/`。

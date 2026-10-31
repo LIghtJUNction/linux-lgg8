@@ -164,12 +164,76 @@ static void old_measurements_and_raw_attrs(void)
     }
     done(&f);
 }
+static void legacy_rradc_attrs_unsupported(void)
+{
+    struct device_attribute *attrs[] = {
+        &dev_attr_battery_temp_rr_raw,
+        &dev_attr_rradc_realtime_status,
+        &dev_attr_rradc_therm_config,
+        &dev_attr_rradc_therm_period,
+    };
+    struct fixture f;
+    char text[4096] = "unchanged";
+    setup(&f, 2);
+    assert(fg_observer_probe(&f.pdev) == 0);
+    f.map.read_count = 0;
+    for (size_t i = 0; i < ARRAY_SIZE(attrs); i++) {
+        assert(attrs[i]->show(&f.pdev.dev, attrs[i], text) == -EOPNOTSUPP);
+        assert(!strcmp(text, "unchanged"));
+        assert(f.map.read_count == 0);
+    }
+    done(&f);
+}
+static void raw_attrs_propagate_read_errors(void)
+{
+    const struct {
+        struct device_attribute *attr;
+        unsigned int reg;
+        bool rradc;
+    } attrs[] = {
+        { &dev_attr_battery_temp_status, 0x4106, false },
+        { &dev_attr_battery_presence_status, 0x4107, false },
+        { &dev_attr_battery_temp_rr_raw, 0x4288, true },
+        { &dev_attr_rradc_realtime_status, 0x4210, true },
+        { &dev_attr_rradc_therm_config, 0x4281, true },
+        { &dev_attr_rradc_therm_period, 0x4282, true },
+        { &dev_attr_algorithm_peek_config, 0x41ee, false },
+        { &dev_attr_memory_realtime_status, 0x4310, false },
+        { &dev_attr_memory_arbitration_config, 0x4340, false },
+        { &dev_attr_memory_interface_config, 0x4350, false },
+        { &dev_attr_dma_status, 0x4370, false },
+        { &dev_attr_dma_config, 0x4371, false },
+    };
+    const int errors[] = { -EIO, -ETIMEDOUT };
+    char text[4096], unchanged[4096];
+    memset(unchanged, 0xa5, sizeof(unchanged));
+    for (int count = 2; count <= 3; count++) {
+        struct fixture f;
+        setup(&f, count);
+        assert(fg_observer_probe(&f.pdev) == 0);
+        for (size_t i = 0; i < ARRAY_SIZE(attrs); i++) {
+            if (count == 2 && attrs[i].rradc) continue;
+            for (size_t j = 0; j < ARRAY_SIZE(errors); j++) {
+                f.map.fail_reg = attrs[i].reg;
+                f.map.read_error = errors[j];
+                f.map.read_count = 0;
+                memcpy(text, unchanged, sizeof(text));
+                assert(attrs[i].attr->show(&f.pdev.dev, attrs[i].attr, text) == errors[j]);
+                assert(!memcmp(text, unchanged, sizeof(text)));
+                assert(f.map.read_count == 1 && f.map.reads[0] == attrs[i].reg);
+            }
+        }
+        done(&f);
+    }
+}
 int main(void)
 {
     presence();
     legacy_and_independent_nodes();
     identities_and_faults();
     old_measurements_and_raw_attrs();
+    legacy_rradc_attrs_unsupported();
+    raw_attrs_propagate_read_errors();
     printf("observer actual-source: %u fixtures + all 256 presence bytes passed; zero writes\n", cases);
     return 0;
 }

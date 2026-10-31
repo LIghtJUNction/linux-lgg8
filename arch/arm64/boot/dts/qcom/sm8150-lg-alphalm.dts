@@ -546,6 +546,14 @@
 	};
 };
 
+&pm8150b_charger {
+	status = "okay";
+};
+
+&pm8150b_fg_observer {
+	status = "okay";
+};
+
 &pm8150l_flash {
 	status = "okay";
 

@@ -15,6 +15,7 @@ STATUS = 0x4310
 PEEK = 0x41EF
 TEMP = 0x4800 + 0x20 + (328 - 300) * 2
 ARB_MASK = 0x01
+ARB_CLEAR_LOG = 0x04
 INTF_MASK = 0xA0
 GRANT = 0x08
 
@@ -58,10 +59,12 @@ class FakeRegmap:
     """
 
     def __init__(self, *, raw=100, grant_after=0, alg_inactive_after=0,
+                 stale_grant=False,
                  faults=None, short_data=False):
-        self.registers = {ARB: 0x06, INTF: 0x04, TEMP: raw & 0xFF,
+        self.registers = {ARB: 0x02, INTF: 0x04, TEMP: raw & 0xFF,
                           TEMP + 1: (raw >> 8) & 0xFF}
         self.grant_after = grant_after
+        self.stale_grant = stale_grant
         self.alg_inactive_after = alg_inactive_after
         self.faults = dict(faults or {})
         self.short_data = short_data
@@ -92,6 +95,8 @@ class FakeRegmap:
         self.trace.append((stage, "read", address, length))
         self._check(stage)
         if address == STATUS:
+            if stage == "preflight_grant":
+                return bytes([GRANT if self.stale_grant else 0])
             granted = (self.grant_after is not None
                        and self.polls >= self.grant_after)
             self.polls += 1
@@ -132,7 +137,7 @@ def read_temperature(regmap, *, revision="v2", peek_configured=False,
     with regmap.lock:
         if revision not in ("v1", "v2") or not initialized:
             return Result(None, (Error("unsupported_or_uninitialized", EOPNOTSUPP),))
-        if revision == "v1" and not peek_configured:
+        if not peek_configured:
             return Result(None, (Error("peek_unverified", EOPNOTSUPP),))
         if not battery_present or not sample_fresh:
             return Result(None, (Error("missing_or_stale_sample", ENODATA),))
@@ -145,9 +150,12 @@ def read_temperature(regmap, *, revision="v2", peek_configured=False,
         try:
             # Proposal: refuse to clear requests potentially owned by a peer.
             for stage, address, mask in (("preflight_dma", INTF, INTF_MASK),
-                                         ("preflight_arb", ARB, ARB_MASK)):
+                                         ("preflight_arb", ARB,
+                                          ARB_MASK | ARB_CLEAR_LOG)):
                 if regmap.read(stage, address)[0] & mask:
                     raise BusError(stage, EBUSY)
+            if regmap.read("preflight_grant", STATUS)[0] & GRANT:
+                raise BusError("preflight_grant", EBUSY)
             if revision == "v1":
                 for _ in range(35):
                     if not regmap.read("alg_status", PEEK)[0] & 0x08:
@@ -193,7 +201,7 @@ def read_temperature(regmap, *, revision="v2", peek_configured=False,
 
         cleanup_errors = any(e.stage.startswith(("release_", "verify_"))
                              for e in errors)
-        if cleanup_errors:
+        if requested and errors:
             regmap.quarantined = True
         verified = not cleanup_errors if requested else None
         return Result(None if errors else temperature, tuple(errors), verified)

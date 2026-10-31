@@ -9,7 +9,8 @@ from pm8150b_dma_model import (
 
 
 def run(regmap, **kwargs):
-    options = dict(initialized=True, battery_present=True, sample_fresh=True)
+    options = dict(initialized=True, battery_present=True, sample_fresh=True,
+                   peek_configured=True)
     options.update(kwargs)
     return read_temperature(regmap, **options)
 
@@ -34,6 +35,7 @@ class TemperatureTransactionTest(unittest.TestCase):
         self.assertEqual(regmap.trace, [
             ("preflight_dma", "read", 0x4350, 1),
             ("preflight_arb", "read", 0x4340, 1),
+            ("preflight_grant", "read", 0x4310, 1),
             ("request_arb", "update_bits", 0x4340, 0x01, 0x01),
             ("request_dma", "update_bits", 0x4350, 0xA0, 0x80),
             ("delay", 40),
@@ -44,7 +46,7 @@ class TemperatureTransactionTest(unittest.TestCase):
             ("verify_dma", "read", 0x4350, 1),
             ("verify_arb", "read", 0x4340, 1),
         ])
-        self.assertEqual((regmap.registers[ARB], regmap.registers[INTF]), (6, 4))
+        self.assertEqual((regmap.registers[ARB], regmap.registers[INTF]), (2, 4))
         self.assertEqual(TEMP, 0x4858)
 
     def test_all_ten_bit_values_and_c_negative_rounding(self):
@@ -73,7 +75,7 @@ class TemperatureTransactionTest(unittest.TestCase):
                         self.assertNotIn("request_dma", stages(regmap))
                     self.assert_released(regmap)
                     self.assertEqual((regmap.registers[ARB], regmap.registers[INTF]),
-                                     (6, 4))
+                                     (2, 4))
 
     def test_grant_timeout_is_bounded_and_does_not_read_data(self):
         regmap = FakeRegmap(grant_after=None)
@@ -159,7 +161,8 @@ class TemperatureTransactionTest(unittest.TestCase):
         for options, code in [
             ({"initialized": False}, EOPNOTSUPP),
             ({"revision": "unknown"}, EOPNOTSUPP),
-            ({"revision": "v1"}, EOPNOTSUPP),
+            ({"revision": "v1", "peek_configured": False}, EOPNOTSUPP),
+            ({"revision": "v2", "peek_configured": False}, EOPNOTSUPP),
             ({"battery_present": False}, ENODATA),
             ({"sample_fresh": False}, ENODATA),
         ]:
@@ -174,14 +177,17 @@ class TemperatureTransactionTest(unittest.TestCase):
         self.assertEqual(regmap.trace, [])
 
     def test_busy_peer_and_preflight_read_error_do_not_clear_requests(self):
-        for address, bit in ((ARB, 1), (INTF, 0x80), (INTF, 0x20)):
+        for address, bit in ((ARB, 1), (ARB, 0x04), (INTF, 0x80), (INTF, 0x20)):
             regmap = FakeRegmap()
             regmap.registers[address] |= bit
             before = dict(regmap.registers)
             self.assertEqual(run(regmap).rc, -EBUSY)
             self.assertEqual(regmap.registers, before)
             self.assertTrue(all(event[1] == "read" for event in regmap.trace))
-        for stage in ("preflight_dma", "preflight_arb"):
+        regmap = FakeRegmap(stale_grant=True)
+        self.assertEqual(run(regmap).rc, -EBUSY)
+        self.assertTrue(all(event[1] == "read" for event in regmap.trace))
+        for stage in ("preflight_dma", "preflight_arb", "preflight_grant"):
             regmap = FakeRegmap(faults={stage: Fault()})
             self.assertEqual(run(regmap).rc, -EIO)
             self.assertNotIn("release_dma", stages(regmap))
@@ -215,6 +221,9 @@ class TemperatureTransactionTest(unittest.TestCase):
         self.assertEqual(run(regmap).decicelsius, 250)
         regmap.faults["data"] = Fault()
         self.assertIsNone(run(regmap).decicelsius)
+        trace = list(regmap.trace)
+        self.assertEqual(run(regmap).rc, -EBUSY)
+        self.assertEqual(regmap.trace, trace)
 
     def test_hardware_like_backend_and_subclass_are_rejected(self):
         class Backend(FakeRegmap):

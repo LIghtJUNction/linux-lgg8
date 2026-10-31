@@ -29,6 +29,10 @@ charger compatibles; it is not a PM8150B SMB5 driver. This tree also lacks the
 LG combination of SMB5, FG Gen4, Qnovo5, and SMB1355 drivers. Reusing the
 existing SMB2 driver or copying charger register writes without a complete
 profile and safety review is not a valid substitute.
+The built-in `qcom_smbx` initialization also explicitly caps fast-charge
+current at 1 A. That conservative setting is not the LG charger profile and
+must not be raised or reused as a route to factory-rate charging. See
+[`qcom_smbx.c`](../../drivers/power/supply/qcom_smbx.c).
 
 The fixed downstream SMB5 driver is not a passive telemetry probe. Its
 `smb5_probe()` calls `smblib_init()` and then `smb5_init_hw()` before registering
@@ -60,6 +64,13 @@ driver selection are therefore not independently confirmed. Do not use the
 candidate profile values as mainline charging limits until the exact
 pack/profile and protection ownership are confirmed.
 
+A second read-only snapshot on 2026-10-31 identified `alphalm_lao_com` /
+`LM-G820`. Android reported the battery full at 100%, 4421 mV and 32.9 °C,
+with USB power present and reported maximums of 500 mA at 5 V. This is a
+low-power USB connection while the battery is full, not a measured charge
+current, fast-charge negotiation, or maximum-rate test. It is useful only as a
+baseline sanity check; it provides no evidence that Linux charging works.
+
 The downstream profile selector also needs special care: it can fall back to
 the default profile when ID matching fails, then set `battery_valid` based on
 whether a profile object exists. A true value therefore does not necessarily
@@ -76,14 +87,80 @@ verified ceiling for `alphalm_lao_com`.
 
 The mainline tree already has a PM8150B Type-C/PD controller driver
 (`TYPEC_QCOM_PMIC` is enabled in the build config), and the target DTS includes
-its PM8150B node but leaves it disabled. The driver does not implement TCPM's
-optional `set_current_limit` callback, so merely enabling the node does not
-program the SMB5 input-current limit from the negotiated sink contract. The
-missing piece is a PM8150B SMB5 charger implementation plus an explicit,
-reviewed contract-to-charger control path. Bring these up together; successful
-PD negotiation alone does not establish safe charging. The target DTS's
-`simple-battery` 4.43 V field is static battery metadata, not an active charge
-termination or overvoltage protection mechanism.
+its PM8150B Type-C node but leaves it disabled. Mainline now has a PM8150B
+SMB5 read-only status probe, but no full charger provider; the Type-C driver
+has no safe way to apply negotiated sink
+current or control input suspend. A generic regulator consumer was prototyped
+and then discarded: regulator error paths can make consumer reference counts
+ambiguous, while reading the hardware enable state cannot recover that
+ownership. Do not wire a generic regulator as the charger input switch. The
+required design is an SMB5-owned interface that serializes and verifies input
+current limits, sink enable/suspend, and fault state within the provider. The
+downstream SMB5 ICL helper can unsuspend the input as a side effect, so that
+behavior must be split before connecting TCPM. TCPM also ignores some callback
+errors in sink transitions; the local TCPM change now checks negotiated and
+standby current-limit failures, requests sink stop, and enters error recovery.
+That is not a hardware fail-safe by itself: the PMIC Type-C driver's current
+`set_vbus()` ignores its `sink` argument, so it must be wired to the future
+SMB5-owned input-control interface. That provider must latch safe input
+shutdown on failure, contract reduction, and detach. The target DTS's
+`simple-battery` 4.43 V field is static metadata, not active charge
+termination or overvoltage protection.
+
+The first PM8150B-specific slice is a separate read-only status driver. It
+validates the PMIC subtype and exposes only USB presence and USB input-path
+selection from SMB5 status registers. It has no register writes, charger IRQs,
+APSD work, or writable power-supply properties. C211 compiled and booted it
+RAM-only; on physical USB 1-2 Linux ACM reported `present=1` and `online=1`.
+
+C212 adds the PM8150B `ADC5_USB_IN_I` and `ADC5_USB_IN_V_16` IIO channels using
+the prescaling from LG's alpha-family device tree. The RAM-only ACM readback
+reported USB input `4875776 µV` and current-sense output `64489 µV`. LG's SMB5
+code converts the PM8150B current-sense voltage using 0.2 V/A in buck mode,
+which corresponds to about `322445 µA` of USB input current. This is not
+battery current. The test was powered from the host USB port while the phone
+was already full; the Android baseline reported a 500 mA USB input ceiling.
+So this validates measurement only, not battery charging, negotiated PD/QC,
+or factory charging speed. The measurement data was captured, but the ACM
+probe did not capture its final marker; the run is therefore a partial
+telemetry capture. Android returned with `boot_completed=1`, slot `_b`, a
+rotated boot ID, unchanged `boot_a`/`boot_b` hashes, and an empty pstore before
+and after. C211 and C212 artifacts are in
+`out/lgg8-c211-smb5-ro-20261031/` and
+`out/lgg8-c212-usb-adc-20261031/`.
+
+C213 adds voltage-only IIO channels for the PM8150B battery thermistor at the
+factory's 30 kΩ, 100 kΩ, and 400 kΩ pull-ups, plus `VBAT_SNS`. On a RAM-only
+boot, the ADCs returned `1160553`, `606682`, and `198399 µV` for those three
+thermistor paths and `4421559 µV` for VBAT. Using the ADC's 1.875 V reference
+and nominal pull-up values gives a provisional cross-check of about 48.7, 47.8,
+and 47.3 kΩ, assuming the NTC excitation equals the ADC reference and a simple
+divider. The actual excitation, calibration and circuit paths remain to be
+verified; agreement alone does not prove board scaling or temperature. The
+FG Gen4 factory thermistor coefficients are programmed into PMIC SRAM, so the
+mainline charge path must not depend on these values until that mapping is
+reproduced and checked against Android readings.
+
+The ADC reads request conversions and write ADC configuration registers;
+they are not a zero-PMIC-write observation. The same run saw USB
+`present=1`, `online=1`, `4891344 µV` input voltage, and
+`79801 µV` current-sense voltage (about `399005 µA` USB input in buck mode).
+VBAT and USB measurements are telemetry, not battery charge current or proof
+that charging was enabled. The phone was on host USB and Android reported a
+full battery. The ACM capture contains every requested measurement, but its
+end marker was not received; record it as partial. Android recovered after
+about 124 seconds with `boot_completed=1`, slot `_b`, unchanged boot partition
+hashes, and a rotated boot ID. The before-run pstore was empty; a console
+ramoops was captured after recovery, but its contents have not been validated
+as a C213 crash trace. C213's boot image
+SHA-256 is `c7ef8a33234ff230b43b075a3ca36990ef6bd73fe422f7c9ad53c070ec7e0c2e`;
+evidence is in `out/lgg8-c213-battery-sense-20261031/`.
+
+Neither candidate wrote charger registers or enabled charging. Before
+charge-control work, add reviewed battery-side current/temperature and fault
+telemetry, establish ownership of termination and thermal protections, then
+connect TCPM through an SMB5-owned, verified input-control interface. No
+high-current or charging-enabled Linux test has been performed.
 
 The downstream FG Gen4 implementation also writes battery-profile data to
 PMIC SRAM and learning state through the SDAM NVMEM provider. RAM-only boot
@@ -91,6 +168,38 @@ protects flash partitions but does not make those PMIC side effects read-only.
 Before considering FG Gen4 for Linux, audit each write, its ownership and its
 interaction with the following Android boot. Do not enable the downstream FG
 driver or its DT node as a shortcut to charging.
+
+The pinned downstream `fg_get_battery_current()` reads two bytes at offsets
+`0xa2` and `0xa8` relative to the discovered battery-info peripheral base,
+compares the original and shadow values, sign-extends the 16-bit result, and
+scales it by `488281 / 1000` to obtain microamps. This is a candidate for
+battery-current telemetry without the FG SRAM read interface. The base must
+be identified for this device and the peripheral's read semantics and
+measurement validity established before using the result. LG's downstream
+PM8150B device tree declares the battery-info resource at `0x4100`, giving
+candidate register addresses `0x41a2` and `0x41a8`; verify the peripheral
+subtype and actual hardware mapping before accessing them. The downstream
+retry loop must not be copied unchanged: its post-incremented counter can
+reject a match on the final attempt or accept an unmatched value when all
+attempts fail. A new implementation must explicitly track a matching pair and
+return an error when no match is obtained. Neither the sign convention nor
+current accuracy has yet been validated on this mainline boot.
+
+The experimental observer exposes only voltage and current getters. The
+power-supply core can call those getters while creating or publishing uevents,
+so registration may itself cause register reads; it is not an on-demand-only
+interface. Each getter performs the bounded main/shadow comparison separately,
+so voltage and current are not an atomic snapshot. The observer negates the
+downstream FG current sign when exposing the Linux
+battery `current_now` ABI, matching the downstream SMB5 battery getter and the
+upstream convention of positive charging current. Real-device direction and
+measurement freshness remain unverified; earlier C214–C218 observations used
+the old, opposite sign and must not be reinterpreted as direct measurements
+from this revised binary.
+
+Sources: [FG current read](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-util.c#L979),
+[register offsets](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-reg.h#L250).
+[PM8150B resource](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/qcom/pm8150b.dtsi#L413).
 
 There are other coupled safeguards to account for during a port. The
 downstream SMB5 initialization disables hardware JEITA compensation for cold
@@ -104,6 +213,62 @@ disabled until its Android userspace daemon/config dependency is understood.
 
 ## Implementation and acceptance sequence
 
+The downstream FG driver obtains its underlying battery temperature from FG
+SRAM word 328, offset 0, as a signed 10-bit value in quarter-degree Celsius
+units. Its `POWER_SUPPLY_PROP_TEMP` path invokes that reader. In the LG
+extension, the property is replaced with `calculate_battery_temperature()`
+when the fake-temperature override is unset, and with the override otherwise.
+The compensated value incorporates a bias table and current-related correction.
+Consequently, comparing a Linux raw FG temperature with Android `bms/temp`
+alone does not independently validate the raw sensor. This identifies a
+candidate source, not a verified mainline sensor: the FG SRAM access protocol
+and its side effects still need auditing before use. The earlier ADC resistance
+estimates do not independently validate this temperature or the board circuit.
+[Downstream temperature reader](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L798).
+[LG temperature property override](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/extension-fg-gen4.c#L717).
+The shared register header also names battery-info offsets `0x50`/`0x51` as
+temperature registers; the Gen3 driver reads those directly, while this
+device's downstream Gen4 driver uses SRAM. That difference is an investigation
+lead, not evidence that the direct register encoding or validity applies to
+PM8150B Gen4. Do not use it for protection without a hardware-specific audit
+and comparison against an independent temperature measurement.
+[Register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-reg.h#L115),
+[Gen3 reader](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen3.c#L568).
+
+The experimental observer now exposes raw battery-info status bytes at offsets
+`0x06` and `0x07`. The downstream header names bit 0 of the first byte
+`BATT_TEMP_AVAIL_BIT` and bits 0–2 of the second as battery-missing indicators.
+This is a source-level mapping only: the new attributes have not yet been
+tested on this device, and an asserted availability bit alone cannot establish
+sample freshness, calibration, or a working temperature protection path.
+
+### Gen4 temperature SRAM access audit
+
+For a PM8150B subtype, the pinned LG Gen4 driver selects direct DMA; it does
+not fall back to interleaved access after a DMA error. The temperature is two
+bytes at SRAM word 328, mapped by that driver's Gen4 table to SPMI
+`0x4858`–`0x4859`. A normal read requests arbitration via `0x4340` bit 0,
+requests DMA via `0x4350` mask `0xa0` (value `0x80`), waits for the grant at
+`0x4310` bit 3, reads the bytes, then clears both requests. Thus it does not
+write the temperature data, but it does modify PMIC access-control registers.
+PM8150B V1 additionally waits for FG algorithm inactivity before the request
+and uses extra delays; this depends on initialized PEEK_MUX state, which has
+not been independently verified for the running mainline environment.
+
+The reference release path returns immediately if clearing `0x4350` fails,
+without attempting to clear `0x4340`. Initial arbitration-write failure also
+returns directly. A future implementation must treat even a failed bus write
+as potentially applied, attempt both releases independently, propagate any
+failure, use bounded waits, serialize every client of this interface, and
+reject missing/stale battery data. It must not claim that cleanup succeeded
+when a write or readback fails. These conditions are design requirements, not
+proof that forcing cleanup is harmless in every PMIC fault state; hardware
+ownership and recovery still need review before testing.
+
+[Revision selection](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L5820),
+[DMA transaction](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-memif.c#L827),
+[Gen4 address table](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-memif.c#L1194).
+
 1. Resolve the exact running battery-data profile and all SMB5, FG, Qnovo,
    SMB1355, Type-C, and thermal properties from the matching LG source and
    runtime device tree. Record the exact board variant and component revisions.
@@ -114,20 +279,29 @@ disabled until its Android userspace daemon/config dependency is understood.
    interfaces before enabling either side. Audit all FG SRAM/SDAM writes and
    do not enable the downstream FG implementation until its state effects are
    bounded and safe across the next Android boot.
-3. Port only the necessary charger/telemetry pieces and add bindings with
-   validated battery and thermal limits. First boot RAM-only without a charger
-   and confirm telemetry and fault handling; then test conservative wired
-   charging. Add QC/PD fast modes and SMB1355 parallel charging only after
-   each safety gate is proven.
-4. Measure negotiated input voltage/current, battery voltage/current, battery
+3. Port SMB5 and the required telemetry/protection pieces with validated
+   battery and thermal limits. First boot RAM-only without a charger and
+   confirm telemetry, watchdog recovery, and fault shutdown. Then test
+   conservative single-charger wired charging.
+4. Add the factory charging modes in stages: USB-PD through TCPM and SMB5 ICL
+   coordination; QC3/HVDCP and BC1.2 detection through SMB5; then SMB1355
+   parallel-current sharing. Keep each mode behind its own verified protocol,
+   temperature, termination, and fault handling.
+5. Restore Qnovo only after its kernel state and Android-daemon/config
+   dependencies are understood. Full factory parity requires the matching
+   battery profile, SMB5 policy, parallel-charger coordination, and Qnovo
+   behavior to be present together.
+6. Measure negotiated input voltage/current, battery voltage/current, battery
    and connector temperatures, SOC, and charge duration with known adapters
    and cables. Compare against stock under the same conditions. The maximum
    rate is accepted only when the correct protocol is negotiated and current,
    voltage, thermal throttling, termination, and fault protections all work.
 
-No charger-register writes, persistent partition writes, or charging-enabled
-Linux device test have been performed. Keep the established RAM-only boot
-baseline. Do not use a charging-rate increase as the first hardware test.
+No intentional charger-control register writes, persistent partition writes, or
+controlled charging-enable tests have been performed. The PMIC can retain its
+previous configuration, so this does not establish that charging was disabled
+during Linux tests. Keep the established RAM-only boot baseline. Do not use a
+charging-rate increase as the first hardware test.
 
 ## References
 
@@ -146,3 +320,40 @@ baseline. Do not use a charging-rate increase as the first hardware test.
 - [Mainline PM8150B Type-C callbacks](../../drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_port.c)
 - [Earlier charging safety audit](C208-NEXT-MILESTONE-REVIEW.md)
 - [Upstream Qualcomm SMBx charger driver at `2a500a0`](https://github.com/torvalds/linux/blob/2a500a04d6f969318c05f46aedb6e73fc1963a00/drivers/power/supply/qcom_smbx.c)
+
+### Type-C control gap in the current tree
+
+The current Qualcomm PMIC Type-C driver registers `set_vbus` but no
+`set_current_limit` callback. Its `set_vbus(on, sink)` implementation controls
+source VBUS through `on` and does not act on the `sink` argument. Therefore a
+TCPM request to disable sink charging does not, by itself, establish that
+SMB5 charging or the input path has been disabled. The local TCPM error path
+also permits a missing `set_current_limit` callback, and
+`tcpm_set_current_limit()` updates its reported voltage/current before calling
+that callback. These interfaces must not be treated as proof of an enforced
+hardware limit or a fail-safe stop. A future design must supply one coordinated
+SMB5 owner and verify register writes, error propagation and stop behavior
+before using PD or enabling charge control.
+
+The current tree's generic `qcom_smbx` driver is not an immediately usable
+PM8150B replacement. Its probe executes `smb_init_hw()` before registering
+the supply, including charge-enable, watchdog, AICL and FCC configuration;
+its match table currently lists PMI8998 and PM660, not PM8150B. In addition,
+its `STATUS` setter passes `!val->intval` to the input-suspend bit. Since
+standard `POWER_SUPPLY_STATUS_*` values are enum values rather than an on/off
+boolean, callers cannot assume a `NOT_CHARGING` status request suspends USB.
+This is a source-level observation, not a tested PM8150B control path; do not
+bind the generic driver to this device or use that setter as stop proof without
+a separate fix and complete hardware validation.
+[Generic setter](../../drivers/power/supply/qcom_smbx.c),
+[power-supply status values](../../include/linux/power_supply.h).
+
+The downstream SMB5 driver distinguishes two commands: charging disable clears
+bit 0 of `CHARGING_ENABLE_CMD_REG` (charger base + `0x042`), while USB input
+suspend sets bit 0 of `USBIN_CMD_IL_REG` (charger base + `0x340`). These are
+different operations: suspending the input also affects system power, while
+disabling battery charging does not itself prove that input current is zero.
+The experimental observer exposes the raw input-suspend command byte read-only;
+its value is not evidence of actual input current or a verified shutdown. Source:
+[downstream SMB5 register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h),
+[downstream command implementation](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c).

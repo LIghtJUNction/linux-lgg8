@@ -28,6 +28,8 @@
 | 本仓新内核真机启动 | **完整默认参数已运行** | C160 与 C162–169 使用 GPIO 保护、启用 TLMM、默认无 blacklist；每轮均回收 Android 且 A/B boot 哈希不变 |
 | RAM 桌面用户态 | **C208-R3 用户观察到蓝底终端与极简桌面；同次 ACM 通过** | 显示＋ACM 里程碑 M1 通过；屏幕证据为用户观察，无录像 |
 | Linux USB 枚举和 shell | **RAM-only 路径通过** | C206 空 client 与 C208 有效 log client 均通过 `18d1:4ee7` ACM shell；C207 的 log client 未编译，C203 默认 fbdev 未到达 ACM |
+| SMB5 充电状态与 USB ADC | **C212 RAM-only 真机读取成功** | `present=1`、`online=1`；USB 输入 4.876 V，电流检测 ADC 64.489 mV（按 PM8150B buck 标定约 322 mA USB 输入）；不是电池充电电流，也未启用充电 |
+| 电池侧 ADC 遥测 | **C213 RAM-only 真机读回** | VBAT 4.421559 V；原厂 30k/100k/400k 电池热敏上拉电压均读回，按 1.875 V 参考换算阻值约 47–49 kΩ；仍未接温度保护或充电控制 |
 | ramoops/pstore 真机证据 | **C192 首次导出 console-ramoops；内容损坏，pmsg 未确认** | 早期与回收后同一 32878 字节记录；C191 为空；C192 用户态标记及 DPU pmsg 仍未观察到 |
 | 显示与触控 | **C210 RAM-only 真机：桌面触控有效（用户确认）；显示花屏状态另行追踪** | C210 X/Y 轴注册修复；自动回 Android，boot_a/boot_b 哈希不变；ACM 内核日志因主机 tty 权限未取到 |
 | Weston RAM 桌面 | **同次显示＋ACM 通过** | C208-R3；见下方记录与独立审查文档 |
@@ -557,4 +559,94 @@ RAM-only `fastboot boot` 首次成功在物理 USB 1-2 枚举 Linux ACM `18d1:4e
 
 C208 修正了 C207 的无效对照：本次有效配置启用 `CONFIG_DRM_CLIENT_LOG=y`，保持默认 client 为 `fbdev`，仅用 `drm_client_lib.active=log` 选择 log client。RAM-only 启动镜像 SHA-256 为 `3ead08159f1f99d7582ad21dd3af45b69bd05fe4e1ea8a9d99ab6d4b9c767176`；kernel SHA-256 为 `2a9d1be7f2725cd2756a99a33248a9cd6beebbbcb40949abe3d8f358765c9dcc`。ACM shell 探针通过，读取 519 行、39,716 字节；启动参数含 `active=log`，没有 `Unknown DRM client log`，并记录到 DPU framebuffer 准备活动。Android 自动回收，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a/boot_b 哈希均与启动前一致。屏幕未获可靠观察，因此此结果证明有效 log-client 配置下 Linux/ACM 路径可用，不证明可见桌面正常。证据保存在 `out/lgg8-c208-drm-log-enabled/run-02/`。
 
-当前有效 Linux 版本标识为 `7.3.0-lgg8+`。触屏、充电和可见桌面仍未验收；充电需先完成板级电源芯片、GPIO/中断与电池路径的源码和设备证据核对，再做只读验证。
+当前有效 Linux 版本标识为 `7.3.0-lgg8+`。C208-R3 已通过用户观察和同次 ACM 验收蓝底桌面；C210 用户确认触控有效。C212 已读到 SMB5 状态和 PM8150B USB ADC；尚未实现 Linux 充电控制或快充。
+
+### C211：PM8150B SMB5 只读状态首轮真机通过（2026-10-31）
+
+C211 镜像 SHA-256 为 `1b94dbbbd338fb168cd5384c15d621d44aed6cf585136c061c6cdaa63933ebc5`，独立离线 verify 通过。只读 SMB5 驱动内建于内核；通用 PM8150B 节点默认关闭，alphalm 板级节点启用。预检在物理 USB 1-2 的 `18d1:4ee0` bootloader fastboot 中得到 `product=msmnile`、`unlocked=yes`、`current-slot=b`、boot_a/boot_b 均为 100663296 字节；此旧 bootloader 不支持 `is-userspace` 查询。RAM-only `fastboot boot` 后同一物理口枚举 Linux `18d1:4ee7` ACM shell。
+
+归属于 C211 命令的 shell 回执确认 `/sys/class/power_supply/pm8150b-smb5-status/{present,online}` 分别为 `1`、`1`，证明 SMB5 USB 插入和 USB 输入路径状态寄存器在此机可读。没有读到输入/电池电压电流或 PD/QC 协议，也没有写任何充电寄存器。Android 随后自动恢复，型号/设备匹配、`boot_completed=1`、slot `_b`、boot ID 轮转；两槽 boot 哈希和 100663296 字节容量均与启动前一致。完整采集保存在忽略目录 `out/lgg8-c211-smb5-ro-20261031/run-01/`。本轮不证明正在给电池充电，更不证明达到原厂或最大充电速度；TCPM sink 设置错误处理仍未连接 SMB5 的硬件输入控制。
+
+### C212：PM8150B USB 电压与电流感测 ADC RAM-only 读回（2026-10-31）
+
+C212 仅在 PM8150B ADC 节点增加 LG 原厂设备树使用的 `ADC5_USB_IN_I` 与 `ADC5_USB_IN_V_16` 通道及相应分压系数。DTB-only 编译通过；boot SHA-256 为 `09637e7fea4b3c948b25afb4b5ca2c416e6a0730a4eba978d835153ce02f7a4e`，独立离线 verify 通过。运行仍是物理 USB 1-2 上的 RAM-only `fastboot boot`，未发出任何分区写入命令。
+
+Linux ACM 实测读到 SMB5 `present=1`、`online=1`，USB 输入电压 `4875776 µV`，USB 输入电流检测端 `64489 µV`。LG 下游 SMB5 对 PM8150B buck 模式的换算系数是 `0.2 V/A`，对应约 `322445 µA` 的 USB 输入电流；该值不是电池侧电流。测试时主机端供电，Android 基线显示 USB 上限 500 mA、手机电池已满，因此它验证的是 ADC 和输入电流测量路径，不能作为充电速率或快充成功证据。主机 ACM 已保存完测量读数，但没有收到末尾结束标记，故该子探针标为部分采集；主机监视确认同一物理口回到 Android，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a/boot_b 哈希不变，pstore 前后均为空。证据在 `out/lgg8-c212-usb-adc-20261031/run-01/`。
+
+C212 证明了 USB 输入模拟量可读。下一项仍需补齐电池侧电流/温度、充电状态、故障和终止保护，然后才有条件把输入限制与 Type-C/PD 协商接起来。不得把 322 mA 主机供电读数当成电池充电电流，也不得据此调高限流。
+
+### C213：电池电压与三档热敏 ADC RAM-only 读回（2026-10-31）
+
+C213 在主线 ADC5 中加入电池热敏 30 kΩ、100 kΩ、400 kΩ 上拉通道的电压测量映射，并在 alphalm 的 PM8150B ADC 节点加入这三路与 `VBAT_SNS`。三路分别读到 `1160553 µV`、`606682 µV`、`198399 µV`，VBAT 读到 `4421559 µV`。若假设 NTC 激励电压等于 ADC 的 1.875 V 参考、且电路为简单分压，按标称上拉阻值反算分别约 `48.73 kΩ`、`47.83 kΩ`、`47.33 kΩ`。实际激励、电路路径和标定尚待核实；三路数值接近并不能独立证明电压缩放或温度曲线正确。原厂 FG Gen4 把热敏系数写入 PMIC SRAM，本轮没有启动该驱动，也没有把推算阻值冒充温度或交给充电控制。
+
+同次 ACM 还读到 SMB5 `present=1`、`online=1`、USB 输入 `4891344 µV` 和电流感测 `79801 µV`，按原厂 buck 标定约为 `399005 µA` USB 输入电流。测试接的是主机 USB，Android 返回后报告电池满电；该读数不代表电池充电电流、PD/QC 合约或快充速率。ACM 收到全部目标测量值，但结束标记缺失，因此记作部分采集。设备约 123.8 秒后自动回 Android，`boot_completed=1`、slot `_b`、boot ID 轮转、boot_a/boot_b 哈希未变；测试前 pstore 为空，恢复后捕获到 console ramoops，但尚未验证其内容是 C213 崩溃记录。镜像 SHA-256 为 `c7ef8a33234ff230b43b075a3ca36990ef6bd73fe422f7c9ad53c070ec7e0c2e`，离线 verify 通过；证据在 `out/lgg8-c213-battery-sense-20261031/`。
+
+C213 将可核验的电池侧测量扩展到 VBAT 与 NTC，但 Linux 仍没有电池温度、充电电流/状态、故障处理或充电控制。达到原厂快充前还要复现原厂 NTC 映射并取得电池侧电流和故障遥测，然后才可评估 SMB5/TCPM 控制。
+
+### C214：电量计直接寄存器读回（2026-10-31）
+
+C214 启用 PM8150B 电池信息只读观测器，镜像 SHA-256 为 `060312bd06add06c0ad63f51f49b7ee0d4aa437876374e6439cdd8831bf98714`，离线镜像校验通过。物理 USB 1-2 上 RAM-only `fastboot boot` 后 Linux ACM 成功枚举，带完整结束标记的采集读到电池电压 `4419910 µV`、电池电流 `-976 µA`。驱动核对主值和副本后返回读数；读取成功尚不能证明采样持续更新、校准或电流方向正确，也不证明充电或快充功能。测试接主机 USB，电池此前已满。
+
+Android 自动回收且 `boot_completed=1`、boot ID 轮转，boot_a/boot_b 哈希均不变；全程没有分区写入。前后均有 pstore 文件，未经独立归因，不以其作为本次崩溃或无崩溃证据。运行与原始采集在 `out/lgg8-c214-fg-observer-20261031/run-01/`。温度映射、故障保护、充电控制和 PD/QC 均尚未验收。
+
+### C215：SMB5 原始状态首次读回（2026-10-31）
+
+C215 在 SMB5 只读驱动中加入四个原始状态属性；内核构建和镜像离线 verify 通过，镜像 SHA-256 `09c7a67939f3494648a64622e573eacb528c8d258fd9c9f6c7298b161fdbb44f`。物理口 1-2 上 RAM-only 启动，Linux ACM 带结束标记读到 `charger_status=0x45`、`battery_status=0x28`、`temperature_status=0x00`、`batif_realtime_status=0x00`。状态是各自读取时刻的原始字节，不是原子快照或故障历史；零状态位不能证明保护已启用或动作有效。
+
+Android 已回收，`boot_completed=1`、boot ID 轮转、boot_a/boot_b 哈希均不变，没有分区写入。测试前 pstore 有文件，恢复后为空，不能据此归因本次复位。原始采集与完整运行记录在 `out/lgg8-c215-smb5-status-20261031/run-01/`。下一步仍需只读核对实际限值、保护配置与电池温度，并验证充电保护动作。
+
+### C216：SMB5 配置字节只读采集（2026-10-31）
+
+RAM-only 启动的 C216 镜像 SHA-256 为 `95da10e346cb2095992975675bc7453c835e6e53f9e83a273d8594ec4ee4700f`，独立离线 verify 和 ACM 完整采集通过。读取 `fcc=0x34`、`fv=0x53`、`usb_icl=0x1e`、`jeita=0x00`、`watchdog=0x00`、`watchdog_timeout=0x0c`、`thermal_source=0x00`。按照原厂 PM8150B 参数表，前三个原始配置对应 FCC 2.6 A、FV 4.43 V、USB ICL 1.5 A；这是寄存器配置，不是实际电流或协商合同，也不代表允许使用这些值。
+
+JEITA、watchdog 和热源配置字节为零，需要结合硬件修订、继承状态及其他保护机制进一步核对；本次只读不能证明各保护可用，不能据此启动主动充电。Android 自动回收，`boot_completed=1`、boot ID 轮转、两槽 boot 哈希不变，前后 pstore 均为空；没有分区写入。证据在 `out/lgg8-c216-smb5-config-20261031/run-01/`。
+
+对照下游寄存器位定义，C216 的 JEITA `0x00` 包括 hard-limit 位及四个软补偿位均为零；watchdog `0x00` 包括插入时使能及 bark 中断使能位均为零。`watchdog_timeout=0x0c` 的 bite-disable-charging 位同样为零。这些是单次配置位读回，不足以推断 PMIC 的全部自主保护或其他固件机制。下游 SMB5 初始化只主动清 JEITA 的四个软补偿位，硬限制位必须单独评估。已加入安全计时器 enable 和 duration 的只读属性，尚未在真机读取。
+
+### C217：充电安全计时器配置读回（2026-10-31）
+
+RAM-only C217 的镜像 SHA-256 为 `11b02ebf21698a671630bd6fd3d9dd51b46a5a24cc0d874d8923a46be3ccc112`，离线 verify 与 ACM 完整采集通过。安全计时器使能字节为 `0x03`，按 LG 下游定义预充与快充计时器位均为 1；时长编码 `0x01` 在下游定义中对应 384 分钟。这仅证明读取时寄存器配置，未验证计时器运行或到期后的实际动作，不能抵消 C216 发现的其他保护配置未知问题。
+
+Android 自动回收，`boot_completed=1`、boot ID 轮转、boot_a/boot_b 哈希均不变，没有分区写入；前置 pstore 为空，后置有文件，尚未验证其内容与复位的关系。证据位于 `out/lgg8-c217-safety-timer-20261031/run-01/`。
+
+### C218：终止与重充配置只读采集（2026-10-31）
+
+RAM-only C218 镜像 SHA-256 `ac8e59778d9cb3120af08b5b67fe0734ef6b1f1051b5f498e12738fbe0606092`；离线 verify 通过，Linux ACM 完整读回 11 个配置字节：重充模式 `0x2c`，终止上阈值 `0xfe88`，下阈值 `0x00a3`，重充采样 `0x0b`，终止采样 `0x0a`，重充 SOC `0xf2`，重充电压 `0x544a`，终止来源配置 `0x04`。字节为分别读取，不保证原子性；尚未验证阈值换算、重充或终止动作，不得据此开启充电控制。
+
+Android 自动回收，`boot_completed=1`、boot ID 轮转、boot_a/boot_b 哈希均不变，没有分区写入。前后均有 pstore 文件，未将其归因本次复位。证据在 `out/lgg8-c218-termination-20261031/run-01/`。
+
+C218 离线解码：原厂 `RECHG_MASK=0x06` 与 VBAT 选择位 `0x04`，故 `recharge_mode_config=0x2c` 的模式位为 VBAT。原厂 PM8150B 终止阈值编码使用有符号大端 16 位、量程 10000 mA、除数 32767；按该编码反算，`0xfe88` 为约 −114.75 mA，`0x00a3` 为约 +49.75 mA。`0x544a` 按原厂 VBAT-to-raw 公式反算约 4199.88 mV。`term_samples_config=0x0a` 的 bit0 为 0，按源码定义选择同步转换；`term_source_config=0x04` 的模拟终止选择 bit3 为 0。这些是独立读取的配置位及公式反算，并非实测电流、阈值校准或终止/重充动作的证明。参考固定版本 [SMB5 初始化](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-smb5.c#L2737) 和 [编码常量](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.h#L104)。
+
+C218 同镜像第二次 RAM-only 启动进行了 10 组约 1 秒间隔的电量计观测：电压 `4398426–4439197 µV`，电流 `−166992–80566 µA`，结束标记完整。数值发生变化，但电压与电流分别读取，无法证明同时性、校准或电流符号正确。回 Android 后 `dumpsys battery` 当时报告电压 4238 mV、温度 36.2°C、满电；与 Linux 期间电压存在约 160–201 mV 的差距，采样时间不同，不能直接判定原因或将 Linux 数据用于充电控制，需追查 FG 状态、数据新鲜度与同步对照。Android 回收成功、boot ID 轮转、两槽 boot 哈希不变；前后 pstore 均有文件，未作复位原因归因。证据在 `out/lgg8-c218-fg-series-20261031/run-01/`。
+
+### C219：燃料计状态和电流符号的只读采集（2026-10-31）
+
+C219 镜像 SHA-256 `54593097d8ff5251be312fbea5b6dd8184d0f6791f5e4afe019c69374baa744d`，独立镜像核验通过，物理口 1-2 经 RAM-only fastboot 启动并枚举 Linux ACM。带结束标记的单次读取：FG 温度状态 `0x00`、电池存在状态 `0x00`、电压 `4422351 µV`、新接口电流 `+488 µA`、USB 输入暂停命令 `0x00`。原厂头文件命名的温度可用位此刻未置位；状态位对本机的实际语义、温度新鲜度与保护仍未验证。电流接近零且无独立方向参照，不能验收符号或精度；USB 命令值也不能证明实际输入电流或停充。
+
+Android 自动回收，`boot_completed=1`，slot `_b`，boot ID 轮转，boot_a 和 boot_b 的前后 SHA-256 均不变。pstore 前后均有文件，未作复位原因归因。测试未执行充电控制或分区写入，PMIC 的既有硬件充电状态不能由此推断。原始记录在 `out/lgg8-c219-fg-status-20261031/run-01/`。
+
+回收后的 Android 启动日志中，`fg_gen4_probe` 打印温度 `345`（34.5°C）、电压 `4423816 µV`、电池 ID `91682 Ω`。固定版本下游源码在该日志前直接调用 `fg_gen4_get_battery_temp()`，这是 Android 启动时的底层 FG 温度，而不是后续 LG 补偿值；实际运行内核与该源码尚未做二进制匹配。随后只读 `bms/temp` 和 `battery/temp` 为 `358`（35.8°C），采样时刻不同，不可作为校准差值。此记录也不能证明 Linux 阶段该温度有效或可用位的 Gen4 语义。参考 [原厂 probe 日志路径](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L6390)。
+
+同一 Android 启动中，使用原厂 FG debugfs 接口读取 SRAM word 328 两字节，返回 `8b 00`；按下游 Gen4 有符号 10 位公式得到 `347`（34.7°C）。紧接着 `bms/temp` 与 `battery/temp` 均为 `351`（35.1°C），两次采样并非原子操作。debugfs 地址与长度原为 `0x00000000`、`0`，读取后已恢复并复核；该读取通过原厂驱动申请并释放 DMA 仲裁，涉及 PMIC 访问控制寄存器操作，不写温度 SRAM。它验证 Android 下的受控读取路径和一个室温附近样本，但不能证明 Linux DMA 初始化、样本新鲜度、全温区精度或充电保护。
+
+后续同一 Android 启动内再读 5 次，间隔约 1 秒；5 次 SRAM 均为 `8b 00`，相邻读取的两个 Android 属性均为 `351`。前后 debugfs 地址和计数恢复为 `0x00000000`、`0`，系统仍为 `boot_completed=1`。稳定结果支持重复读取的一致性，但不能证明原始温度持续更新，亦不能据此将 0.4°C 差距解释为固定补偿。采样记录：`out/lgg8-c219-fg-status-20261031/android-sram-temperature-series.txt`。
+
+同一 Android 启动的 regmap 定点只读核对：设备树将 `spmi0-02` 关联至 `pm8150b@2`；`0x0105=0x20` 与 `0x0103=0x02` 分别对应 PM8150B subtype 和下游 V2 rev4，`0x4105=0x11` 为 battery-info subtype。`0x4106=0x00`、`0x4107=0x00` 与 C219 Linux 读数一致；因此即使 Android 原厂驱动此前读到合理温度，头文件命名的 bit 0 仍为零，不能将该位当作本机温度有效性的已验证判据。Android 瞬时配置 `0x41ee=0xac`、`0x4340=0x02`、`0x4350=0x00`、`0x4370=0x00`、`0x4371=0x02`、`0x4310=0x00`；这些是逐项读数而非原子快照，也不证明 Linux 接管后的寄存器状态。debugfs 地址/计数复原，原始结果保存在 `out/lgg8-c219-fg-status-20261031/android-fg-registers-reference.txt`。
+
+### C220：Linux 内 FG DMA 控制状态对照（2026-10-31）
+
+只读观测器增加独立 memory-interface 设备树资源及寄存器属性；C220 镜像 SHA-256 `d62fa81210058a8b532b42db8a2978c7155f4174d120647587bb9696258c4691`，独立核验通过，物理 1-2 RAM-only 启动并完成带结束标记的 ACM 采集。Linux 逐项读取 `0x41ee=0x00`、`0x4310=0x00`、`0x4340=0x04`、`0x4350=0x00`、`0x4370=0x00`、`0x4371=0x02`。与此前 Android 样本相比，DMA 地址模式值均为 `0x02`，访问请求字段及 DMA 错误状态均为零；PEEK 配置为 `0x00` 对 `0xac`，仲裁配置为 `0x04` 对 `0x02`。这是不同时刻、不同启动的非原子快照，不能证明底层算法或数据新鲜度，也不证明可以安全操作 DMA。Linux 电压 `4421375 µV`、电流 `−133300 µA`，方向仍无同步独立校验。
+
+Android 自动回收，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a 和 boot_b 前后哈希一致。测试没有发起 DMA 请求、充电控制或分区写入；测试前 pstore 含文件、回收后为空，未据此归因重启原因。原始回执：`out/lgg8-c220-fg-dma-status-20261031/run-01/`。
+
+上述 C214–C218 电流均为当时镜像输出，沿用 LG BMS 原始符号。后续源码已按 Linux 电池 `current_now` 接口反转符号，新源码通过对象编译，但尚未在真机验证方向；不能把历史数值误认为新源码的输出。
+
+C218 电压差异跟进：同一 Android 启动后稍晚只读 `dumpsys battery` 首次为 4438 mV，随后 15:52:48–15:52:53（UTC+8）连续五次均为 4427 mV，温度 36.0°C。此前恢复后紧接着的 4238 mV 与后续 Android 数值本身也不一致，不能简单归因于 Linux 换算。原厂 `fg_get_battery_voltage()` 的字节序和 `raw × 122070 / 1000` 换算与当前观测器一致；真正原因以及重启期间采样更新/缓存状态仍未确定。Android 与 Linux 不同时采样，数值接近不能作为校准验收。
+
+进一步在同一供电条件的 Android 中使用 root 只读五组 BMS 与 battery 单项属性（15:53:44–15:53:49 UTC+8）：两处电压均为 4438953–4439441 µV；BMS 电流为 −141113 至 −150878 µA，而 battery 属性为对应相反数。Android 原厂下游 `battery/VOLTAGE_NOW` 转发 BMS，`battery/CURRENT_NOW` 转发后取反；这一运行结果与源码一致，也与此前 Linux 观测器稳态读数接近。Android 与 Linux 采样不同时，且电源/负载可能变化；这支持路径与符号对应关系，但不构成独立校准、同步对照或充电保护验收。原始五次结果保存在 `out/lgg8-c218-fg-series-20261031/android-current-voltage-followup.json`。
+
+Android 温度参考：15:54:41–15:54:46（UTC+8）连续五组只读 BMS 与 battery 温度均为 354（35.4°C），BMS `resistance_id=91695` Ω，BMS 电压与电流仍有波动。原厂 LG `POWER_SUPPLY_PROP_TEMP` 可能返回补偿值或 fake 值，采样未独立确认 fake 状态和补偿参数；该基线不是 FG 原始温度，也无法确定全温区映射或保护阈值。`resistance_id` 接近 Tocad profile 的标称 91 kΩ，但不足以证明 profile 选择及 fallback 情况。原始记录保存在 `out/lgg8-c218-fg-series-20261031/android-temperature-followup.json`。
+
+Android 当前只读 profile 跟进：BMS 报告 `battery_type=LGE_BLT41_Tocad_3500mAh`、`resistance_id=91695` Ω、`debug_battery=0` 和 `voltage_max_design=4430000` µV；当前内核日志多次记录找到该 91 kΩ profile，并报告原有 profile 相同、未重载。本次筛选未见默认 profile 的日志，但不能据日志缺失证明未发生 fallback，亦不能独立证明实体电芯身份。`debug_battery=0` 不证明 LG fake temperature 被关闭；温度依然只能作为可能经过补偿的参考。证据在 `out/lgg8-c218-fg-series-20261031/android-profile-evidence.txt` 和 `android-profile-attributes.txt`。
+
+Android 原始温度路径检查：当前 BMS 节点及 `qpnp_fg_gen4` 模块参数中没有发现明确命名的原始电池温度只读属性；现有内核日志的温控相关行仅显示保护模块初始化和状态变化，未找到当前 raw temp。原厂代码说明 BMS 温度可能为 FG 温度加 LG 插值与电流补偿，并可能使用 fake 值。未读取 SRAM 或更改调试参数，现有数据仍不足以反推出完整 NTC 温度曲线；日志筛选证据在 `out/lgg8-c218-fg-series-20261031/android-battemp-log.txt`。

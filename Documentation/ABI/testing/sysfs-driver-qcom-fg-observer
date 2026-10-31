@@ -1,0 +1,22 @@
+What:		/sys/bus/platform/devices/.../battery_temp_status
+What:		/sys/bus/platform/devices/.../battery_presence_status
+Date:		October 2026
+Description:
+		Read-only hexadecimal raw battery-info status bytes, at offsets
+		0x06 and 0x07 respectively. These are individual register reads,
+		not an atomic snapshot. Their interpretation for PM8150B Gen4
+		has not been validated on hardware; they do not prove that the
+		battery temperature is valid, fresh, or protected.
+
+What:		/sys/bus/platform/devices/.../algorithm_peek_config
+What:		/sys/bus/platform/devices/.../memory_realtime_status
+What:		/sys/bus/platform/devices/.../memory_arbitration_config
+What:		/sys/bus/platform/devices/.../memory_interface_config
+What:		/sys/bus/platform/devices/.../dma_status
+What:		/sys/bus/platform/devices/.../dma_config
+Date:		October 2026
+Description:
+		Read-only raw hexadecimal PM8150B Gen4 configuration/status
+		bytes. Individual values are not an atomic snapshot and do not
+		prove that it is safe to request memory access or that sensor
+		data is fresh. The observer does not issue DMA requests.

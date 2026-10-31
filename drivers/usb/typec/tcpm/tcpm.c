@@ -1306,6 +1306,8 @@ static int tcpm_set_current_limit(struct tcpm_port *port, u32 max_ma, u32 mv)
 	return ret;
 }
 
+static int tcpm_set_charge(struct tcpm_port *port, bool charge);
+
 static int tcpm_set_attached_state(struct tcpm_port *port, bool attached)
 {
 	return port->tcpc->set_roles(port->tcpc, attached, port->pwr_role,
@@ -1811,6 +1813,24 @@ static void tcpm_set_state_cond(struct tcpm_port *port, enum tcpm_state state,
 			 tcpm_states[port->state], tcpm_states[state],
 			 delay_ms, tcpm_states[port->enter_state],
 			 pd_rev[port->negotiated_rev], tcpm_ams_str[port->ams]);
+}
+
+static bool tcpm_set_sink_current_limit(struct tcpm_port *port, u32 max_ma,
+					u32 mv)
+{
+	int charge_ret, ret;
+
+	ret = tcpm_set_current_limit(port, max_ma, mv);
+	if (!port->tcpc->set_current_limit || ret >= 0)
+		return true;
+
+	tcpm_log_force(port, "Failed to apply sink current limit: %d", ret);
+	charge_ret = tcpm_set_charge(port, false);
+	if (charge_ret < 0)
+		tcpm_log_force(port, "Failed to disable sink charging: %d", charge_ret);
+	tcpm_set_state(port, ERROR_RECOVERY, 0);
+
+	return false;
 }
 
 static void tcpm_queue_message(struct tcpm_port *port,
@@ -3776,9 +3796,10 @@ static void tcpm_pd_ctrl_request(struct tcpm_port *port,
 		switch (port->state) {
 		case SNK_TRANSITION_SINK:
 			if (port->vbus_present) {
-				tcpm_set_current_limit(port,
-						       port->req_current_limit,
-						       port->req_supply_voltage);
+				if (!tcpm_set_sink_current_limit(port,
+								 port->req_current_limit,
+								 port->req_supply_voltage))
+					break;
 				port->explicit_contract = true;
 				tcpm_set_auto_vbus_discharge_threshold(port,
 								       TYPEC_PWR_MODE_PD,
@@ -5801,7 +5822,8 @@ static void run_state_machine(struct tcpm_port *port)
 
 			if (port->slow_charger_loop && (current_lim > PD_P_SNK_STDBY_MW / 5))
 				current_lim = PD_P_SNK_STDBY_MW / 5;
-			tcpm_set_current_limit(port, current_lim, 5000);
+			if (!tcpm_set_sink_current_limit(port, current_lim, 5000))
+				break;
 			/* Not sink vbus if operational current is 0mA */
 			tcpm_set_charge(port, !port->pd_supported ||
 					pdo_max_current(port->snk_pdo[0]));
@@ -5940,8 +5962,10 @@ static void run_state_machine(struct tcpm_port *port)
 					 "SPR AVS Setting iSnkstandby. Req vol: %u mV Curr vol: %u mV",
 					 port->req_supply_voltage,
 					 port->supply_voltage);
-				tcpm_set_current_limit(port, PD_I_SNK_STBY_MA,
-						       port->supply_voltage);
+				if (!tcpm_set_sink_current_limit(port,
+								 PD_I_SNK_STBY_MA,
+								 port->supply_voltage))
+					break;
 			}
 			/*
 			 * Although tAvsSrcTransSmall is expected to be used
@@ -5972,8 +5996,9 @@ static void run_state_machine(struct tcpm_port *port)
 
 			tcpm_log(port, "Setting standby current %u mV @ %u mA",
 				 port->supply_voltage, stdby_ma);
-			tcpm_set_current_limit(port, stdby_ma,
-					       port->supply_voltage);
+			if (!tcpm_set_sink_current_limit(port, stdby_ma,
+							 port->supply_voltage))
+				break;
 			tcpm_set_state(port, hard_reset_state(port),
 				       PD_T_PS_TRANSITION);
 		}
@@ -5991,8 +6016,10 @@ static void run_state_machine(struct tcpm_port *port)
 			port->pwr_opmode = TYPEC_PWR_MODE_PD;
 		}
 
-		if (!port->pd_capable && port->slow_charger_loop)
-			tcpm_set_current_limit(port, tcpm_get_current_limit(port), 5000);
+		if (!port->pd_capable && port->slow_charger_loop &&
+		    !tcpm_set_sink_current_limit(port,
+						 tcpm_get_current_limit(port), 5000))
+			break;
 		tcpm_swap_complete(port, 0);
 		tcpm_typec_connect(port);
 		if (port->pd_capable && port->source_caps[0] & PDO_FIXED_DUAL_ROLE)
@@ -6161,9 +6188,10 @@ static void run_state_machine(struct tcpm_port *port)
 		 * to PE_SNK_Transition_to_default.
 		 */
 		if (port->pd_capable) {
-			tcpm_set_current_limit(port,
-					       tcpm_get_current_limit(port),
-					       5000);
+			if (!tcpm_set_sink_current_limit(port,
+							 tcpm_get_current_limit(port),
+							 5000))
+				break;
 			/* Not sink vbus if operational current is 0mA */
 			tcpm_set_charge(port, !!pdo_max_current(port->snk_pdo[0]));
 		}
@@ -6682,10 +6710,11 @@ static void _tcpm_cc_change(struct tcpm_port *port, enum typec_cc_status cc1,
 		if (!port->auto_vbus_discharge_enabled && tcpm_port_is_disconnected(port))
 			tcpm_set_state(port, unattached_state(port), 0);
 		else if (!port->pd_capable &&
-			 (cc1 != old_cc1 || cc2 != old_cc2))
-			tcpm_set_current_limit(port,
-					       tcpm_get_current_limit(port),
-					       5000);
+			 (cc1 != old_cc1 || cc2 != old_cc2) &&
+			 !tcpm_set_sink_current_limit(port,
+						      tcpm_get_current_limit(port),
+						      5000))
+			break;
 		break;
 
 	case AUDIO_ACC_ATTACHED:
@@ -6807,6 +6836,9 @@ static void _tcpm_pd_vbus_on(struct tcpm_port *port)
 
 	switch (port->state) {
 	case SNK_TRANSITION_SINK_VBUS:
+		if (!tcpm_set_sink_current_limit(port, port->req_current_limit,
+						 port->req_supply_voltage))
+			break;
 		port->explicit_contract = true;
 		tcpm_set_state(port, SNK_READY, 0);
 		break;

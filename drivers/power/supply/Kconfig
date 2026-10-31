@@ -1181,6 +1181,23 @@ config CHARGER_QCOM_SMB2
 	  adds support for the SMB2 switch mode battery charger found
 	  in PMI8998 and related PMICs.
 
+config QCOM_FG_OBSERVER
+	tristate "Qualcomm PM8150B battery-info read-only observer"
+	depends on MFD_SPMI_PMIC
+	help
+	  Expose battery voltage and current registers without initializing the
+	  fuel gauge. Readings require independent hardware validation and do
+	  not implement charge or temperature protection.
+
+config CHARGER_QCOM_SMB5
+	tristate "Qualcomm PM8150B SMB5 read-only status driver"
+	depends on MFD_SPMI_PMIC
+	help
+	  Say Y here to expose read-only USB presence and input power-path status
+	  from the PM8150B SMB5 charger through the power-supply interface. This
+	  driver is intended for initial board validation. It does not initialize
+	  or configure the charger and does not enable or disable charging.
+
 config FUEL_GAUGE_MM8013
 	tristate "Mitsumi MM8013 fuel gauge driver"
 	depends on I2C

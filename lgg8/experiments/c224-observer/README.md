@@ -15,9 +15,11 @@ The scripts look for locally retained files under:
 * `out/lgg8-c210-sw42000-touch-20261031/`: the pinned legacy helper.
 
 These experiment outputs are not included in a fresh clone. The offline test
-suite needs them for its artifact integrity checks and creates its temporary
-files inside the C224 output directory, cleaning them afterward. It does not
-run device commands:
+suite runs its simulated tests without them and explicitly skips the two
+artifact-dependent tests. If any of the expected artifacts exist, both checks
+run and missing or mismatched files fail rather than being silently skipped.
+Temporary test files are created within the workspace and cleaned afterward.
+The suite does not run device commands:
 
 ```sh
 python3 -B lgg8/experiments/c224-observer/test_c224_offline.py

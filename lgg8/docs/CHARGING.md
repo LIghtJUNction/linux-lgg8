@@ -419,6 +419,21 @@ ADB was returned to shell mode. The experiment read only the one PMIC address;
 the debugfs selector writes are host interface state, and the BMS property can
 perform vendor FG arbitration. No charging-control register was changed.
 
+With the user's permission, a later Android-only series began 2026-10-31
+23:27:24 UTC and took six samples over 21 seconds. Each `0x4288` debugfs read
+returned `0x1f`; Android battery and BMS temperature properties each returned
+322 deci-°C, and Android's USB `online` property returned 0. The values were
+read sequentially, not atomically. Stable displayed values cannot prove that
+the PMIC failed to update or that it updated, and do not independently
+calibrate the temperature. USB `online=0` is not a direct measurement of
+battery current or proof of disconnected power. The debugfs address and count
+selectors were restored to their previous values `0x00000000` and `1`;
+Android reported the same boot ID and `boot_completed=1`, and ADB was restored
+to non-root mode. The sysfs BMS getter may itself perform vendor FG arbitration;
+no charging-control write was requested. The local sample transcript is
+`out/lgg8-android-rr-temp-20261101/android-samples.txt`, SHA-256
+`bc46a8edbc878f71cb22b522ef4a3096fcae6998fb5b914ae3c16a57998a6f71`.
+
 C221 then tested the same raw byte in mainline using the observer's
 `battery_temp_rr_raw` attribute. The independently verified RAM-only image
 (`da155c433f4b2f86fb54c6b8b5caca400637afc0b2f06cf2c6681cb171bb9094`)

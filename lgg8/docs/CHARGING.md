@@ -418,6 +418,12 @@ contain the battery thermistor channels present in the current source DTSI.
 Do not assume that image can expose those channels based on today's source.
 An ADC5 conversion configures registers and writes a conversion request, so
 an IIO read that initiates a conversion is not a zero-register-write probe.
+The actual DTB embedded in the C223 image, in contrast, includes all three
+`channel@2a`, `channel@4a`, and `channel@6a` nodes; it matches the packaged
+`linux.dtb` and the same DTB in C221 and C222. This establishes node presence,
+not successful registration or a fresh conversion in those runs. C213 did
+previously expose the three voltage channels on the running device, as noted
+above; that earlier result does not establish a calibrated temperature curve.
 
 The fixed downstream FG temperature getter reads two bytes from SRAM word 328
 and converts the signed ten-bit value at 0.25 °C per step. The profile's five

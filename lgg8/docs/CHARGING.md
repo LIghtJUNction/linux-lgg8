@@ -372,10 +372,15 @@ C222 tested these observer attributes in a verified RAM-only image
 (`44e089a41225fa90cc3efa0f21efd42095c3bf1a902b29922dbc82ba7a84530b`).
 Linux read `0x4210=02`, `0x4281=02`, `0x4282=01`, and `0x4288=21`; the
 ACM shell capture and end marker passed. Android's earlier period byte was
-`0x08`, so the configurations differ across the two boots. These snapshots
-do not prove when the value changed, whether the hardware actually samples at
-the configured interval, or whether results are fresh. Android recovered with
-both boot partition hashes unchanged. The full record is in
+`0x08`, so the configurations differ across the two boots. The vendor binding
+defines this field as a direct interval in seconds and the vendor driver
+writes it without a conversion, so the observed configurations correspond to
+1 and 8 seconds respectively. These snapshots do not prove when the value
+changed, whether the hardware actually samples at the configured interval, or
+whether results are fresh. The vendor software default of eight seconds is
+not evidence for the silicon reset value, and reset or bootloader involvement
+in the Linux value has not been established. Android recovered with both boot
+partition hashes unchanged. The full record is in
 `out/lgg8-c222-fg-rr-config-20261031/run-01/`.
 [Vendor ADC_RR period setup](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L5428),
 [sample period units](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/Documentation/devicetree/bindings/power/supply/qcom/qpnp-fg-gen4.txt#L231).

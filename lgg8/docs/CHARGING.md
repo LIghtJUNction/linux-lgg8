@@ -512,6 +512,10 @@ The status observer exposes the raw charging-enable command byte as
 attribute has not yet been verified on the device. A command bit reports a
 requested state, not actual battery current, the effective power path, or
 availability of temperature and fault protections.
+The observer also exposes the separate raw `charge_pause_command` byte
+(charger base + `0x043`) on demand. This byte is not yet verified on the
+device, and, like the enable command, does not by itself prove a hardware
+state or measured charging current.
 On 2026-10-31, Android debugfs reads returned charging command `0x1042=01`,
 input-suspend command `0x1340=00`, and charger status byte `0x1006=04`;
 Android Battery Service subsequently reported full (`status=5`, level 100%).

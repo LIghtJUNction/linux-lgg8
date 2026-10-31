@@ -243,6 +243,14 @@ hard-temperature cutoff for the mainline port. The original captures are in
 `out/lgg8-c216-smb5-config-20261031/run-01/smb5-readback-raw.txt` and
 `out/lgg8-c220-fg-dma-status-20261031/android-smb5-config-reference.txt`.
 
+The SMB5 observer exposes four additional raw soft JEITA threshold bytes at
+`0x1094`–`0x1097`, which the downstream driver also reads when the profile
+does not supply soft thresholds. Each sysfs read accesses one byte and
+propagates errors; the four reads are not an atomic snapshot and the raw
+values are not temperatures. This observer change has not been tested on the
+phone and says nothing about the hard thresholds or whether any limit acts.
+[Downstream soft threshold reads](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L8051).
+
 The running Android device tree's `/vendor/lge-veneer-psy/protection-battemp`
 node was read on 2026-10-31. The eight upward/downward temperature threshold
 cells were respectively `30, 120, 450, 550` and `520, 430, 100, 0`; the LG

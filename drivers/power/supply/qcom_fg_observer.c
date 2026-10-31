@@ -42,6 +42,27 @@ static ssize_t battery_temp_rr_raw_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(battery_temp_rr_raw);
 
+#define FG_RR_STATUS_ATTR(_name, _offset)                                   \
+static ssize_t _name##_show(struct device *dev,                             \
+			    struct device_attribute *attr, char *buf)        \
+{                                                                           \
+	struct qcom_fg_observer *fg = dev_get_drvdata(dev);                  \
+	unsigned int value;                                                  \
+	int ret;                                                             \
+	if (!fg->has_rradc)                                                  \
+		return -EOPNOTSUPP;                                           \
+	ret = regmap_read_bypassed(fg->regmap, fg->rradc_base + (_offset),  \
+				   &value);                                  \
+	if (ret)                                                             \
+		return ret;                                                   \
+	return sysfs_emit(buf, "0x%02x\n", value);                         \
+}                                                                           \
+static DEVICE_ATTR_RO(_name)
+
+FG_RR_STATUS_ATTR(rradc_realtime_status, 0x10);
+FG_RR_STATUS_ATTR(rradc_therm_config, 0x81);
+FG_RR_STATUS_ATTR(rradc_therm_period, 0x82);
+
 /* Raw status is evidence only; it does not prove temperature freshness. */
 #define FG_RAW_STATUS_ATTR(_name, _offset)                                  \
 static ssize_t _name##_show(struct device *dev,                              \
@@ -83,6 +104,9 @@ static struct attribute *fg_observer_attrs[] = {
 	&dev_attr_battery_temp_status.attr,
 	&dev_attr_battery_presence_status.attr,
 	&dev_attr_battery_temp_rr_raw.attr,
+	&dev_attr_rradc_realtime_status.attr,
+	&dev_attr_rradc_therm_config.attr,
+	&dev_attr_rradc_therm_period.attr,
 	&dev_attr_algorithm_peek_config.attr,
 	&dev_attr_memory_realtime_status.attr,
 	&dev_attr_memory_arbitration_config.attr,

@@ -60,6 +60,11 @@ SMB5_RAW_STATUS_ATTR(fcc_config, 0x061);
 SMB5_RAW_STATUS_ATTR(fv_config, 0x070);
 SMB5_RAW_STATUS_ATTR(usb_icl_config, 0x370);
 SMB5_RAW_STATUS_ATTR(jeita_config, 0x090);
+/* Raw, independently read bytes; not a coherent snapshot or temperatures. */
+SMB5_RAW_STATUS_ATTR(jeita_soft_hot_msb, 0x094);
+SMB5_RAW_STATUS_ATTR(jeita_soft_hot_lsb, 0x095);
+SMB5_RAW_STATUS_ATTR(jeita_soft_cold_msb, 0x096);
+SMB5_RAW_STATUS_ATTR(jeita_soft_cold_lsb, 0x097);
 SMB5_RAW_STATUS_ATTR(watchdog_config, 0x651);
 SMB5_RAW_STATUS_ATTR(watchdog_timeout_config, 0x653);
 SMB5_RAW_STATUS_ATTR(thermal_source_config, 0x670);
@@ -96,6 +101,10 @@ static struct attribute *qcom_smb5_status_attrs[] = {
 	&dev_attr_fv_config.attr,
 	&dev_attr_usb_icl_config.attr,
 	&dev_attr_jeita_config.attr,
+	&dev_attr_jeita_soft_hot_msb.attr,
+	&dev_attr_jeita_soft_hot_lsb.attr,
+	&dev_attr_jeita_soft_cold_msb.attr,
+	&dev_attr_jeita_soft_cold_lsb.attr,
 	&dev_attr_watchdog_config.attr,
 	&dev_attr_watchdog_timeout_config.attr,
 	&dev_attr_thermal_source_config.attr,

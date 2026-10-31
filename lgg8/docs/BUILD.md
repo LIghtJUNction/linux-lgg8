@@ -250,6 +250,27 @@ python3 lgg8/tools/bootimg.py build \
 
 通过 `./lgg8/build.sh kernel|diag-ftrace|diag-pstore` 构建时，脚本在 make 成功后写入 `out/.../kernel/build-provenance.json`，其中固定当时的源码状态和 Image/DTB/有效配置 SHA-256。随后 `build.sh boot` 要求该收据与实际打包输入完全匹配；只运行 `dtb` 或修改 kernel/config 后，旧收据会拒绝打包，需先完成对应的 kernel 构建。直接使用 `bootimg.py build` 可不传收据，但 manifest 会明确标成 `capture_stage=package`，表示来源状态是在打包时记录，不能证明早先编译 Image 时的源码状态。
 
+### 显式 DRM client 的配置检查
+
+提供 `--config` 时，打包器在构造 shim 和发布镜像前核对命令行中显式选择的
+`drm_client_lib.active`：`log` 要求 `CONFIG_DRM_CLIENT_LOG=y`，
+`fbdev` 要求 `CONFIG_DRM_FBDEV_EMULATION=y`；非空选择还要求
+`CONFIG_DRM_CLIENT_LIB=y/m` 与 `CONFIG_DRM_CLIENT_SETUP=y`。
+这阻止 C207 的“请求 log，但未编入 log client”组合。C208 的配置与显式 log 选择相容，
+但这项静态检查不证明屏幕有可读画面、Weston 已显示或模块已经加载。
+
+空值 `drm_client_lib.active=` 是合法的禁用对照；最终成功赋值的未知非空值（包括 `none`）被打包器拒绝。
+内核本身对未知值的行为是警告且不启动 client，不会退回 fbdev。
+扫描遵循内核的双引号、参数名 `-`/`_` 等价、`--` 终止及最后一次成功赋值语义；
+裸参数和超过 15 字节的值不覆盖此前选择。它不使用 shell 的单引号／反斜杠转义语义。
+
+本检查只覆盖所提供配置与显式选择的静态一致性，不替代完整命令行校验。
+没有成功的显式赋值时不检查默认选择；未提供 `--config` 时保留原有行为。
+当前 `lgg8/rootfs/build.py pack` 不传配置或 kernel-build receipt，因而未被这项检查覆盖。
+`build.sh boot` 已传两者；直接调用时应提供实际有效配置及匹配的
+`--build-provenance` 收据，才能把配置与 Image/DTB 输入指纹绑定。
+仅提供配置而没有收据，不能证明它就是该 Image 的编译配置。
+
 ## 离线测试与产物验证
 
 仓内回归测试入口（只运行本地测试，不访问手机）：

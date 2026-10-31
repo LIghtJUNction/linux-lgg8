@@ -368,6 +368,62 @@ def cmdline(data):
     return value
 
 
+def kernel_cmdline_args(value):
+    """Follow lib/cmdline.c next_arg(), not shell quote/escape rules."""
+    remaining = value.lstrip()
+    while remaining:
+        quoted = remaining.startswith('"')
+        fragment = remaining[1:] if quoted else remaining
+        in_quote, equals, end = quoted, 0, 0
+        while end < len(fragment):
+            char = fragment[end]
+            if char.isspace() and not in_quote:
+                break
+            if equals == 0 and char == "=":
+                equals = end
+            if char == '"':
+                in_quote = not in_quote
+            end += 1
+        token, remaining = fragment[:end], fragment[end:].lstrip()
+        if equals:
+            name, value = token[:equals], token[equals + 1:]
+            if value.startswith('"'):
+                value = value[1:]
+                if token.endswith('"'):
+                    value = value[:-1]
+            elif quoted and token.endswith('"'):
+                value = value[:-1]
+        else:
+            name, value = token, None
+            if quoted and name.endswith('"'):
+                name = name[:-1]
+        yield name, value
+
+
+def check_drm_client(bootargs, config):
+    """Check an explicit client against a supplied config, not device readiness."""
+    if config is None:
+        return
+    client = None
+    for name, value in kernel_cmdline_args(bootargs):
+        if name == "--" and value is None:
+            break
+        # active is a 16-byte module_param_string; failed setters preserve it.
+        if name.replace("-", "_") == "drm_client_lib.active" and value is not None and len(value) < 16:
+            client = value
+    if client in (None, ""):
+        return
+    # This is a packer contract: the kernel warns, without fbdev fallback.
+    features = {"log": "CONFIG_DRM_CLIENT_LOG", "fbdev": "CONFIG_DRM_FBDEV_EMULATION"}
+    require(client in features, f"unknown DRM client {client!r}; use an empty active= value to disable clients")
+    symbols = dict(line.split("=", 1) for line in config.decode("ascii", errors="replace").splitlines()
+                   if line.startswith("CONFIG_") and "=" in line)
+    for symbol, allowed in ((features[client], ("y",)), ("CONFIG_DRM_CLIENT_LIB", ("y", "m")),
+                            ("CONFIG_DRM_CLIENT_SETUP", ("y",))):
+        require(symbols.get(symbol) in allowed,
+                f"requested DRM client {client!r} requires {symbol}={'/'.join(allowed)} in supplied effective config")
+
+
 def load_template(directory):
     info = json.loads((directory / "template.json").read_text())
     require(info["schema"] == "lgg8-boot-template-v1" and re.fullmatch(r"[0-9a-f]{64}", info["source_boot_sha256"]), "template schema/source SHA-256")
@@ -583,6 +639,7 @@ def build(args):
     image_size = kernel_header(kernel)
     cmdline_file = args.cmdline_file.read_bytes()
     bootargs = cmdline(cmdline_file)
+    check_drm_client(bootargs, config_bytes)
     init = check_init(cpio(initrd), bootargs)
     tree = Fdt(source_dtb)
     initrd_offset = align(image_size, ALIGN)

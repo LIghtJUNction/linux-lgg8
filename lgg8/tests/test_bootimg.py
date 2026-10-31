@@ -228,6 +228,107 @@ class StructureTests(unittest.TestCase):
             self.assertFalse(output.exists())
 
 
+class DrmClientTests(unittest.TestCase):
+    CONFIG = (b"CONFIG_DRM_CLIENT_LIB=y\nCONFIG_DRM_CLIENT_SETUP=y\n"
+              b"CONFIG_DRM_CLIENT_LOG=y\nCONFIG_DRM_FBDEV_EMULATION=y\n")
+
+    def test_c207_log_not_compiled_is_rejected(self):
+        config = self.CONFIG.replace(b"CONFIG_DRM_CLIENT_LOG=y", b"# CONFIG_DRM_CLIENT_LOG is not set")
+        with self.assertRaisesRegex(ValueError, "CONFIG_DRM_CLIENT_LOG=y"):
+            b.check_drm_client("drm_client_lib.active=log", config)
+
+    def test_c208_explicit_log_and_default_fbdev_can_coexist(self):
+        b.check_drm_client("drm_client_lib.active=log", self.CONFIG + b'CONFIG_DRM_CLIENT_DEFAULT="fbdev"\n')
+
+    def test_fbdev_requires_emulation(self):
+        config = self.CONFIG.replace(b"CONFIG_DRM_FBDEV_EMULATION=y", b"CONFIG_DRM_FBDEV_EMULATION=n")
+        with self.assertRaisesRegex(ValueError, "CONFIG_DRM_FBDEV_EMULATION=y"):
+            b.check_drm_client("drm_client_lib.active=fbdev", config)
+
+    def test_empty_client_is_a_valid_disabled_control(self):
+        for args in ("drm_client_lib.active=", 'drm_client_lib.active=""',
+                     'drm_client_lib.active=log drm_client_lib.active='):
+            with self.subTest(args=args):
+                b.check_drm_client(args, b"")
+
+    def test_last_successful_assignment_selects_the_client(self):
+        b.check_drm_client("drm_client_lib.active=none drm_client_lib.active=log", self.CONFIG)
+        with self.assertRaisesRegex(ValueError, "CONFIG_DRM_CLIENT_LOG=y"):
+            b.check_drm_client("drm_client_lib.active= drm_client_lib.active=log", b"")
+
+    def test_rejected_setters_do_not_overwrite_a_previous_value(self):
+        for suffix in ("drm_client_lib.active", "drm_client_lib.active=" + "x" * 16):
+            with self.subTest(suffix=suffix):
+                with self.assertRaisesRegex(ValueError, "CONFIG_DRM_CLIENT_LOG=y"):
+                    b.check_drm_client("drm_client_lib.active=log " + suffix, b"")
+                b.check_drm_client("drm_client_lib.active= " + suffix, b"")
+
+    def test_string_length_boundary_is_fifteen_bytes(self):
+        with self.assertRaisesRegex(ValueError, "unknown DRM client"):
+            b.check_drm_client("drm_client_lib.active=" + "x" * 15, self.CONFIG)
+        b.check_drm_client("drm_client_lib.active=" + "x" * 16, b"")
+
+    def test_kernel_double_quotes_and_parameter_name_equivalence(self):
+        for args in ('drm_client_lib.active="log"', '"drm_client_lib.active=log"',
+                     'drm-client-lib.active=log'):
+            with self.subTest(args=args):
+                b.check_drm_client(args, self.CONFIG)
+                with self.assertRaisesRegex(ValueError, "CONFIG_DRM_CLIENT_LOG=y"):
+                    b.check_drm_client(args, b"")
+
+    def test_shell_quoting_and_case_are_not_kernel_aliases(self):
+        for value in ("'log'", 'l"og"', r"l\og", "LOG", "none"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "unknown DRM client"):
+                b.check_drm_client("drm_client_lib.active=" + value, self.CONFIG)
+
+    def test_only_a_standalone_double_dash_ends_kernel_arguments(self):
+        for separator in ("--", '"--"'):
+            with self.subTest(separator=separator):
+                b.check_drm_client(separator + " drm_client_lib.active=log", b"")
+                with self.assertRaisesRegex(ValueError, "CONFIG_DRM_CLIENT_LOG=y"):
+                    b.check_drm_client("drm_client_lib.active=log " + separator + " drm_client_lib.active=", b"")
+        with self.assertRaisesRegex(ValueError, "CONFIG_DRM_CLIENT_LOG=y"):
+            b.check_drm_client("--=init-arg drm_client_lib.active=log", b"")
+
+    def test_quoted_spaces_do_not_create_an_extra_parameter(self):
+        b.check_drm_client('other="drm_client_lib.active=log with spaces"', b"")
+
+    def test_no_config_or_no_explicit_assignment_retains_existing_behavior(self):
+        b.check_drm_client("drm_client_lib.active=log", None)
+        for args in ("console=tty0", "drm_client_lib.active", "drm_client_lib.active=" + "x" * 16):
+            with self.subTest(args=args):
+                b.check_drm_client(args, b'CONFIG_DRM_CLIENT_DEFAULT="log"\n')
+
+    def test_client_library_may_be_a_module(self):
+        b.check_drm_client("drm_client_lib.active=log",
+                           self.CONFIG.replace(b"CONFIG_DRM_CLIENT_LIB=y", b"CONFIG_DRM_CLIENT_LIB=m"))
+
+    def test_setup_and_library_must_be_present(self):
+        for symbol in (b"CONFIG_DRM_CLIENT_LIB", b"CONFIG_DRM_CLIENT_SETUP"):
+            with self.subTest(symbol=symbol), self.assertRaisesRegex(ValueError, symbol.decode()):
+                b.check_drm_client("drm_client_lib.active=log", self.CONFIG.replace(symbol + b"=y", symbol + b"=n"))
+
+    def test_incompatible_build_stops_before_compilation_or_publication(self):
+        with tempfile.TemporaryDirectory(prefix="lgg8-drm-client-tests-") as folder:
+            root = Path(folder)
+            stock = template_image()
+            (root / "source.img").write_bytes(stock)
+            b.prepare_template(argparse.Namespace(from_boot=root / "source.img", sha256=b.sha(stock), output=root / "template"))
+            for name, data in (("Image", image()), ("board.dtb", tree().encode()),
+                               ("initramfs.cpio", archive()), (".config", b"# CONFIG_DRM_CLIENT_LOG is not set\n"),
+                               ("cmdline.txt", b"console=tty0 rdinit=/init drm_client_lib.active=log\n")):
+                (root / name).write_bytes(data)
+            args = argparse.Namespace(kernel=root / "Image", dtb=root / "board.dtb", initramfs=root / "initramfs.cpio",
+                                      template=root / "template", config=root / ".config", cmdline_file=root / "cmdline.txt",
+                                      partition_size=1024 * 1024, output=root / "rejected")
+            with patch.object(b, "compile_shim") as compile_shim, patch.object(b, "publish") as publish:
+                with self.assertRaisesRegex(ValueError, "CONFIG_DRM_CLIENT_LOG=y"):
+                    b.build(args)
+                compile_shim.assert_not_called()
+                publish.assert_not_called()
+            self.assertFalse(args.output.exists())
+
+
 @unittest.skipUnless(all(shutil.which(name) for name in ("clang", "ld.lld", "llvm-objcopy")), "LLVM toolchain required for build integration")
 class BuildTests(unittest.TestCase):
     @classmethod

@@ -208,6 +208,19 @@ measurement freshness remain unverified; earlier C214–C218 observations used
 the old, opposite sign and must not be reinterpreted as direct measurements
 from this revised binary.
 
+With the user's permission, a later Android observation on 2026-10-31
+21:23:37–21:23:54 UTC read five sequential samples about four seconds apart.
+Battery and BMS temperature properties both returned 310 deci-°C; battery
+`current_now` returned 488, 976, 488, 488 and 0 µA, and BMS `current_now`
+returned -488, -976, -488, -488 and 0 µA. Android reported full capacity,
+USB present and USB online 0. These are separately read properties in one
+near-zero-current window, not an atomic snapshot, independent current
+measurement, or verification of physical current direction and accuracy.
+Both temperature properties may share the same sensor and vendor processing.
+The property getters can perform vendor FG arbitration; no charging-control
+write was requested. ADB was returned to non-root mode, and the same Android
+boot ID and `boot_completed=1` were confirmed afterward.
+
 Sources: [FG current read](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-util.c#L979),
 [register offsets](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-reg.h#L250).
 [PM8150B resource](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/qcom/pm8150b.dtsi#L413).

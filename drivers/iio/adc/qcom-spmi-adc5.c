@@ -325,23 +325,18 @@ static int adc5_do_conversion(struct adc5_chip *adc,
 		goto unlock;
 	}
 
-	if (adc->poll_eoc) {
-		ret = adc5_poll_wait_eoc(adc);
-		if (ret) {
-			dev_err(adc->dev, "EOC bit not set\n");
-			goto unlock;
-		}
-	} else {
+	if (!adc->poll_eoc) {
 		ret = wait_for_completion_timeout(&adc->complete,
 							ADC5_CONV_TIMEOUT);
-		if (!ret) {
-			dev_dbg(adc->dev, "Did not get completion timeout.\n");
-			ret = adc5_poll_wait_eoc(adc);
-			if (ret) {
-				dev_err(adc->dev, "EOC bit not set\n");
-				goto unlock;
-			}
-		}
+		if (!ret)
+			dev_dbg(adc->dev, "IRQ wait timed out, checking EOC\n");
+	}
+
+	/* An IRQ wakeup alone does not establish the conversion status. */
+	ret = adc5_poll_wait_eoc(adc);
+	if (ret) {
+		dev_err(adc->dev, "EOC bit not set\n");
+		goto unlock;
 	}
 
 	ret = adc5_read_voltage_data(adc, data_volt);

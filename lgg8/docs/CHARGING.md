@@ -412,6 +412,13 @@ for the SM8150 alpha/beta boards, rather than applying its generic thermistor
 temperature mapping. This further rules out treating a generic LUT as an
 already verified G8 battery-temperature conversion.
 
+The C208 display image's packaged DTB contains only ADC children `channel@0`,
+`channel@1`, `channel@6`, and `channel@9` under PM8150B `adc@3100`; it does not
+contain the battery thermistor channels present in the current source DTSI.
+Do not assume that image can expose those channels based on today's source.
+An ADC5 conversion configures registers and writes a conversion request, so
+an IIO read that initiates a conversion is not a zero-register-write probe.
+
 The fixed downstream FG temperature getter reads two bytes from SRAM word 328
 and converts the signed ten-bit value at 0.25 °C per step. The profile's five
 thermistor coefficients and center offset are written into FG SRAM for the FG

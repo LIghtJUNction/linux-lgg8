@@ -48,6 +48,13 @@ SMB5_RAW_STATUS_ATTR(temperature_status, 0x00d);
 SMB5_RAW_STATUS_ATTR(batif_realtime_status, 0x210);
 SMB5_RAW_STATUS_ATTR(charge_enable_command, 0x042);
 SMB5_RAW_STATUS_ATTR(usb_suspend_command, 0x340);
+SMB5_RAW_STATUS_ATTR(usb_icl_override_command, 0x342);
+SMB5_RAW_STATUS_ATTR(usb_load_config, 0x365);
+SMB5_RAW_STATUS_ATTR(usb_icl_options, 0x366);
+SMB5_RAW_STATUS_ATTR(usb_aicl_options, 0x380);
+SMB5_RAW_STATUS_ATTR(icl_max_status, 0x106);
+SMB5_RAW_STATUS_ATTR(aicl_icl_status, 0x108);
+SMB5_RAW_STATUS_ATTR(aicl_status, 0x10a);
 SMB5_RAW_STATUS_ATTR(fcc_config, 0x061);
 SMB5_RAW_STATUS_ATTR(fv_config, 0x070);
 SMB5_RAW_STATUS_ATTR(usb_icl_config, 0x370);
@@ -76,6 +83,13 @@ static struct attribute *qcom_smb5_status_attrs[] = {
 	&dev_attr_batif_realtime_status.attr,
 	&dev_attr_charge_enable_command.attr,
 	&dev_attr_usb_suspend_command.attr,
+	&dev_attr_usb_icl_override_command.attr,
+	&dev_attr_usb_load_config.attr,
+	&dev_attr_usb_icl_options.attr,
+	&dev_attr_usb_aicl_options.attr,
+	&dev_attr_icl_max_status.attr,
+	&dev_attr_aicl_icl_status.attr,
+	&dev_attr_aicl_status.attr,
 	&dev_attr_fcc_config.attr,
 	&dev_attr_fv_config.attr,
 	&dev_attr_usb_icl_config.attr,

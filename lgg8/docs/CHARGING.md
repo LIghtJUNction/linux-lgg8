@@ -503,6 +503,21 @@ This illustrates why an enabled command cannot establish that the battery is
 actively charging. These are non-atomic observations under Android, not a
 Linux charging result; the debugfs address/count selectors were restored and
 ADB was returned to shell mode.
+
+For a future input-limit comparison, the status observer also exposes raw
+USB ICL override command, load configuration, ICL options, AICL options,
+ICL-maximum status, AICL current-limit status, and AICL status bytes on
+demand. These are read-only and not yet verified on the device. The values
+must be interpreted together with the negotiated source, USB mode and input
+path; no single byte establishes an enforced limit or a safe charge rate.
+[Vendor SMB5 registers](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h).
+On 2026-10-31 an Android snapshot read `0x1106=0a`, `0x1108=0a`,
+`0x110a=01`, `0x1340=00`, `0x1342=00`, `0x1365=a0`, `0x1366=03`,
+`0x1370=0a`, and `0x1380=d4` while on host USB. Under the vendor PM8150B
+parameter table's 50 mA encoding, both ICL status bytes are 500 mA; AICL
+status bit 0 is named done. These are separate non-atomic status/configuration
+reads, not measured current or evidence of the Linux state. Debugfs selectors
+were restored and ADB returned to shell mode.
 The experimental observer exposes the raw input-suspend command byte read-only;
 its value is not evidence of actual input current or a verified shutdown. Source:
 [downstream SMB5 register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h),

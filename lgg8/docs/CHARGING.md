@@ -294,6 +294,15 @@ unknown. No charging protection may depend on the candidate until those facts
 are established. Do not reuse the Gen3 BATT_INFO or older RRADC temperature
 conversion merely because their names are similar.
 
+Historical Qualcomm Gen4 code did read `ADC_RR_BATT_TEMP_LSB` directly as a
+single signed 8-bit integer in degrees Celsius. A later source change replaced
+that implementation with the two-byte, quarter-degree SRAM reading. This is
+evidence for an earlier register interpretation, not proof of the behavior of
+the running PM8150B V2, an explanation for the change, or evidence that the
+register remains valid when the Android FG driver is absent. In particular,
+do not infer that `0x4289` is part of the earlier single-byte reading.
+[Historical Gen4 change](https://android.googlesource.com/kernel/msm/%2B/14ba56753e9ad830e1b9ec8a807aeaa56a11229e%5E2..14ba56753e9ad830e1b9ec8a807aeaa56a11229e/).
+
 The vendor ADC5 driver treats the three battery-thermistor channels as voltage
 for the SM8150 alpha/beta boards, rather than applying its generic thermistor
 temperature mapping. This further rules out treating a generic LUT as an

@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/input/touchscreen/lge,sw42000.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: LG SW42000 I2C Touchscreen Controller
+
+maintainers:
+  - LIghtJUNction <lightjunction.me@gmail.com>
+
+allOf:
+  - $ref: touchscreen.yaml#
+
+description: |
+  The SW42000 touchscreen controller used by the LG G8 ThinQ. The controller
+  uses a vendor-specific I2C register protocol and reports up to ten contacts.
+  Firmware updates are intentionally outside this binding and driver.
+
+properties:
+  compatible:
+    const: lge,sw42000
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  reset-gpios:
+    maxItems: 1
+
+  vdd-gpios:
+    maxItems: 1
+
+  vcl-gpios:
+    maxItems: 1
+
+  pinctrl-names:
+    items:
+      - const: default
+
+  pinctrl-0: true
+
+unevaluatedProperties: false
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - reset-gpios
+  - vdd-gpios
+  - vcl-gpios
+  - touchscreen-size-x
+  - touchscreen-size-y
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        touchscreen@28 {
+            compatible = "lge,sw42000";
+            reg = <0x28>;
+            interrupt-parent = <&tlmm>;
+            interrupts = <122 IRQ_TYPE_EDGE_FALLING>;
+            reset-gpios = <&tlmm 54 GPIO_ACTIVE_HIGH>;
+            vdd-gpios = <&tlmm 152 GPIO_ACTIVE_HIGH>;
+            vcl-gpios = <&tlmm 59 GPIO_ACTIVE_HIGH>;
+            touchscreen-size-x = <1440>;
+            touchscreen-size-y = <3120>;
+        };
+    };
+
+...

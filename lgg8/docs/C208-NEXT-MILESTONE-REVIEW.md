@@ -55,15 +55,15 @@ pm8150b.dtsi 没有本板 charger/FG 节点；VBUS regulator 与 Type-C 默认 d
 
 板级 i2c17、qupv3_id_2 已启用；SoC 控制器是 i2c@c80000、GENI I2C，GPIO55/56 function qup17。没有 touchscreen child 或 SW42000 主线实现，也没有固定 i2c17 alias。因此不能假定运行总线编号为 17；0xc80000 是控制器 MMIO，不是触摸 slave address。[S3][S12]
 
-公开下游普通 alpha_lao_com 启用 lge,sw42000@28，基础 DTS 给出 IRQ GPIO122、reset GPIO54、vdd GPIO152、vcl GPIO59，raw 最大坐标 1439×3119。存在多触摸方案和 early revision 差异，必须对照本机运行实例；这些值不是可直接写入主线的参数清单。[S13][S14]
+公开下游普通 alpha_lao_com 启用 lge,sw42000@28，基础 DTS 给出 IRQ GPIO122、reset GPIO54、vdd GPIO152、vcl GPIO59，raw 最大坐标 1439×3119。[S13][S14] C208-R3 后从本机 Android 运行设备树只读采集并逐项对照：地址 0x28、IRQ 122/下降沿、reset 54、vdd 152、vcl 59、maker_id 7、坐标最大值 1439×3119、hw/sw reset delay 40 ms 均匹配；运行节点另确认 `touch_pin_active` / `touch_pin_sleep`。原始属性在 `out/lgg8-c208-drm-log-enabled/run-03/touch-runtime-node-readonly.txt`，TLMM pinctrl 解析在 `touch-runtime-pinctrl-readonly.txt`。未读触摸 sysfs、未读写 I²C、未驱动 GPIO。
 
-SW42000 的专用两字节请求头与 132 字节触点报告不兼容通用 Synaptics RMI4、SiS 或 Silead。下游依赖 LG touch_core、复位／电源、显示选择与 firmware updater。[S15][S16] 下游 `devices_lge.c` 对 `lge.touchid=0` 的选择解释，与本机 Android 运行态中 `4-0028` 已绑定 `sw42000` 的观察需要结合该 ROM 的精确构建与选型路径继续核对；不能仅凭 bootarg 推断驱动绑定。
+SW42000 的专用两字节请求头与 132 字节触点报告不兼容通用 Synaptics RMI4、SiS 或 Silead。下游依赖 LG touch_core、复位／电源、显示选择与 firmware updater。[S15][S16] `devices_lge.c` 将 `lge.touchid=0` 解析为 SIW；本机 Android 同时观测到 `4-0028` 已绑定 SW42000。两者相符，但 ROM 的完整选型路径尚未逐行审计，不能只凭 bootarg 推断驱动绑定。
 
-Android 只读采集已把 input event、I2C client、driver 与 of_node 的一部分关系连起来：运行态出现 `4-0028` / `sw42000` / `lge_touch`，触摸 IRQ 行名为 `lge_touch`，输入列表含 `touch_dev`，bootarg 为 `lge.touchid=0`。运行设备树还包含 `synaptics,s3707` compatible，但本轮没有发现相应 I2C client；这只限本次采集结果。下一步仍需采集 SW42000 节点实际生效的 IRQ/reset/power/pinctrl/maker 属性、board revision 和缓存能力；精确 ABS 数值范围需另用已核对实现的只读 EVIOCGABS 采集器。
+Android 只读采集已把 input event、I2C client、driver 与 of_node 的一部分关系连起来：运行态出现 `4-0028` / `sw42000` / `lge_touch`，触摸 IRQ 行名为 `lge_touch`，输入列表含 `touch_dev`，bootarg 为 `lge.touchid=0`。运行设备树还包含 `synaptics,s3707` compatible，但本轮没有发现相应 I2C client；这只限本次采集结果。静态设备树参数已经收集，board revision 与 EVIOCGABS 仍未读取，因此坐标范围目前以运行设备树为依据，不声称已和 Android input abs 能力逐项核对。
 
 **不能递归 cat vendor touch sysfs。** 已核实读取 fw_upgrade 会排队固件升级，读取 click_test 会注入触摸。这不是泛泛风险提示，是下游 show 函数的实际行为。[S17]
 
-确认器件后可独立开发最小协议驱动和离线报文解析测试，初版排除固件烧写、工厂测试、手势及 vendor sysfs。现在加一个无驱动节点不能产生触摸功能。
+本分支已加入初版主线 I²C/input 驱动和 DT 节点。它读取 SW42000 版本并要求 chip ID 10/protocol 4 后才写正常 I²C、扫描与中断控制寄存器；不包含总线工厂测试、固件升级、手势和 vendor sysfs。离线解析器按触点结构逐字节解码；零触点报文按下游语义拒绝，UP 报文通过 slot drop 释放。解析单测、完整配置内核/板 DTB 编译、`dt_binding_check`、YAML lint 和针对本机编译 DTB 的 targeted `dt-validate` 均通过。C209 暴露输入轴未注册问题；C210 添加 X/Y 轴后，RAM-only 真机启动进入桌面，用户确认点按/触控有效。C210 自动回 Android，boot_a/boot_b 哈希不变。主机 ACM 串口权限拒绝读取内核日志，因此硬件验收依据为用户现场观察。当前版本不实现 suspend/resume，因此待机手势和睡眠恢复尚未支持。
 
 ## 显示：保留已知参数，补齐画面与输出归属
 

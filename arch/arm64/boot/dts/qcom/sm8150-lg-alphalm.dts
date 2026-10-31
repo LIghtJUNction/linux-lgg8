@@ -7,6 +7,7 @@
 
 #include <dt-bindings/arm/qcom,ids.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/phy/phy.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
@@ -465,11 +466,27 @@
 	status = "disabled";
 };
 
-/* SW42000 touch uses QUP SE17 I2C at 0xc80000, not SE18 SPI.
- * Its downstream protocol still needs a mainline driver.
- */
 &i2c17 {
 	status = "okay";
+
+	touchscreen@28 {
+		compatible = "lge,sw42000";
+		reg = <0x28>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <122 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&tlmm 54 GPIO_ACTIVE_HIGH>;
+		vdd-gpios = <&tlmm 152 GPIO_ACTIVE_HIGH>;
+		vcl-gpios = <&tlmm 59 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&sw42000_reset_active &sw42000_irq_active>;
+
+		touchscreen-size-x = <1440>;
+		touchscreen-size-y = <3120>;
+		touchscreen-max-pressure = <255>;
+		status = "okay";
+	};
 };
 
 &mdss {
@@ -566,6 +583,21 @@
 &tlmm {
 	/* LG firmware marks GPIOs 92-95 and 98-101 as inaccessible. */
 	gpio-reserved-ranges = <92 4>, <98 4>, <126 4>;
+
+	sw42000_reset_active: sw42000-reset-active-state {
+		pins = "gpio54";
+		function = "gpio";
+		drive-strength = <6>;
+		bias-pull-up;
+	};
+
+	sw42000_irq_active: sw42000-irq-active-state {
+		pins = "gpio122";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
 
 	quat_mi2s_active: quat-mi2s-active-state {
 		pins = "gpio137", "gpio138";

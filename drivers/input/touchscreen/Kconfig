@@ -632,6 +632,15 @@ config TOUCHSCREEN_LPC32XX
 	  To compile this driver as a module, choose M here: the
 	  module will be called lpc32xx_ts.
 
+config TOUCHSCREEN_LGE_SW42000
+	tristate "LG SW42000 touchscreen"
+	depends on I2C && OF && GPIOLIB
+	select INPUT_MT
+	help
+	  Say Y here to enable the LG SW42000 touchscreen used by the LG G8
+	  ThinQ. This driver supports normal multitouch reports only; it does
+	  not perform firmware updates or factory tests.
+
 config TOUCHSCREEN_MAX11801
 	tristate "MAX11801 based touchscreens"
 	depends on I2C

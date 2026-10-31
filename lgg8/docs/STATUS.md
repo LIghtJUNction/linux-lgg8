@@ -29,7 +29,7 @@
 | RAM 桌面用户态 | **C208-R3 用户观察到蓝底终端与极简桌面；同次 ACM 通过** | 显示＋ACM 里程碑 M1 通过；屏幕证据为用户观察，无录像 |
 | Linux USB 枚举和 shell | **RAM-only 路径通过** | C206 空 client 与 C208 有效 log client 均通过 `18d1:4ee7` ACM shell；C207 的 log client 未编译，C203 默认 fbdev 未到达 ACM |
 | ramoops/pstore 真机证据 | **C192 首次导出 console-ramoops；内容损坏，pmsg 未确认** | 早期与回收后同一 32878 字节记录；C191 为空；C192 用户态标记及 DPU pmsg 仍未观察到 |
-| 显示与触控 | **C208-R3 显示通过用户观察；Linux 触控无响应** | 同次启动用户看到蓝色背景、终端和极简桌面；主线仍缺 SW42000 节点与协议驱动 |
+| 显示与触控 | **C210 RAM-only 真机：桌面触控有效（用户确认）；显示花屏状态另行追踪** | C210 X/Y 轴注册修复；自动回 Android，boot_a/boot_b 哈希不变；ACM 内核日志因主机 tty 权限未取到 |
 | Weston RAM 桌面 | **同次显示＋ACM 通过** | C208-R3；见下方记录与独立审查文档 |
 | Omarchy | **未通过** | Weston 极简桌面不等于 Omarchy；不能由源码编译或通用 QEMU 推导 |
 | 当前 Android 与软件 fastboot 修复 | 历史真机通过 | 依赖当前已安装 Android 启动镜像；覆盖后不可假设保留 |
@@ -525,7 +525,9 @@ C203 保持 C202 内核和其余输入不变，只把 `watchdog.open_timeout` �
 
 Linux 的可见桌面与 ACM 已在 C208-R3 同次 RAM-only 启动通过；用户观察为蓝底、终端和极简桌面，未留录像。用户报告该 Linux 阶段触控没有响应。
 
-C208-R3 回 Android 后的只读采集确认当前 Android 运行设备树声明 `lge,sw42000`，I²C client `4-0028` 的名称为 `sw42000` 并绑定 `lge_touch`，触摸中断线名为 `lge_touch`，输入设备列表中有 `touch_dev`；运行设备树中 SW42000 节点为 `status=okay`、地址 `0x28`、IRQ 122，Synaptics S3707 节点为 disabled。当前 Android `/proc/config.gz` 含 `CONFIG_LGE_TOUCH_LGSIC_SW42000=y`。该输入属于当前 Android 内核，不能证明本仓 Linux 已有支持。本仓仍没有 SW42000 协议驱动或板级触摸子节点；Linux 触控尚未适配。只读原始记录位于忽略目录 `out/lgg8-c208-drm-log-enabled/run-03/android-readonly.txt` 与 `android-dt-details.txt`。
+C208-R3 回 Android 后的只读采集确认当前 Android 运行设备树声明 `lge,sw42000`，I²C client `4-0028` 的名称为 `sw42000` 并绑定 `lge_touch`，触摸中断线名为 `lge_touch`，输入设备列表中有 `touch_dev`；运行节点地址 `0x28`、IRQ 122、reset GPIO54、vdd GPIO152、vcl GPIO59、maker_id GPIO7、坐标最大值 1439×3119、reset delay 40 ms，均与公开 alpha_lao_com 下游树匹配。Android `/proc/config.gz` 含 `CONFIG_LGE_TOUCH_LGSIC_SW42000=y`。只读记录在忽略目录 `out/lgg8-c208-drm-log-enabled/run-03/` 下的 `android-readonly.txt`、`android-dt-details.txt`、`touch-runtime-node-readonly.txt`、`touch-runtime-pinctrl-readonly.txt`；本次没有触碰触摸 sysfs、I²C 总线或 GPIO。
+
+新分支 `lgg8/sw42000-touch` 已加入精简 SW42000 主线 I²C/input 驱动、LG G8 设备树节点及绑定文档，并启用 `CONFIG_TOUCHSCREEN_LGE_SW42000=y`。完整配置内核与板级 DTB 已编译通过；离线 C 报文解析测试覆盖坐标/压力/宽度、多点、UP 释放、零计数拒绝、非法计数、重复 ID、非触摸报文与 palm 取消并通过。驱动版本检查要求芯片 ID 10 / 协议 4，只写正常 I²C 模式、扫描模式和中断控制；没有固件升级、工厂测试、手势或调试 sysfs。`dt_binding_check`、YAML lint 与针对 LG G8 编译 DTB 的 targeted `dt-validate` 均通过。C209 发现输入轴未注册；C210 修复轴并由用户在 RAM-only Linux 桌面确认触控有效，随后自动回 Android，boot_a/boot_b 哈希保持原值。ACM 串口权限导致本次内核日志未采集。候选镜像 SHA-256 为 `befe11656fe2e6941edda75beaf0935a7602c5823a3da06f0408d0819f22cef4`。suspend/resume、手势和睡眠恢复尚未实现。
 
 同一 Android 只读采集显示 `battery`、`dc`、`main`、`pc_port`、`usb` 等 power_supply 设备归属 `qcom,qpnp-smb5`，`bms` 归属 `qcom,fg-gen4`，运行设备树还含 Qnovo 与 SMB1355 节点；配置含 `CONFIG_QPNP_SMB5=y`、`CONFIG_QPNP_FG_GEN4=y`、`CONFIG_SMB1355_SLAVE_CHARGER=y`、`CONFIG_QPNP_QNOVO5=y` 与 `CONFIG_LGE_PM=y`。这确认了当前 Android 软件栈使用的电源路径，但不等于本仓主线支持或本轮实测充电。`qcom,battery-data` 引用和选中 profile 尚未解析。主线当前的 `CHARGER_QCOM_SMB2` 不等同于 SMB5/FG GEN4；电量计可能写 PMIC SDAM/学习状态，因此不新增猜测的 charger/FG 节点，也不做试充。
 

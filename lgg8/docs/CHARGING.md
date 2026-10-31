@@ -548,6 +548,14 @@ to establish what is enforced. Temperature raw/config/period were `21/02/01`.
 Android returned with `boot_completed=1`, a rotated boot ID, and unchanged
 hashes for both boot partitions. Raw evidence and the exact-port runner are in
 `out/lgg8-c223-smb5-icl-observe-20261031/run-01/`; no partition was written.
+The `0x1366` USB2/USB3 selection bits in this Linux snapshot match the bit
+pattern used by the vendor's 500 mA SDP setter, but the three sampled mode and
+override bits do not match that setter's complete software-override tuple or
+the vendor helper's complete hardware-auto tuple. Because the reads were not
+atomic and Linux did not invoke that vendor setter, this is a source-level
+comparison, not identification of the effective mode.
+[Vendor ICL mode helper](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L178-L225),
+[vendor SDP selection](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L1389-L1440).
 The experimental observer exposes the raw input-suspend command byte read-only;
 its value is not evidence of actual input current or a verified shutdown. Source:
 [downstream SMB5 register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h),

@@ -25,6 +25,12 @@ The suite does not run device commands:
 python3 -B lgg8/experiments/c224-observer/test_c224_offline.py
 ```
 
+Two additional integration tests run the generated shell script with the
+pinned ARM64 BusyBox under `qemu-aarch64`, including an injected SHA-256
+applet failure. They skip explicitly when QEMU or the local BusyBox is absent;
+an available BusyBox with the wrong hash fails. The tests redirect their
+temporary paths to the workspace and do not run on the phone.
+
 Running `run-c224-observe.py` without arguments performs only an offline review
 and also requires the pinned files. Its explicit device execution path is
 retained for audit, but **C224 has not been booted or validated**. A connected

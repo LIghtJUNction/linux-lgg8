@@ -509,6 +509,15 @@ Any future owner must explicitly track and verify the resulting hardware state
 and independently handle failure after an unsuspend; merely propagating the
 return code to TCPM is insufficient. This is a source-level finding, not a
 fault-injection result on the device.
+
+An independent review of an unwired transaction prototype identified two
+additional integration requirements: a failed resume may have taken effect,
+so failure lockout must retain a separately callable stop-and-confirm path;
+and matching contract values are insufficient to detect disconnect, revocation,
+or a new contract with identical values. The eventual contract owner must track
+generation and revocation and handle events even while a transaction is busy.
+Neither a software lockout nor a requested stop proves the power path stopped.
+These requirements have not been verified against PM8150B hardware.
 [Downstream ICL sequencing](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L1448).
 
 The current tree's generic `qcom_smbx` driver is not an immediately usable

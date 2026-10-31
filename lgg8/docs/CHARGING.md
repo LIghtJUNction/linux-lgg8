@@ -412,6 +412,26 @@ for the SM8150 alpha/beta boards, rather than applying its generic thermistor
 temperature mapping. This further rules out treating a generic LUT as an
 already verified G8 battery-temperature conversion.
 
+The fixed downstream FG temperature getter reads two bytes from SRAM word 328
+and converts the signed ten-bit value at 0.25 °C per step. The profile's five
+thermistor coefficients and center offset are written into FG SRAM for the FG
+to use; they must not be applied again to the resulting temperature. LG's
+exported `TEMP` may additionally apply current-dependent and table-based
+corrections, filters, or a 25 °C startup fallback, so it is not an independent
+raw calibration reference. Neither the SRAM getter nor an SRAM grant supplies
+an observation timestamp or proves that a conversion just completed.
+
+The downstream `fg_sram_read()` returns success without filling its buffer
+when `battery_missing` is set, while its temperature caller declares the
+buffer without initializing it. A new implementation must explicitly return
+invalid data for a missing battery or incomplete transfer, rather than
+replicating that path or substituting a nominal temperature. Reading FG SRAM
+also requires MEMIF arbitration writes; it is not an electrically read-only
+operation. These are source observations, not validation of a Linux sensor.
+[Downstream SRAM read](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-util.c#L635),
+[temperature getter](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L798),
+[LG temperature compensation](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/extension-fg-gen4.c#L312).
+
 [Gen4 register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-reg.h#L20-L48),
 [PM8150B peripheral bases](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/qcom/pm8150b.dtsi#L425-L437),
 [Gen4 temperature getter](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L798-L816),

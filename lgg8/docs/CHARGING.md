@@ -335,6 +335,17 @@ hardware limit or a fail-safe stop. A future design must supply one coordinated
 SMB5 owner and verify register writes, error propagation and stop behavior
 before using PD or enabling charge control.
 
+The downstream `smblib_set_icl_current()` is not a transactional enable
+operation. For a non-suspend request it configures a current/mode, clears USB
+suspend, and only then may rerun AICL. If that last operation fails, the helper
+returns an error after the input was already unsuspended. Therefore an ICL
+setter failure cannot be interpreted as proof that the input remained stopped.
+Any future owner must explicitly track and verify the resulting hardware state
+and independently handle failure after an unsuspend; merely propagating the
+return code to TCPM is insufficient. This is a source-level finding, not a
+fault-injection result on the device.
+[Downstream ICL sequencing](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L1448).
+
 The current tree's generic `qcom_smbx` driver is not an immediately usable
 PM8150B replacement. Its probe executes `smb_init_hw()` before registering
 the supply, including charge-enable, watchdog, AICL and FCC configuration;

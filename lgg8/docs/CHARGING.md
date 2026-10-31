@@ -240,6 +240,28 @@ one-degree raw Linux value or establish appropriate failure handling.
 [temperature policy](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/protection-battemp.c),
 [temperature input](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/veneer-psy.c#L1051-L1075).
 
+The vendor temperature policy obtains battery temperature and voltage, then
+casts current and float-voltage restriction votes. A zero-current thermal vote
+uses the charger-disable vote, whose SMB5 callback clears charging-enable bit
+0 at `0x1042`; it does not itself suspend USB input or prove a parallel charger
+has stopped. If the temperature/voltage feed explicitly fails, the worker
+logs the failure and keeps the previous votes before scheduling another poll.
+That is not an invalid-sample fail-closed policy and must not be copied as one.
+Vendor vote caching can also suppress another callback after a failed hardware
+write if the requested vote remains unchanged; requested and confirmed hardware
+states must therefore be tracked separately in any new implementation.
+
+The LG extension's `safety_timer_enable(true)` computes the value using a
+bitwise AND of distinct bits 0 and 1, yielding zero before applying the mask.
+This is a source-level finding, not a claim that this setter ran or that the
+current timer is disabled. A replacement must verify the actual timer enable
+bits and failure handling rather than copying that expression. Neither these
+source observations nor the current raw temperature byte establish safe
+charging, accurate temperature, or a functional hardware fallback.
+[Temperature worker](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/protection-battemp.c#L342-L403),
+[IBAT vote and timer setter](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/extension-smb5.c),
+[SMB5 disable callback](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L1760-L1776).
+
 ## Implementation and acceptance sequence
 
 The downstream FG driver obtains its underlying battery temperature from FG

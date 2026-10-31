@@ -238,9 +238,11 @@ and comparison against an independent temperature measurement.
 The experimental observer now exposes raw battery-info status bytes at offsets
 `0x06` and `0x07`. The downstream header names bit 0 of the first byte
 `BATT_TEMP_AVAIL_BIT` and bits 0–2 of the second as battery-missing indicators.
-This is a source-level mapping only: the new attributes have not yet been
-tested on this device, and an asserted availability bit alone cannot establish
-sample freshness, calibration, or a working temperature protection path.
+The attributes were read on this device in C219 and C220. Both bytes read
+zero; Android also returned zero for the first byte while its FG reported a
+plausible temperature. The shared-header names therefore do not establish the
+bits' Gen4 meaning. Neither value proves sample freshness, calibration, or a
+working temperature protection path.
 
 ### Gen4 temperature SRAM access audit
 
@@ -257,13 +259,19 @@ not been independently verified for the running mainline environment.
 
 The reference release path returns immediately if clearing `0x4350` fails,
 without attempting to clear `0x4340`. Initial arbitration-write failure also
-returns directly. A future implementation must treat even a failed bus write
-as potentially applied, attempt both releases independently, propagate any
-failure, use bounded waits, serialize every client of this interface, and
-reject missing/stale battery data. It must not claim that cleanup succeeded
-when a write or readback fails. These conditions are design requirements, not
-proof that forcing cleanup is harmless in every PMIC fault state; hardware
-ownership and recovery still need review before testing.
+returns directly. A failed bus write may still have taken effect, but it is
+not yet established whether forcing either release after an error is safe.
+The recovery sequence, hardware ownership and serialization across all clients
+therefore need independent verification before hardware testing.
+
+The unwired `qcom_fg_dma_experimental` draft is not a charging driver. Its
+public read entry always returns `-EOPNOTSUPP` without accessing the PMIC.
+Review found that caller-provided attestations and a per-instance lock cannot
+prove device identity or exclusive ownership. Cached regmap reads and
+read-modify-write operations can also misrepresent hardware state. A successful
+transaction alone would not validate sample freshness, calibration or battery
+temperature. These gaps must be resolved with device-specific evidence before
+the draft is connected to a running kernel.
 
 [Revision selection](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L5820),
 [DMA transaction](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-memif.c#L827),

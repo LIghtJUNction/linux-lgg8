@@ -44,7 +44,7 @@ class TemperatureTransactionTest(unittest.TestCase):
             ("verify_dma", "read", 0x4350, 1),
             ("verify_arb", "read", 0x4340, 1),
         ])
-        self.assertEqual((regmap.registers[ARB], regmap.registers[INTF]), (6, 4))
+        self.assertEqual((regmap.registers[ARB], regmap.registers[INTF]), (2, 4))
         self.assertEqual(TEMP, 0x4858)
 
     def test_all_ten_bit_values_and_c_negative_rounding(self):
@@ -73,7 +73,7 @@ class TemperatureTransactionTest(unittest.TestCase):
                         self.assertNotIn("request_dma", stages(regmap))
                     self.assert_released(regmap)
                     self.assertEqual((regmap.registers[ARB], regmap.registers[INTF]),
-                                     (6, 4))
+                                     (2, 4))
 
     def test_grant_timeout_is_bounded_and_does_not_read_data(self):
         regmap = FakeRegmap(grant_after=None)
@@ -174,7 +174,7 @@ class TemperatureTransactionTest(unittest.TestCase):
         self.assertEqual(regmap.trace, [])
 
     def test_busy_peer_and_preflight_read_error_do_not_clear_requests(self):
-        for address, bit in ((ARB, 1), (INTF, 0x80), (INTF, 0x20)):
+        for address, bit in ((ARB, 1), (ARB, 0x04), (INTF, 0x80), (INTF, 0x20)):
             regmap = FakeRegmap()
             regmap.registers[address] |= bit
             before = dict(regmap.registers)

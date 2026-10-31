@@ -15,6 +15,7 @@ STATUS = 0x4310
 PEEK = 0x41EF
 TEMP = 0x4800 + 0x20 + (328 - 300) * 2
 ARB_MASK = 0x01
+ARB_CLEAR_LOG = 0x04
 INTF_MASK = 0xA0
 GRANT = 0x08
 
@@ -59,7 +60,7 @@ class FakeRegmap:
 
     def __init__(self, *, raw=100, grant_after=0, alg_inactive_after=0,
                  faults=None, short_data=False):
-        self.registers = {ARB: 0x06, INTF: 0x04, TEMP: raw & 0xFF,
+        self.registers = {ARB: 0x02, INTF: 0x04, TEMP: raw & 0xFF,
                           TEMP + 1: (raw >> 8) & 0xFF}
         self.grant_after = grant_after
         self.alg_inactive_after = alg_inactive_after
@@ -145,7 +146,8 @@ def read_temperature(regmap, *, revision="v2", peek_configured=False,
         try:
             # Proposal: refuse to clear requests potentially owned by a peer.
             for stage, address, mask in (("preflight_dma", INTF, INTF_MASK),
-                                         ("preflight_arb", ARB, ARB_MASK)):
+                                         ("preflight_arb", ARB,
+                                          ARB_MASK | ARB_CLEAR_LOG)):
                 if regmap.read(stage, address)[0] & mask:
                     raise BusError(stage, EBUSY)
             if revision == "v1":

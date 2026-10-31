@@ -284,6 +284,26 @@ transaction alone would not validate sample freshness, calibration or battery
 temperature. These gaps must be resolved with device-specific evidence before
 the draft is connected to a running kernel.
 
+The downstream Gen4 register header separately names ADC_RR battery-temperature
+bytes at offsets `0x88` and `0x89`; with the PM8150B ADC_RR base `0x4200`,
+these suggest addresses `0x4288` and `0x4289`. This is a possible path around
+SRAM DMA, not a verified temperature interface: the Gen4 temperature getter
+actually reads SRAM, and the encoding, freshness, update conditions, read side
+effects and coherent two-byte read protocol for these ADC_RR registers remain
+unknown. No charging protection may depend on the candidate until those facts
+are established. Do not reuse the Gen3 BATT_INFO or older RRADC temperature
+conversion merely because their names are similar.
+
+The vendor ADC5 driver treats the three battery-thermistor channels as voltage
+for the SM8150 alpha/beta boards, rather than applying its generic thermistor
+temperature mapping. This further rules out treating a generic LUT as an
+already verified G8 battery-temperature conversion.
+
+[Gen4 register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-reg.h#L20-L48),
+[PM8150B peripheral bases](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/qcom/pm8150b.dtsi#L425-L437),
+[Gen4 temperature getter](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L798-L816),
+[alpha/beta ADC5 channels](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/iio/adc/qcom-spmi-adc5.c#L740-L754).
+
 [Revision selection](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L5820),
 [DMA transaction](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-memif.c#L827),
 [Gen4 address table](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-memif.c#L1194).

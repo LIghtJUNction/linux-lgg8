@@ -1,6 +1,6 @@
 # 当前状态与证据边界
 
-更新：2026-10-30。本页分别记录源码、本地验证和手机功能的进展。
+更新：2026-10-31。本页分别记录源码、本地验证和手机功能的进展。
 
 ## 本仓源码基线
 
@@ -26,8 +26,8 @@
 | 默认诊断 PID 1 | **QEMU virt 实际运行通过** | 同一内核进入 PID 1 并按期复位；非 PID 1 返回 91 保护也通过；不代表手机通过 |
 | 原生 initramfs | **GNU cpio 解析通过** | 说明归档可解析，不证明真机能启动 |
 | 本仓新内核真机启动 | **完整默认参数已运行** | C160 与 C162–169 使用 GPIO 保护、启用 TLMM、默认无 blacklist；每轮均回收 Android 且 A/B boot 哈希不变 |
-| RAM 桌面用户态 | **QEMU headless 通过；手机终端已派生且 Weston 存活** | C167 阶段 8、C169 WPROC=1；用户报告全屏花屏，仍无可用桌面验收 |
-| Linux USB 枚举和 shell | **未通过；检测到 1 个 UDC** | C168 回传的 UDC 数量为 1，但主机未见 Linux `18d1:4ee7`，尚不能用 ACM shell |
+| RAM 桌面用户态 | **PID 1/桌面工作进程可运行；可见桌面未验收** | C206/207 用户态阶段标记和 ACM shell 成功；屏幕本轮无可靠观察 |
+| Linux USB 枚举和 shell | **有条件通过** | C206 空 client 参数下 `18d1:4ee7` ACM shell 通过；C207 `active=log` 实际因 `CONFIG_DRM_CLIENT_LOG=n` 被拒为未知 client，仍属于无 client 路径；默认 fbdev 的 C203 未到达 ACM |
 | ramoops/pstore 真机证据 | **C192 首次导出 console-ramoops；内容损坏，pmsg 未确认** | 早期与回收后同一 32878 字节记录；C191 为空；C192 用户态标记及 DPU pmsg 仍未观察到 |
 | 显示与触控 | **显示链已启动，画面错误；触控未验收** | C165/166 分别检测到 2 个 connected connector、fb0 存在；这些状态不证明正确 scanout |
 | 桌面/Omarchy | **未通过** | 不能由源码编译或通用 QEMU 推导 |
@@ -532,10 +532,12 @@ RAM-only `fastboot boot` 首次成功在物理 USB 1-2 枚举 Linux ACM `18d1:4e
 
 手机自动回到 Android：`boot_completed=1`、slot `_b`、boot ID 轮转；`boot_a`、`boot_b` SHA-256 均与测试前一致，未写入任何分区。尝试记录与原始采样保存在本机忽略目录 `out/lgg8-c206-drm-client-bypass-20261031-1/`。屏幕本轮未作可靠观察；触控和充电仍未验收。
 
-### C207：保留 DRM log client 仍可到达 ACM，故障收敛到 fbdev client（2026-10-31）
+### C207：`active=log` 被当前配置忽略，仍然到达 ACM（2026-10-31）
 
-以 C203 为基线，仅增加 `drm_client_lib.active=log`。内核、配置、initramfs、源 DTB、shim 源码、stock DTBs、模板及其他启动参数均与 C203 一致；离线包核验通过。Candidate 207 镜像 SHA-256：`ec71b695cc9b0053fb0f13bd11c2cf5e33a43d2c2c87cf9f1b493734e11a1a4f`。
+以 C203 为基线仅增加 `drm_client_lib.active=log`，镜像 SHA-256 为 `ec71b695cc9b0053fb0f13bd11c2cf5e33a43d2c2c87cf9f1b493734e11a1a4f`。RAM-only 启动后物理口 1-2 枚举 `18d1:4ee7`，ACM shell 通过并读取 520 行、39,836 字节；Android 自动回收，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a/boot_b 哈希不变。
 
-RAM-only 启动再次在物理口 1-2 成功枚举 `18d1:4ee7`，ACM shell 探针通过并读取 520 行、39,836 字节内核日志。Android 自动回收成功，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a/boot_b 哈希均未变化，无分区写入。结果与原默认 `fbdev` client 的 C203（未到达 ACM）形成对照；结合 C206 空 client 成功，当前证据把阻断范围收敛到 fbdev client 设置路径，而不是 DRM log client 或整个 DRM 驱动。具体阻塞函数及显示输出仍未确认。运行和采样留在忽略目录 `out/lgg8-c207-drm-log-client-20261031-1/`；屏幕本轮没有可靠观察记录。
+核查有效配置发现 `CONFIG_DRM_CLIENT_LOG` 未启用；本轮日志明确出现 `Unknown DRM client log`。因此 C207 没有启动 log client，而是与 C206 一样没有活动 DRM client。C206（空值）和 C207（未知 log）均到达 ACM；对照默认 `fbdev` 的 C203 未到达 ACM，支持 fbdev 分支为影响因素，但 C207 不是 log client 的有效对照，不能据此声称已排除其他 DRM client。原始记录保留在 `out/lgg8-c207-drm-log-client-20261031-1/`。
 
-当前有效 Linux 版本标识为 `7.3.0-lgg8+`。下一步针对 `drm_client_setup()` 的 fbdev 分支及 MSM KMS 调用链做源码级定位，再设计带阶段标记的 RAM-only 验证；触控和充电仍是未验收的独立适配项。
+源码调用链已收敛到：`msm_drm_kms_post_init()` → `drm_client_setup()` → `drm_fbdev_client_setup()` → `drm_client_register()` 同步触发 fbdev hotplug → `drm_fb_helper_initial_config()`。这给出可插入阶段标记的位置，但具体阻塞函数仍未证实。
+
+当前有效 Linux 版本标识为 `7.3.0-lgg8+`。C208 正在启用 `CONFIG_DRM_CLIENT_LOG` 后以 `active=log` 做有效 log-client 测试；触屏、充电和可见桌面仍未验收。

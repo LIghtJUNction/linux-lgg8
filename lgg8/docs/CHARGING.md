@@ -30,18 +30,61 @@ LG combination of SMB5, FG Gen4, Qnovo5, and SMB1355 drivers. Reusing the
 existing SMB2 driver or copying charger register writes without a complete
 profile and safety review is not a valid substitute.
 
+## Alpha-family downstream reference
+
+An additional fixed-source audit of
+[`android_kernel_lge_sm8150` at `d4f335e`](https://github.com/LineageOS/android_kernel_lge_sm8150/tree/d4f335e13d73c4aa2af85581a6ec11b670ee5b94)
+found the alpha-family power DTSI includes two BLT41 3500 mAh battery
+profiles: Tocad (battery ID 91 kΩ) and LGC (12 kΩ). Both profile files state
+`qcom,max-voltage-uv = <4430000>`, and the DTSI sets Tocad/91 kΩ as the default.
+This is useful source evidence for the device family, but the default does not
+prove which profile the live phone selected; the runtime `qcom,battery-data`
+phandle and actual battery ID remain unresolved. Do not use the 4.43 V value as
+a mainline charging limit until the exact pack/profile and its protection
+ownership are confirmed.
+
+The same alpha-family DTSI has a vendor charging-time entry labelled 15 W
+(9 V × 1.66 A or 5 V × 3 A). That is not, by itself, proof of the hardware's
+maximum negotiated input power or the correct Linux input-current limit. LG's
+Canada specification for LM-G820UM2 separately lists QC 3.0 at 16.2 W and PD
+at 21 W; those figures are variant-specific published capabilities, not a
+verified ceiling for `alphalm_lao_com`.
+
+The mainline tree already has a PM8150B Type-C/PD controller driver
+(`TYPEC_QCOM_PMIC` is enabled in the build config), and the target DTS includes
+its PM8150B node but leaves it disabled. The driver does not implement TCPM's
+optional `set_current_limit` callback, so merely enabling the node does not
+program the SMB5 input-current limit from the negotiated sink contract. The
+missing piece is a PM8150B SMB5 charger implementation plus an explicit,
+reviewed contract-to-charger control path. Bring these up together; successful
+PD negotiation alone does not establish safe charging. The target DTS's
+`simple-battery` 4.43 V field is static battery metadata, not an active charge
+termination or overvoltage protection mechanism.
+
+The downstream FG Gen4 implementation also writes battery-profile data to
+PMIC SRAM and learning state through the SDAM NVMEM provider. RAM-only boot
+protects flash partitions but does not make those PMIC side effects read-only.
+Before considering FG Gen4 for Linux, audit each write, its ownership and its
+interaction with the following Android boot. Do not enable the downstream FG
+driver or its DT node as a shortcut to charging.
+
 ## Implementation and acceptance sequence
 
 1. Resolve the exact running battery-data profile and all SMB5, FG, Qnovo,
    SMB1355, Type-C, and thermal properties from the matching LG source and
    runtime device tree. Record the exact board variant and component revisions.
-2. Map each downstream component to current mainline power-supply, regulator,
-   ADC, Type-C, and USB-PD frameworks. Port only the required pieces and add
-   bindings with explicit, validated battery and thermal limits.
-3. First boot RAM-only without a charger and confirm fuel-gauge readings and
-   fault/temperature handling. Next test conservative wired charging and
-   Type-C negotiation; add QC/PD fast modes and the SMB1355 parallel path only
-   after each safety gate is proven.
+   Separately resolve who owns battery-temperature, overvoltage, termination,
+   and fault shutdown when Linux runs without the Android vendor stack.
+2. Preserve the existing mainline PM8150B Type-C/PD path. Map SMB5 input-current
+   control to the negotiated sink contract and required power-supply framework
+   interfaces before enabling either side. Audit all FG SRAM/SDAM writes and
+   do not enable the downstream FG implementation until its state effects are
+   bounded and safe across the next Android boot.
+3. Port only the necessary charger/telemetry pieces and add bindings with
+   validated battery and thermal limits. First boot RAM-only without a charger
+   and confirm telemetry and fault handling; then test conservative wired
+   charging. Add QC/PD fast modes and SMB1355 parallel charging only after
+   each safety gate is proven.
 4. Measure negotiated input voltage/current, battery voltage/current, battery
    and connector temperatures, SOC, and charge duration with known adapters
    and cables. Compare against stock under the same conditions. The maximum
@@ -56,4 +99,11 @@ baseline. Do not use a charging-rate increase as the first hardware test.
 
 - [LG Canada G8 ThinQ specifications](https://www.lg.com/ca_en/cell-phones/lmg820um2/)
 - [LG SM8150 kernel source](https://github.com/LineageOS/android_kernel_lge_sm8150)
+- [Pinned alpha-family power DTSI](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/sm8150-alpha/sm8150-alpha_common/sm8150-alpha_common-pm.dtsi)
+- [Tocad 3500 mAh battery profile](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/battery_profile/LGE_BLT41_Tocad_3500mAh.dtsi)
+- [LGC 3500 mAh battery profile](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/battery_profile/LGE_BLT41_LGC_3500mAh.dtsi)
+- [LG charging-time profile parser](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/charging-time.c)
+- [Mainline alphalm DTS](../../arch/arm64/boot/dts/qcom/sm8150-lg-alphalm.dts) and [PM8150B Type-C node](../../arch/arm64/boot/dts/qcom/pm8150b.dtsi)
+- [Mainline PM8150B Type-C callbacks](../../drivers/usb/typec/tcpm/qcom/qcom_pmic_typec_port.c)
+- [Earlier charging safety audit](C208-NEXT-MILESTONE-REVIEW.md)
 - [Upstream Qualcomm SMBx charger driver](https://github.com/torvalds/linux/blob/master/drivers/power/supply/qcom_smbx.c)

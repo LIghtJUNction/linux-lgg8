@@ -524,6 +524,18 @@ actively charging. These are non-atomic observations under Android, not a
 Linux charging result; the debugfs address/count selectors were restored and
 ADB was returned to shell mode.
 
+A later Android snapshot read `0x1006=45`, `0x1007=28`, `0x100d=00`,
+`0x1042=01`, `0x1043=00`, `0x1210=00`, and `0x1340=00`; `bms/temp` reported
+33.0 °C. In the vendor register definitions, the low three bits of `0x1006`
+equal 5 (termination), the charging-enable command bit is set, and the pause
+command bit is clear. This is consistent with an enabled charger that has
+terminated, not a measurement of battery current. The bytes were read
+sequentially, and a clear temperature-status byte alone does not prove the
+thermal protection path is operational. No charger register was written; the
+Android BMS getter may use FG SRAM arbitration. Debugfs selectors were
+restored and ADB returned to shell mode.
+[Vendor charger status and command bits](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h#L32-L71).
+
 For a future input-limit comparison, the status observer also exposes raw
 USB ICL override command, load configuration, ICL options, AICL options,
 ICL-maximum status, AICL current-limit status, and AICL status bytes on

@@ -328,9 +328,11 @@ The current Qualcomm PMIC Type-C driver registers `set_vbus` but no
 source VBUS through `on` and does not act on the `sink` argument. Therefore a
 TCPM request to disable sink charging does not, by itself, establish that
 SMB5 charging or the input path has been disabled. The local TCPM error path
-also permits a missing `set_current_limit` callback, and
-`tcpm_set_current_limit()` updates its reported voltage/current before calling
-that callback. These interfaces must not be treated as proof of an enforced
+also permits a missing `set_current_limit` callback. The local
+`tcpm_set_current_limit()` now preserves its previous reported values when an
+existing callback returns an error; absent callbacks retain the existing TCPM
+reporting behavior and do not establish a hardware limit. These interfaces
+must not be treated as proof of an enforced
 hardware limit or a fail-safe stop. A future design must supply one coordinated
 SMB5 owner and verify register writes, error propagation and stop behavior
 before using PD or enabling charge control.

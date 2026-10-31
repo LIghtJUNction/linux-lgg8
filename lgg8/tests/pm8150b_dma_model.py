@@ -133,7 +133,7 @@ def read_temperature(regmap, *, revision="v2", peek_configured=False,
     with regmap.lock:
         if revision not in ("v1", "v2") or not initialized:
             return Result(None, (Error("unsupported_or_uninitialized", EOPNOTSUPP),))
-        if revision == "v1" and not peek_configured:
+        if not peek_configured:
             return Result(None, (Error("peek_unverified", EOPNOTSUPP),))
         if not battery_present or not sample_fresh:
             return Result(None, (Error("missing_or_stale_sample", ENODATA),))
@@ -195,7 +195,7 @@ def read_temperature(regmap, *, revision="v2", peek_configured=False,
 
         cleanup_errors = any(e.stage.startswith(("release_", "verify_"))
                              for e in errors)
-        if cleanup_errors:
+        if requested and errors:
             regmap.quarantined = True
         verified = not cleanup_errors if requested else None
         return Result(None if errors else temperature, tuple(errors), verified)

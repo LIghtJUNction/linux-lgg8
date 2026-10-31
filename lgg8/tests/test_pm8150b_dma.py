@@ -9,7 +9,8 @@ from pm8150b_dma_model import (
 
 
 def run(regmap, **kwargs):
-    options = dict(initialized=True, battery_present=True, sample_fresh=True)
+    options = dict(initialized=True, battery_present=True, sample_fresh=True,
+                   peek_configured=True)
     options.update(kwargs)
     return read_temperature(regmap, **options)
 
@@ -159,7 +160,8 @@ class TemperatureTransactionTest(unittest.TestCase):
         for options, code in [
             ({"initialized": False}, EOPNOTSUPP),
             ({"revision": "unknown"}, EOPNOTSUPP),
-            ({"revision": "v1"}, EOPNOTSUPP),
+            ({"revision": "v1", "peek_configured": False}, EOPNOTSUPP),
+            ({"revision": "v2", "peek_configured": False}, EOPNOTSUPP),
             ({"battery_present": False}, ENODATA),
             ({"sample_fresh": False}, ENODATA),
         ]:
@@ -215,6 +217,9 @@ class TemperatureTransactionTest(unittest.TestCase):
         self.assertEqual(run(regmap).decicelsius, 250)
         regmap.faults["data"] = Fault()
         self.assertIsNone(run(regmap).decicelsius)
+        trace = list(regmap.trace)
+        self.assertEqual(run(regmap).rc, -EBUSY)
+        self.assertEqual(regmap.trace, trace)
 
     def test_hardware_like_backend_and_subclass_are_rejected(self):
         class Backend(FakeRegmap):

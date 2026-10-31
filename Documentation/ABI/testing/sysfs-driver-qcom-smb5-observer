@@ -1,0 +1,61 @@
+What:		/sys/bus/platform/devices/.../charger_status
+What:		/sys/bus/platform/devices/.../battery_status
+What:		/sys/bus/platform/devices/.../temperature_status
+What:		/sys/bus/platform/devices/.../batif_realtime_status
+Date:		October 2026
+Description:
+		Read-only raw PM8150B SMB5 status bytes in hexadecimal. These
+		attributes correspond to register offsets 0x006, 0x007, 0x00d,
+		and 0x210 relative to the charger base, respectively. A read
+		failure is returned to userspace; zero is not substituted.
+		Values describe individual instants, not an atomic fault history
+		or proof that protection is enabled or functioning.
+
+What:		/sys/bus/platform/devices/.../usb_suspend_command
+Date:		October 2026
+Description:
+		Read-only raw USB input command byte at offset 0x340 relative to
+		the charger base. Bit 0 is the USB input suspend command. Reading
+		the command alone does not prove that the power path has stopped.
+
+What:		/sys/bus/platform/devices/.../fcc_config
+What:		/sys/bus/platform/devices/.../fv_config
+What:		/sys/bus/platform/devices/.../usb_icl_config
+What:		/sys/bus/platform/devices/.../jeita_config
+What:		/sys/bus/platform/devices/.../watchdog_config
+What:		/sys/bus/platform/devices/.../watchdog_timeout_config
+What:		/sys/bus/platform/devices/.../thermal_source_config
+Date:		October 2026
+Description:
+		Read-only raw configuration bytes in hexadecimal. Register offsets
+		are 0x061, 0x070, 0x370, 0x090, 0x651, 0x653 and 0x670 relative
+		to the charger base. A read failure returns an error. A configuration
+		value does not prove a protection action has been verified.
+
+What:		/sys/bus/platform/devices/.../safety_timer_enable_config
+What:		/sys/bus/platform/devices/.../safety_timer_duration_config
+Date:		October 2026
+Description:
+		Read-only raw safety timer configuration bytes in hexadecimal,
+		at offsets 0x0a0 and 0x0a2 relative to the charger base. The
+		first byte includes the precharge and fast-charge enable bits;
+		the second encodes fast-charge duration. Their values do not
+		prove that timer expiry actually stops charging.
+
+What:		/sys/bus/platform/devices/.../recharge_mode_config
+What:		/sys/bus/platform/devices/.../term_upper_msb
+What:		/sys/bus/platform/devices/.../term_upper_lsb
+What:		/sys/bus/platform/devices/.../term_lower_msb
+What:		/sys/bus/platform/devices/.../term_lower_lsb
+What:		/sys/bus/platform/devices/.../recharge_samples_config
+What:		/sys/bus/platform/devices/.../term_samples_config
+What:		/sys/bus/platform/devices/.../recharge_soc_config
+What:		/sys/bus/platform/devices/.../recharge_voltage_msb
+What:		/sys/bus/platform/devices/.../recharge_voltage_lsb
+What:		/sys/bus/platform/devices/.../term_source_config
+Date:		October 2026
+Description:
+		Raw hexadecimal termination and recharge configuration bytes at
+		offsets 0x051, 0x067 through 0x06c, 0x07d through 0x07f, and
+		0x0c0 relative to the charger base. Separate reads are not atomic;
+		the raw bytes do not prove that termination or recharge works.

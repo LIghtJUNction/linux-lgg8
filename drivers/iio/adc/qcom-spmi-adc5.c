@@ -535,6 +535,15 @@ static const struct adc5_channels adc5_chans_pmic[ADC5_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_DEFAULT)
 	[ADC5_CHG_TEMP]		= ADC5_CHAN_TEMP("chg_temp", 0,
 					SCALE_HW_CALIB_PM5_CHG_TEMP)
+	/* Keep battery thermistor readings as voltage until the board curve is
+	 * validated against the selected factory battery profile.
+	 */
+	[ADC5_BAT_THERM_30K_PU] = ADC5_CHAN_VOLT("bat_therm_30k_pu_uv", 0,
+					SCALE_HW_CALIB_DEFAULT)
+	[ADC5_BAT_THERM_100K_PU] = ADC5_CHAN_VOLT("bat_therm_100k_pu_uv", 0,
+					SCALE_HW_CALIB_DEFAULT)
+	[ADC5_BAT_THERM_400K_PU] = ADC5_CHAN_VOLT("bat_therm_400k_pu_uv", 0,
+					SCALE_HW_CALIB_DEFAULT)
 	/* Charger prescales SBUx and MID_CHG to fit within 1.8V upper unit */
 	[ADC5_SBUx]		= ADC5_CHAN_VOLT("chg_sbux", 1,
 					SCALE_HW_CALIB_DEFAULT)

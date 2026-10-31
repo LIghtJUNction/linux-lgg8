@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/supply/qcom,pm8150b-charger.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Qualcomm PM8150B SMB5 charger status
+
+maintainers:
+  - Casey Connolly <casey.connolly@linaro.org>
+
+description:
+  The PM8150B SMB5 charger function. The initial Linux driver reports USB
+  presence and whether USB input is selected by the power path. It does not
+  configure the charger or control charging.
+
+properties:
+  compatible:
+    const: qcom,pm8150b-charger
+
+  reg:
+    maxItems: 1
+
+  status:
+    enum:
+      - disabled
+      - okay
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/spmi/spmi.h>
+
+    spmi {
+      #address-cells = <2>;
+      #size-cells = <0>;
+
+      pmic@2 {
+        compatible = "qcom,pm8150b", "qcom,spmi-pmic";
+        reg = <0x2 SPMI_USID>;
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        charger@1000 {
+          compatible = "qcom,pm8150b-charger";
+          reg = <0x1000>;
+          status = "disabled";
+        };
+      };
+    };
+...

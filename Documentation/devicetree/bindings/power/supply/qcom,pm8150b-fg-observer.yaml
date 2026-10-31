@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/supply/qcom,pm8150b-fg-observer.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Qualcomm PM8150B battery information observer
+
+maintainers:
+  - Casey Connolly <casey.connolly@linaro.org>
+
+description: |
+  Read-only observation of battery-info and memory-interface status registers.
+  This node does not initialize the fuel gauge or control charging.
+
+properties:
+  compatible:
+    const: qcom,pm8150b-fg-observer
+
+  reg:
+    items:
+      - description: Battery-information peripheral base
+      - description: Fuel-gauge memory-interface peripheral base
+
+  status: true
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
+...

@@ -46,7 +46,10 @@ DTSI includes the alpha-family power DTSI. That DTSI contains two BLT41 3500
 mAh battery profiles: Tocad (battery ID 91 kΩ) and LGC (12 kΩ). Both source
 profiles state `qcom,max-voltage-uv = <4430000>` and
 `qcom,fastchg-current-ma = <3000>`; the DTSI sets Tocad/91 kΩ as its default.
-These are candidate source values, not confirmed settings for the live phone.
+The SMB5 library consumes `fastchg-current-ma` as the battery-side FCC ceiling
+and checks the JEITA FCC entries against it; it is not USB input current and
+does not specify the negotiated PD/QC wattage. These are candidate source
+values, not confirmed settings for the live phone.
 An unprivileged, read-only Android check on 2026-10-31 returned
 `ro.boot.vendor.lge.battid=91695`. Under the downstream selector's ±15% ID
 matching rule, this value fits the 91 kΩ Tocad range and not the 12 kΩ LGC
@@ -134,6 +137,7 @@ baseline. Do not use a charging-rate increase as the first hardware test.
 - [Tocad 3500 mAh battery profile](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/battery_profile/LGE_BLT41_Tocad_3500mAh.dtsi)
 - [LGC 3500 mAh battery profile](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/battery_profile/LGE_BLT41_LGC_3500mAh.dtsi)
 - [LG SMB5 probe and hardware initialization](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-smb5.c#L3976)
+- [SMB5 battery FCC and JEITA profile parsing](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L8083)
 - [LG charging-time profile parser](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/charging-time.c)
 - [LAO model-to-DTS mapping](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/Makefile) and [LAO PM include](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/sm8150-alpha/sm8150-alpha_lao_com/sm8150-alpha_lao_com-pm.dtsi)
 - [Battery profile selector](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/extension-fg-gen4.c) and [LG battery-temperature protection](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/protection-battemp.c)

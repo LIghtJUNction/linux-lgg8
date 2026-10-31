@@ -1,7 +1,7 @@
 """Offline only: fake USB files, framed replies and fake lifecycle I/O.
 
 Never import the legacy runner or call LiveIO's constructor. Temporary data
-stays beside this file and is automatically removed. No adb/fastboot/devices.
+stays within the workspace and is automatically removed. No adb/fastboot/devices.
 """
 import base64
 import copy
@@ -22,9 +22,13 @@ from unittest import mock
 
 SOURCE_DIR = Path(__file__).resolve().parent
 HERE = SOURCE_DIR.parents[2] / "out/lgg8-c224-fg-presence-observe-20261031"
+TEMP_ROOT = HERE if HERE.is_dir() else SOURCE_DIR
 spec = importlib.util.spec_from_file_location("c224_offline_target", SOURCE_DIR / "run-c224-observe.py")
 r = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(r)
+ARTIFACT_PATHS = (r.IMAGE, r.REFERENCE, HERE / "boot/manifest.json",
+                  HERE / "build-provenance.json", r.C223 / "boot/manifest.json")
+NO_ARTIFACTS = not any(path.exists() for path in ARTIFACT_PATHS)
 PREFIX = "C224_" + "A" * 24 + "_00"
 LINUX_ID = "00000000-0000-4000-8000-000000000003"
 
@@ -134,8 +138,13 @@ class OfflineTests(unittest.TestCase):
              mock.patch.object(r.subprocess, "run", side_effect=AssertionError("subprocess forbidden")), \
              mock.patch.object(r.subprocess, "Popen", side_effect=AssertionError("subprocess forbidden")), \
              mock.patch.object(r.importlib.util, "spec_from_file_location", side_effect=AssertionError("legacy import forbidden")), \
+             mock.patch.object(r, "review", return_value={"device_acceptance": "NOT_TESTED"}), \
              mock.patch("builtins.print"):
             self.assertEqual(r.entrypoint([]), 0)
+
+    @unittest.skipIf(NO_ARTIFACTS, "local C224/C223/C210 artifacts are absent")
+    def test_local_artifacts_review(self):
+        self.assertEqual(r.review()["device_acceptance"], "NOT_TESTED")
 
     def test_cli_rejects_implicit_or_malformed_execution(self):
         with mock.patch.object(r, "LiveIO", side_effect=AssertionError("live forbidden")), \
@@ -154,6 +163,7 @@ class OfflineTests(unittest.TestCase):
              self.assertRaisesRegex(RuntimeError, "helper hash"):
             r.review()
 
+    @unittest.skipIf(NO_ARTIFACTS, "local C224/C223/C210 artifacts are absent")
     def test_manifest_negative_changes(self):
         m = json.loads((HERE / "boot/manifest.json").read_text())
         b = json.loads((r.C223 / "boot/manifest.json").read_text())
@@ -317,7 +327,7 @@ class OfflineTests(unittest.TestCase):
             self.assertTrue(result["android_return_verified"])
 
     def test_independent_monitor_samples_during_blocking_work_and_survives_sigint(self):
-        with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=HERE) as temp:
+        with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=TEMP_ROOT) as temp:
             root = Path(temp)
             port = root / r.PORT
             port.mkdir()
@@ -465,7 +475,7 @@ class IntegrityAndCoverageRegressions(unittest.TestCase):
         return monitor
 
     def test_sigstop_process_is_alive_but_heartbeat_is_not_healthy(self):
-        with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=HERE) as temp:
+        with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=TEMP_ROOT) as temp:
             monitor = self.fake_monitor(temp)
             try:
                 os.kill(monitor.process.pid, signal.SIGSTOP)
@@ -478,7 +488,7 @@ class IntegrityAndCoverageRegressions(unittest.TestCase):
                 monitor.stop()
 
     def test_sigstop_tail_then_stop_and_resume_cannot_pass_coverage(self):
-        with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=HERE) as temp:
+        with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=TEMP_ROOT) as temp:
             monitor = self.fake_monitor(temp)
             resume = None
             try:
@@ -506,7 +516,7 @@ class IntegrityAndCoverageRegressions(unittest.TestCase):
                     resume.join(2)
 
     def test_frozen_sampler_stop_is_nonblocking_and_bounded_without_resume(self):
-        with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=HERE) as temp:
+        with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=TEMP_ROOT) as temp:
             monitor = self.fake_monitor(temp)
             try:
                 os.kill(monitor.process.pid, signal.SIGSTOP)
@@ -523,7 +533,7 @@ class IntegrityAndCoverageRegressions(unittest.TestCase):
                     monitor.process.join(1)
 
     def test_unreadable_real_monitor_log_never_passes(self):
-        with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=HERE) as temp:
+        with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=TEMP_ROOT) as temp:
             root = Path(temp)
             (root / r.PORT).mkdir()  # No idVendor, idProduct, serial or devnum.
             monitor = r.USBMonitor(root, root, interval=0.01)
@@ -539,10 +549,10 @@ class IntegrityAndCoverageRegressions(unittest.TestCase):
 
     def test_log_truncation_or_snapshot_change_is_detected_against_heartbeat(self):
         for damage in ("truncate", "snapshot"):
-            with self.subTest(damage=damage), tempfile.TemporaryDirectory(prefix="offline-c224-", dir=HERE) as temp:
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory(prefix="offline-c224-", dir=TEMP_ROOT) as temp:
                 monitor = self.fake_monitor(temp)
                 monitor.drain()
-                with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=HERE) as corrupt:
+                with tempfile.TemporaryDirectory(prefix="offline-c224-", dir=TEMP_ROOT) as corrupt:
                     copied = Path(corrupt) / "usb-samples.jsonl"
                     lines = monitor.path.read_bytes().splitlines(keepends=True)[:len(monitor.samples)]
                     if damage == "truncate":

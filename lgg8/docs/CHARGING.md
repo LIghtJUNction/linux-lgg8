@@ -222,6 +222,24 @@ SMB1355 needs a shared current budget and its own watchdog/termination audit;
 loading its driver alone does not make parallel charging safe. Keep Qnovo
 disabled until its Android userspace daemon/config dependency is understood.
 
+The running Android device tree's `/vendor/lge-veneer-psy/protection-battemp`
+node was read on 2026-10-31. The eight upward/downward temperature threshold
+cells were respectively `30, 120, 450, 550` and `520, 430, 100, 0`; the LG
+policy obtains temperature from `POWER_SUPPLY_PROP_TEMP`, whose unit is 0.1 °C.
+Thus the configured thresholds include 45/43 °C for warm entry/recovery and
+55/52 °C for hot entry/recovery. The emergency, warning and normal polling
+intervals were 10, 30 and 60 seconds. The live node also had cool alert
+current 500 mA, cool current percentage 30, warm float 4000 mV and warm
+current percentage 50. These are configuration values, not proof that this
+policy actually ran or that its votes reached hardware on this Android build.
+The thresholds and timing cannot be copied into mainline as a complete safety
+policy: the downstream code has hysteresis, voltage-dependent branches, votes,
+and a compensated temperature source. The observation does not validate the
+one-degree raw Linux value or establish appropriate failure handling.
+[LG common power configuration](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/sm8150_common/sm8150_common-pm.dtsi#L120-L154),
+[temperature policy](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/protection-battemp.c),
+[temperature input](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/veneer-psy.c#L1051-L1075).
+
 ## Implementation and acceptance sequence
 
 The downstream FG driver obtains its underlying battery temperature from FG

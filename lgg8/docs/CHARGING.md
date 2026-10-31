@@ -518,6 +518,23 @@ or a new contract with identical values. The eventual contract owner must track
 generation and revocation and handle events even while a transaction is busy.
 Neither a software lockout nor a requested stop proves the power path stopped.
 These requirements have not been verified against PM8150B hardware.
+
+The PM8150B charger watchdog is not yet established as a fail-safe. In the
+fixed LG downstream source, initialization clears the bite-disable-charging
+bit in `SNARL_BARK_BITE_WD_CFG_REG`, enables bark interrupts and enables the
+timer on plugin. Its bark handler writes the pet register and logs write
+failures, but returns `IRQ_HANDLED` even after failure; the handler does not
+check that the temperature policy is progressing. Android's separately
+captured `0x1651=0x42` and `0x1653=0x7b` agree with those settings, while
+C216 Linux reported `watchdog_config=0x00` and
+`watchdog_timeout_config=0x0c`. These are separate boots and do not identify
+who changed the settings. Neither proves the effect of a missed pet, a
+physical stop, or the presence or absence of other protections. The Linux
+`watchdog.open_timeout` boot parameter controls a different watchdog path.
+Do not enable charging on the assumption that charger-watchdog expiry has
+been verified to stop it.
+[Downstream initialization](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-smb5.c#L3144),
+[bark handler](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L7251).
 [Downstream ICL sequencing](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L1448).
 
 The current tree's generic `qcom_smbx` driver is not an immediately usable

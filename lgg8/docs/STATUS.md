@@ -524,4 +524,18 @@ C203 保持 C202 内核和其余输入不变，只把 `watchdog.open_timeout` �
 
 屏幕目前有正常画面的目测证据，但触控与充电尚未验收。设备树已声明 SW42000 触控所在的 QUP SE17 I²C 总线，注释明确指出协议仍需主线驱动，且没有触控器节点；不能宣称触屏已适配。内核配置启用了通用 `CHARGER_QCOM_SMB2`，但 G8 设备树只有 `simple-battery` 描述和 PM8150B VBUS 调节器，未发现对应 SMB2 充电器节点；不能宣称充电已适配，后续须先从原厂固件确认真实 charger/fuel-gauge 配置，禁止猜参数试充。
 
-当前有效 Linux 版本标识为 `7.3.0-lgg8+`。下一步优先定位 C202 起屏后未到达 ACM 的内核阶段，并为 Linux 用户态/USB gadget 恢复提供可读日志；触控和充电作为独立硬件适配项目处理。
+### C206：禁用 DRM in-kernel client 后首次稳定到达 Linux ACM shell（2026-10-31）
+
+以 C203 为基线，仅增加启动参数 `drm_client_lib.active=`（空值；保留等号），其余内核、有效配置、initramfs、源 DTB、shim 源码、stock DTBs、模板及用户态均保持一致。因 DTB/载荷长度变化而重新生成的 shim 二进制属于打包派生物。Candidate 206 镜像 SHA-256：`695c565fe801d0b5aab107707059c3721b71ed65f8c2e09c90e7fdcbd4ee47be`。
+
+RAM-only `fastboot boot` 首次成功在物理 USB 1-2 枚举 Linux ACM `18d1:4ee7`；ACM shell 探针通过，读取 518 行、39,712 字节内核日志。日志中的 `/proc/cmdline` 确认空值参数生效；用户态快照报告 `DRM=1 CON=2 FB0=0 SEATSOCK=1 WPROC=1 ST=8`。这证明 Linux PID 1、USB gadget 绑定及 ACM shell 均已工作。相对 C203 的受控对比强烈指向 DRM client 启动路径为此前未到达 ACM 的关键影响因素，但尚不能区分具体 client 或宣称显示输出已修复。
+
+手机自动回到 Android：`boot_completed=1`、slot `_b`、boot ID 轮转；`boot_a`、`boot_b` SHA-256 均与测试前一致，未写入任何分区。尝试记录与原始采样保存在本机忽略目录 `out/lgg8-c206-drm-client-bypass-20261031-1/`。屏幕本轮未作可靠观察；触控和充电仍未验收。
+
+### C207：保留 DRM log client 仍可到达 ACM，故障收敛到 fbdev client（2026-10-31）
+
+以 C203 为基线，仅增加 `drm_client_lib.active=log`。内核、配置、initramfs、源 DTB、shim 源码、stock DTBs、模板及其他启动参数均与 C203 一致；离线包核验通过。Candidate 207 镜像 SHA-256：`ec71b695cc9b0053fb0f13bd11c2cf5e33a43d2c2c87cf9f1b493734e11a1a4f`。
+
+RAM-only 启动再次在物理口 1-2 成功枚举 `18d1:4ee7`，ACM shell 探针通过并读取 520 行、39,836 字节内核日志。Android 自动回收成功，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a/boot_b 哈希均未变化，无分区写入。结果与原默认 `fbdev` client 的 C203（未到达 ACM）形成对照；结合 C206 空 client 成功，当前证据把阻断范围收敛到 fbdev client 设置路径，而不是 DRM log client 或整个 DRM 驱动。具体阻塞函数及显示输出仍未确认。运行和采样留在忽略目录 `out/lgg8-c207-drm-log-client-20261031-1/`；屏幕本轮没有可靠观察记录。
+
+当前有效 Linux 版本标识为 `7.3.0-lgg8+`。下一步针对 `drm_client_setup()` 的 fbdev 分支及 MSM KMS 调用链做源码级定位，再设计带阶段标记的 RAM-only 验证；触控和充电仍是未验收的独立适配项。

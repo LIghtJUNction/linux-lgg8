@@ -11,6 +11,10 @@
 
 #define FG_SUBTYPE_OFFSET 0x05
 #define FG_BATT_INFO_SUBTYPE 0x11
+#define FG_MEM_IF_SUBTYPE 0x0d
+#define FG_RRADC_SUBTYPE 0x13
+#define FG_RRADC_STATUS_OFFSET 0x10
+#define FG_RRADC_BATTERY_MISSING BIT(0)
 #define FG_VOLTAGE_OFFSET 0xa0
 #define FG_CURRENT_OFFSET 0xa2
 #define FG_VOLTAGE_SHADOW_OFFSET 0xa6
@@ -19,6 +23,7 @@
 
 struct qcom_fg_observer {
 	struct regmap *regmap;
+	struct power_supply_desc desc;
 	u32 base;
 	u32 mem_base;
 	u32 rradc_base;
@@ -142,6 +147,8 @@ static int fg_observer_read_pair(struct qcom_fg_observer *fg, u32 offset,
 static enum power_supply_property fg_observer_properties[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
+	/* Keep last: legacy two-address nodes do not advertise PRESENT. */
+	POWER_SUPPLY_PROP_PRESENT,
 };
 
 static int fg_observer_get_property(struct power_supply *psy,
@@ -149,10 +156,21 @@ static int fg_observer_get_property(struct power_supply *psy,
 				    union power_supply_propval *val)
 {
 	struct qcom_fg_observer *fg = power_supply_get_drvdata(psy);
+	unsigned int status;
 	u16 raw;
 	int ret;
 
 	switch (property) {
+	case POWER_SUPPLY_PROP_PRESENT:
+		if (!fg->has_rradc)
+			return -EOPNOTSUPP;
+		ret = regmap_read_bypassed(fg->regmap,
+					   fg->rradc_base + FG_RRADC_STATUS_OFFSET,
+					   &status);
+		if (ret)
+			return ret;
+		val->intval = !(status & FG_RRADC_BATTERY_MISSING);
+		return 0;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		ret = fg_observer_read_pair(fg, FG_VOLTAGE_OFFSET,
 					    FG_VOLTAGE_SHADOW_OFFSET, &raw);
@@ -181,15 +199,26 @@ static const struct power_supply_desc fg_observer_desc = {
 	.get_property = fg_observer_get_property,
 };
 
+static int fg_observer_check_subtype(struct qcom_fg_observer *fg, u32 base,
+				     unsigned int expected)
+{
+	unsigned int subtype;
+	int ret;
+
+	ret = regmap_read(fg->regmap, base + FG_SUBTYPE_OFFSET, &subtype);
+	if (ret)
+		return ret;
+	return subtype == expected ? 0 : -ENODEV;
+}
+
 static int fg_observer_probe(struct platform_device *pdev)
 {
 	struct power_supply_config cfg = {};
 	const struct qcom_spmi_pmic *pmic;
 	struct qcom_fg_observer *fg;
 	struct power_supply *psy;
-	unsigned int subtype;
 	u32 bases[3];
-	int ret;
+	int ret, num_bases;
 
 	pmic = qcom_pmic_get(&pdev->dev);
 	if (IS_ERR(pmic))
@@ -202,23 +231,36 @@ static int fg_observer_probe(struct platform_device *pdev)
 	fg->regmap = dev_get_regmap(pdev->dev.parent, NULL);
 	if (!fg->regmap)
 		return -ENODEV;
-	ret = device_property_read_u32_array(&pdev->dev, "reg", bases, 2);
+	num_bases = device_property_count_u32(&pdev->dev, "reg");
+	if (num_bases < 0)
+		return num_bases;
+	if (num_bases != 2 && num_bases != 3)
+		return -EINVAL;
+	ret = device_property_read_u32_array(&pdev->dev, "reg", bases, num_bases);
 	if (ret)
 		return ret;
 	fg->base = bases[0];
 	fg->mem_base = bases[1];
-	fg->has_rradc = !device_property_read_u32_array(&pdev->dev, "reg", bases,
-						       ARRAY_SIZE(bases));
+	fg->has_rradc = num_bases == 3;
 	if (fg->has_rradc)
 		fg->rradc_base = bases[2];
-	ret = regmap_read(fg->regmap, fg->base + FG_SUBTYPE_OFFSET, &subtype);
+	ret = fg_observer_check_subtype(fg, fg->base, FG_BATT_INFO_SUBTYPE);
 	if (ret)
 		return ret;
-	if (subtype != FG_BATT_INFO_SUBTYPE)
-		return -ENODEV;
+	ret = fg_observer_check_subtype(fg, fg->mem_base, FG_MEM_IF_SUBTYPE);
+	if (ret)
+		return ret;
+	if (fg->has_rradc) {
+		ret = fg_observer_check_subtype(fg, fg->rradc_base, FG_RRADC_SUBTYPE);
+		if (ret)
+			return ret;
+	}
+	fg->desc = fg_observer_desc;
+	if (!fg->has_rradc)
+		fg->desc.num_properties--;
 	cfg.drv_data = fg;
 	cfg.fwnode = dev_fwnode(&pdev->dev);
-	psy = devm_power_supply_register(&pdev->dev, &fg_observer_desc, &cfg);
+	psy = devm_power_supply_register(&pdev->dev, &fg->desc, &cfg);
 	if (IS_ERR(psy))
 		return PTR_ERR(psy);
 	platform_set_drvdata(pdev, fg);

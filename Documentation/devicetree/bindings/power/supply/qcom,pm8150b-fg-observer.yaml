@@ -14,6 +14,11 @@ description: |
   and experimental raw ADC_RR registers. The raw ADC_RR values do not establish
   a validated battery temperature. This node does not initialize the fuel gauge
   or control charging.
+  The battery-information and memory-interface peripheral subtypes are checked
+  before registration. If the optional ADC_RR peripheral is supplied, its subtype
+  is also checked and its battery-missing status provides the power-supply PRESENT
+  property. Two-address nodes do not expose PRESENT. Read errors are propagated;
+  presence does not establish valid temperature, calibration or charging safety.
 
 properties:
   compatible:
@@ -24,7 +29,9 @@ properties:
     items:
       - description: Battery-information peripheral base
       - description: Fuel-gauge memory-interface peripheral base
-      - description: Fuel-gauge ADC_RR peripheral base for experimental raw reads
+      - description: |
+          Optional fuel-gauge ADC_RR peripheral base for battery presence and
+          experimental raw reads
 
   status: true
 

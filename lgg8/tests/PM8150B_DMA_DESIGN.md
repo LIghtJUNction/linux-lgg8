@@ -97,6 +97,10 @@ C220 Linux 仲裁配置读到 `0x04`，即下游源码命名的 `MEM_CLR_LOG_BIT
 PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s lgg8/tests -p 'test_pm8150b_dma.py' -v
 ```
 
+同目录的 `lgg8_fg_dma_core.c`、`.h` 和 `test_fg_dma_core.c` 提供独立 C11
+内存模型及故障注入测试。它不包含真实总线后端或内核接线；代码和测试通过
+只能验证模拟行为，不能替代硬件协议、ADC 恢复和充电保护的验收。
+
 测试覆盖：精确成功事务和掩码保留；全部 1024 个编码及高位忽略；两次请求各自
 在写生效前/后失败；50 次授权超时和最后一次授权；授权状态读取失败；数据读失败
 和短读；两个清理步骤单独/同时失败并组合主体错误；读回失败；清理不确定后隔离；

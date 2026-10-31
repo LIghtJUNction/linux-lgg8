@@ -491,6 +491,18 @@ bit 0 of `CHARGING_ENABLE_CMD_REG` (charger base + `0x042`), while USB input
 suspend sets bit 0 of `USBIN_CMD_IL_REG` (charger base + `0x340`). These are
 different operations: suspending the input also affects system power, while
 disabling battery charging does not itself prove that input current is zero.
+The status observer exposes the raw charging-enable command byte as
+`charge_enable_command` on demand; it does not modify that byte. This new
+attribute has not yet been verified on the device. A command bit reports a
+requested state, not actual battery current, the effective power path, or
+availability of temperature and fault protections.
+On 2026-10-31, Android debugfs reads returned charging command `0x1042=01`,
+input-suspend command `0x1340=00`, and charger status byte `0x1006=04`;
+Android Battery Service subsequently reported full (`status=5`, level 100%).
+This illustrates why an enabled command cannot establish that the battery is
+actively charging. These are non-atomic observations under Android, not a
+Linux charging result; the debugfs address/count selectors were restored and
+ADB was returned to shell mode.
 The experimental observer exposes the raw input-suspend command byte read-only;
 its value is not evidence of actual input current or a verified shutdown. Source:
 [downstream SMB5 register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h),

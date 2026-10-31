@@ -46,6 +46,7 @@ SMB5_RAW_STATUS_ATTR(charger_status, 0x006);
 SMB5_RAW_STATUS_ATTR(battery_status, 0x007);
 SMB5_RAW_STATUS_ATTR(temperature_status, 0x00d);
 SMB5_RAW_STATUS_ATTR(batif_realtime_status, 0x210);
+SMB5_RAW_STATUS_ATTR(charge_enable_command, 0x042);
 SMB5_RAW_STATUS_ATTR(usb_suspend_command, 0x340);
 SMB5_RAW_STATUS_ATTR(fcc_config, 0x061);
 SMB5_RAW_STATUS_ATTR(fv_config, 0x070);
@@ -73,6 +74,7 @@ static struct attribute *qcom_smb5_status_attrs[] = {
 	&dev_attr_battery_status.attr,
 	&dev_attr_temperature_status.attr,
 	&dev_attr_batif_realtime_status.attr,
+	&dev_attr_charge_enable_command.attr,
 	&dev_attr_usb_suspend_command.attr,
 	&dev_attr_fcc_config.attr,
 	&dev_attr_fv_config.attr,

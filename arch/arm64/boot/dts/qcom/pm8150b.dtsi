@@ -60,7 +60,7 @@
 
 		pm8150b_fg_observer: battery-info@4100 {
 			compatible = "qcom,pm8150b-fg-observer";
-			reg = <0x4100>, <0x4300>;
+			reg = <0x4100>, <0x4300>, <0x4200>;
 			status = "disabled";
 		};
 

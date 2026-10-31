@@ -295,13 +295,14 @@ are established. Do not reuse the Gen3 BATT_INFO or older RRADC temperature
 conversion merely because their names are similar.
 
 Historical Qualcomm Gen4 code did read `ADC_RR_BATT_TEMP_LSB` directly as a
-single signed 8-bit integer in degrees Celsius. A later source change replaced
-that implementation with the two-byte, quarter-degree SRAM reading. This is
-evidence for an earlier register interpretation, not proof of the behavior of
-the running PM8150B V2, an explanation for the change, or evidence that the
-register remains valid when the Android FG driver is absent. In particular,
-do not infer that `0x4289` is part of the earlier single-byte reading.
-[Historical Gen4 change](https://android.googlesource.com/kernel/msm/%2B/14ba56753e9ad830e1b9ec8a807aeaa56a11229e%5E2..14ba56753e9ad830e1b9ec8a807aeaa56a11229e/).
+single signed 8-bit integer in degrees Celsius, including in a version that
+already supported PM8150B V2. The subsequent change to a two-byte SRAM reading
+states that the goal was higher resolution: 0.25 °C instead of 1 °C. This
+supports the historical interpretation but does not establish freshness or
+validity when the Android FG driver is absent. In particular, do not infer
+that `0x4289` is part of the earlier single-byte reading.
+[Original temperature change](https://github.com/LineageOS/android_kernel_lge_sm8150/commit/068a59303cbf3455643ee08f47284377a4e8e0c6),
+[V2 support before the change](https://github.com/LineageOS/android_kernel_lge_sm8150/commit/d8e40bbfc2be38b1988276f4bb2df3919e7c90ea).
 
 On 2026-10-31, on the running Android system, three successive debugfs regmap
 reads of PM8150B `spmi0-02:0x4288` each returned `0x1f`. The historical

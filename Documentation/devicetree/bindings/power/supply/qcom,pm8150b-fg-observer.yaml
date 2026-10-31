@@ -10,17 +10,21 @@ maintainers:
   - Casey Connolly <casey.connolly@linaro.org>
 
 description: |
-  Read-only observation of battery-info and memory-interface status registers.
-  This node does not initialize the fuel gauge or control charging.
+  Read-only observation of battery-info and memory-interface status registers,
+  and experimental raw ADC_RR registers. The raw ADC_RR values do not establish
+  a validated battery temperature. This node does not initialize the fuel gauge
+  or control charging.
 
 properties:
   compatible:
     const: qcom,pm8150b-fg-observer
 
   reg:
+    minItems: 2
     items:
       - description: Battery-information peripheral base
       - description: Fuel-gauge memory-interface peripheral base
+      - description: Fuel-gauge ADC_RR peripheral base for experimental raw reads
 
   status: true
 
@@ -29,4 +33,26 @@ required:
   - reg
 
 additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/spmi/spmi.h>
+
+    spmi {
+      #address-cells = <2>;
+      #size-cells = <0>;
+
+      pmic@2 {
+        compatible = "qcom,pm8150b", "qcom,spmi-pmic";
+        reg = <0x2 SPMI_USID>;
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        battery-info@4100 {
+          compatible = "qcom,pm8150b-fg-observer";
+          reg = <0x4100>, <0x4300>, <0x4200>;
+          status = "disabled";
+        };
+      };
+    };
 ...

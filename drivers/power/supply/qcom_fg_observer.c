@@ -21,7 +21,26 @@ struct qcom_fg_observer {
 	struct regmap *regmap;
 	u32 base;
 	u32 mem_base;
+	u32 rradc_base;
+	bool has_rradc;
 };
+
+/* Experimental raw byte; no claim about freshness or temperature encoding. */
+static ssize_t battery_temp_rr_raw_show(struct device *dev,
+					struct device_attribute *attr, char *buf)
+{
+	struct qcom_fg_observer *fg = dev_get_drvdata(dev);
+	unsigned int value;
+	int ret;
+
+	if (!fg->has_rradc)
+		return -EOPNOTSUPP;
+	ret = regmap_read_bypassed(fg->regmap, fg->rradc_base + 0x88, &value);
+	if (ret)
+		return ret;
+	return sysfs_emit(buf, "0x%02x\n", value);
+}
+static DEVICE_ATTR_RO(battery_temp_rr_raw);
 
 /* Raw status is evidence only; it does not prove temperature freshness. */
 #define FG_RAW_STATUS_ATTR(_name, _offset)                                  \
@@ -63,6 +82,7 @@ FG_MEM_STATUS_ATTR(dma_config, 0x71);
 static struct attribute *fg_observer_attrs[] = {
 	&dev_attr_battery_temp_status.attr,
 	&dev_attr_battery_presence_status.attr,
+	&dev_attr_battery_temp_rr_raw.attr,
 	&dev_attr_algorithm_peek_config.attr,
 	&dev_attr_memory_realtime_status.attr,
 	&dev_attr_memory_arbitration_config.attr,
@@ -144,7 +164,7 @@ static int fg_observer_probe(struct platform_device *pdev)
 	struct qcom_fg_observer *fg;
 	struct power_supply *psy;
 	unsigned int subtype;
-	u32 bases[2];
+	u32 bases[3];
 	int ret;
 
 	pmic = qcom_pmic_get(&pdev->dev);
@@ -158,12 +178,15 @@ static int fg_observer_probe(struct platform_device *pdev)
 	fg->regmap = dev_get_regmap(pdev->dev.parent, NULL);
 	if (!fg->regmap)
 		return -ENODEV;
-	ret = device_property_read_u32_array(&pdev->dev, "reg", bases,
-					     ARRAY_SIZE(bases));
+	ret = device_property_read_u32_array(&pdev->dev, "reg", bases, 2);
 	if (ret)
 		return ret;
 	fg->base = bases[0];
 	fg->mem_base = bases[1];
+	fg->has_rradc = !device_property_read_u32_array(&pdev->dev, "reg", bases,
+						       ARRAY_SIZE(bases));
+	if (fg->has_rradc)
+		fg->rradc_base = bases[2];
 	ret = regmap_read(fg->regmap, fg->base + FG_SUBTYPE_OFFSET, &subtype);
 	if (ret)
 		return ret;

@@ -467,16 +467,16 @@ hardware limit or a fail-safe stop. A future design must supply one coordinated
 SMB5 owner and verify register writes, error propagation and stop behavior
 before using PD or enabling charge control.
 
-An unmerged TCPM recovery draft was independently reviewed after it added
-bounded retries for failed VBUS shutdown. Three gaps remain under correction:
-queued PD messages can survive a failed shutdown and affect the recovery
-state; initial shutdown failure can skip the initial VBUS/CC state reads even
-after a later retry succeeds; and some source-role branches can continue
-hardware actions after a VBUS callback fails. The draft must not be treated as
-a safe or tested charging path. The existing `tcpm_set_cc()` wrapper discards
-the underlying callback's error, so a request to open CC is not evidence that
-the physical pins opened. The Qualcomm PMIC Type-C callback also currently
-ignores sink control, independently of these TCPM issues.
+An experimental TCPM recovery change adds bounded retries after VBUS control
+failure, clears messages from the old connection, completes deferred startup
+sampling after recovery, and stops source-role branches after a failed control
+callback. The actual-source offline harness covers 110 fault scenarios and the
+ARM64 object builds with `-Werror`; this is not device acceptance or proof
+that physical power was shut off. The existing `tcpm_set_cc()` wrapper
+discards the underlying callback's error, so a request to open CC is not
+evidence that the physical pins opened. The Qualcomm PMIC Type-C callback
+also currently ignores sink control, independently of the TCPM changes. No
+charging path or hardware write is enabled by this patch.
 
 The downstream `smblib_set_icl_current()` is not a transactional enable
 operation. For a non-suspend request it configures a current/mode, clears USB

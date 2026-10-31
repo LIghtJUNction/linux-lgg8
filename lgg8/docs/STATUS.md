@@ -641,6 +641,8 @@ Android 自动回收，`boot_completed=1`，slot `_b`，boot ID 轮转，boot_a 
 
 Android 自动回收，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a 和 boot_b 前后哈希一致。测试没有发起 DMA 请求、充电控制或分区写入；测试前 pstore 含文件、回收后为空，未据此归因重启原因。原始回执：`out/lgg8-c220-fg-dma-status-20261031/run-01/`。
 
+随后在同一 Android 启动、主机 USB 连接且电池显示满电时，使用原厂 regmap debugfs 逐项读取 SMB5 配置：FCC `0x14`、FV `0x53`、USB ICL `0x0a`、JEITA `0x00`、安全计时器 `0x03/0x02`、watchdog `0x42/0x7b`、热源配置 `0x80`；原始文件为 `out/lgg8-c220-fg-dma-status-20261031/android-smb5-config-reference.txt`。按下游量化公式，FCC 配置约 1.0 A，USB ICL 配置约 0.5 A，均非实际测得电流。相较不同启动、不同时间的 C216 Linux 样本，Android watchdog 配置 `0x42` 与 Linux `0x00` 不同；前者按头文件命名设置 bark 中断和插入时启用位，热源配置 `0x80` 对 Linux 的 `0x00` 也不同。这些是非同步单次配置快照，不能证明看门狗实际运行、故障停充或整机保护有效，也不能直接归因于系统切换。debugfs 地址和计数在读取后恢复；没有向充电器配置寄存器写入。
+
 上述 C214–C218 电流均为当时镜像输出，沿用 LG BMS 原始符号。后续源码已按 Linux 电池 `current_now` 接口反转符号，新源码通过对象编译，但尚未在真机验证方向；不能把历史数值误认为新源码的输出。
 
 C218 电压差异跟进：同一 Android 启动后稍晚只读 `dumpsys battery` 首次为 4438 mV，随后 15:52:48–15:52:53（UTC+8）连续五次均为 4427 mV，温度 36.0°C。此前恢复后紧接着的 4238 mV 与后续 Android 数值本身也不一致，不能简单归因于 Linux 换算。原厂 `fg_get_battery_voltage()` 的字节序和 `raw × 122070 / 1000` 换算与当前观测器一致；真正原因以及重启期间采样更新/缓存状态仍未确定。Android 与 Linux 不同时采样，数值接近不能作为校准验收。

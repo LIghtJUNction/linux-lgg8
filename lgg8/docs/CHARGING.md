@@ -425,6 +425,20 @@ not successful registration or a fresh conversion in those runs. C213 did
 previously expose the three voltage channels on the running device, as noted
 above; that earlier result does not establish a calibrated temperature curve.
 
+The downstream ADC library has interpolation tables for other thermistors,
+but the LG alpha/beta ADC path deliberately reports voltage for these channels.
+Applying the downstream Alium and MLP356477 tables as an offline comparison
+to C213's three sequential samples gives approximately 40.8–41.6 °C and
+33.9–34.7 °C respectively. Neither range is a measured temperature: each
+table is associated with a different part, and consistency across pull-ups
+does not identify the G8 sensor. The 100 kΩ pull-up and 91 kΩ battery ID do
+not establish the thermistor's nominal resistance, and an ADC scale reference
+does not independently establish its excitation voltage. A verified BLT41
+sensor curve or independent multi-point calibration is required before using
+these voltages for temperature protection.
+[Downstream tables and interpolation](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/iio/adc/qcom-vadc-common.c#L91),
+[LG ADC selection](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/iio/adc/qcom-spmi-adc5.c#L740).
+
 The fixed downstream FG temperature getter reads two bytes from SRAM word 328
 and converts the signed ten-bit value at 0.25 °C per step. The profile's five
 thermistor coefficients and center offset are written into FG SRAM for the FG

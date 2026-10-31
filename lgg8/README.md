@@ -27,6 +27,7 @@
 | `lgg8/build.sh` | `kernel`、`dtb`、`diag-ftrace`、`initramfs`、`boot`、`test`、`verify` 入口 |
 | `lgg8/tools/bootimg.py` | `prepare-template`、`build`、`verify` 离线工具 |
 | `lgg8/tests/` | 打包工具离线回归测试 |
+| `lgg8/experiments/c224-observer/` | 电源状态只读观测实验与离线测试；真机及充电安全尚未验证 |
 | `out/lgg8/` | 默认独立输出目录，避免污染源码树 |
 | `private/template/` | 本机经哈希确认的封装模板，不提交 |
 | `out/lgg8/boot/` | 默认打包目录：`boot.img`、`manifest.json`、修补后的 `linux.dtb`，不提交 |

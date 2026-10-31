@@ -144,7 +144,12 @@ class OfflineTests(unittest.TestCase):
 
     @unittest.skipIf(NO_ARTIFACTS, "local C224/C223/C210 artifacts are absent")
     def test_local_artifacts_review(self):
-        self.assertEqual(r.review()["device_acceptance"], "NOT_TESTED")
+        with mock.patch.object(r, "LiveIO", side_effect=AssertionError("live forbidden")), \
+             mock.patch.object(r, "usb_snapshot", side_effect=AssertionError("USB forbidden")), \
+             mock.patch.object(r.subprocess, "run", side_effect=AssertionError("subprocess forbidden")), \
+             mock.patch.object(r.subprocess, "Popen", side_effect=AssertionError("subprocess forbidden")), \
+             mock.patch.object(r.importlib.util, "spec_from_file_location", side_effect=AssertionError("legacy import forbidden")):
+            self.assertEqual(r.review()["device_acceptance"], "NOT_TESTED")
 
     def test_cli_rejects_implicit_or_malformed_execution(self):
         with mock.patch.object(r, "LiveIO", side_effect=AssertionError("live forbidden")), \

@@ -586,6 +586,10 @@ to establish what is enforced. Temperature raw/config/period were `21/02/01`.
 Android returned with `boot_completed=1`, a rotated boot ID, and unchanged
 hashes for both boot partitions. Raw evidence and the exact-port runner are in
 `out/lgg8-c223-smb5-icl-observe-20261031/run-01/`; no partition was written.
+For repeatable offline decoding of a complete C223-style capture, run
+`python3 lgg8/tools/analyze_smb5_capture.py <acm-shell-probe.json>`. The tool
+rejects incomplete captures, missing/duplicate fields and out-of-range ICL
+encodings. It does not establish device identity or measure current.
 The `0x1366` USB2/USB3 selection bits in this Linux snapshot match the bit
 pattern used by the vendor's 500 mA SDP setter, but the three sampled mode and
 override bits do not match that setter's complete software-override tuple or

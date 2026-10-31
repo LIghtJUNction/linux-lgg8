@@ -150,6 +150,7 @@
 	S(ERROR_RECOVERY),			\
 	S(PORT_RESET),				\
 	S(PORT_RESET_WAIT_OFF),			\
+	S(PORT_RESET_FAILED),			\
 						\
 	S(AMS_START),				\
 	S(CHUNK_NOT_SUPP),			\
@@ -511,6 +512,10 @@ struct tcpm_port {
 	bool vbus_never_low;
 	bool vbus_source;
 	bool vbus_charge;
+	int vbus_control_error;
+	unsigned int vbus_reset_attempts;
+	bool init_pending;
+	unsigned int init_status_attempts;
 
 	bool op_vsafe5v;
 
@@ -1775,9 +1780,32 @@ static void mod_vdm_discovery_delayed_work(struct tcpm_port *port, unsigned int 
 	}
 }
 
+#define TCPM_VBUS_RESET_ATTEMPTS 3
+
 static void tcpm_set_state(struct tcpm_port *port, enum tcpm_state state,
 			   unsigned int delay_ms)
 {
+	if (port->init_pending && state != PORT_RESET && state != PORT_RESET_WAIT_OFF &&
+	    state != PORT_RESET_FAILED)
+		return;
+
+	if (port->vbus_control_error) {
+		/* Only an explicit TCPC reset may rearm an exhausted recovery. */
+		if (port->state == PORT_RESET_FAILED &&
+		    port->vbus_reset_attempts >= TCPM_VBUS_RESET_ATTEMPTS)
+			return;
+		if (state != PORT_RESET && state != PORT_RESET_FAILED) {
+			/* Preserve a pending retry instead of following CC/PD events. */
+			if (port->state == PORT_RESET || port->delayed_state == PORT_RESET)
+				return;
+			state = PORT_RESET;
+			delay_ms = 0;
+		}
+	}
+
+	if (state == PORT_RESET)
+		port->queued_message = PD_MSG_NONE;
+
 	if (delay_ms) {
 		tcpm_log(port, "pending state change %s -> %s @ %u ms [%s %s]",
 			 tcpm_states[port->state], tcpm_states[state], delay_ms,
@@ -4186,7 +4214,7 @@ static void tcpm_pd_rx_handler(struct kthread_work *work)
 	tcpm_log(port, "PD RX, header: %#x [%d]", le16_to_cpu(msg->header),
 		 port->attached);
 
-	if (port->attached) {
+	if (port->attached && !port->vbus_control_error) {
 		enum pd_ctrl_msg_type type = pd_header_type_le(msg->header);
 		unsigned int msgid = pd_header_msgid_le(msg->header);
 
@@ -4955,18 +4983,28 @@ static int tcpm_pd_send_aug_supply_request(struct tcpm_port *port,
 	return tcpm_pd_transmit(port, TCPC_TX_SOP, &msg);
 }
 
+static int tcpm_vbus_error(struct tcpm_port *port, int ret)
+{
+	port->vbus_control_error = ret;
+	tcpm_set_state(port, PORT_RESET, 0);
+	return ret;
+}
+
 static int tcpm_set_vbus(struct tcpm_port *port, bool enable)
 {
 	int ret;
 
+	if (port->vbus_control_error)
+		return port->vbus_control_error;
+
 	if (enable && port->vbus_charge)
-		return -EINVAL;
+		return tcpm_vbus_error(port, -EINVAL);
 
 	tcpm_log(port, "vbus:=%d charge=%d", enable, port->vbus_charge);
 
 	ret = port->tcpc->set_vbus(port->tcpc, enable, port->vbus_charge);
 	if (ret < 0)
-		return ret;
+		return tcpm_vbus_error(port, ret);
 
 	port->vbus_source = enable;
 	return 0;
@@ -4976,15 +5014,18 @@ static int tcpm_set_charge(struct tcpm_port *port, bool charge)
 {
 	int ret;
 
+	if (port->vbus_control_error)
+		return port->vbus_control_error;
+
 	if (charge && port->vbus_source)
-		return -EINVAL;
+		return tcpm_vbus_error(port, -EINVAL);
 
 	if (charge != port->vbus_charge) {
 		tcpm_log(port, "vbus=%d charge:=%d", port->vbus_source, charge);
 		ret = port->tcpc->set_vbus(port->tcpc, port->vbus_source,
 					   charge);
 		if (ret < 0)
-			return ret;
+			return tcpm_vbus_error(port, ret);
 	}
 	port->vbus_charge = charge;
 	power_supply_changed(port->psy);
@@ -5007,10 +5048,32 @@ static int tcpm_init_vbus(struct tcpm_port *port)
 {
 	int ret;
 
+	if (port->vbus_reset_attempts >= TCPM_VBUS_RESET_ATTEMPTS)
+		return port->vbus_control_error;
+
 	ret = port->tcpc->set_vbus(port->tcpc, false, false);
+	if (ret < 0) {
+		port->vbus_control_error = ret;
+		port->vbus_reset_attempts++;
+		tcpm_log_force(port, "Failed to disable VBUS supply and charging: %d", ret);
+		return ret;
+	}
+
 	port->vbus_source = false;
 	port->vbus_charge = false;
+	port->vbus_control_error = 0;
+	port->vbus_reset_attempts = 0;
 	return ret;
+}
+
+static void tcpm_retry_vbus_reset(struct tcpm_port *port)
+{
+	/* tcpm_set_cc() discards TCPC errors; this does not confirm CC is open. */
+	tcpm_set_cc(port, TYPEC_CC_OPEN);
+	if (port->vbus_reset_attempts < TCPM_VBUS_RESET_ATTEMPTS)
+		tcpm_set_state(port, PORT_RESET, PD_T_ERROR_RECOVERY);
+	else
+		tcpm_set_state(port, PORT_RESET_FAILED, 0);
 }
 
 static int tcpm_init_vconn(struct tcpm_port *port)
@@ -5167,8 +5230,11 @@ static void tcpm_partner_source_caps_reset(struct tcpm_port *port)
 	port->spr_avs_data.active = false;
 }
 
-static void tcpm_reset_port(struct tcpm_port *port)
+static int tcpm_reset_port(struct tcpm_port *port)
 {
+	int ret;
+
+	port->queued_message = PD_MSG_NONE;
 	tcpm_enable_auto_vbus_discharge(port, false);
 	port->in_ams = false;
 	port->ams = NONE_AMS;
@@ -5190,7 +5256,7 @@ static void tcpm_reset_port(struct tcpm_port *port)
 	port->rx_msgid_prime = -1;
 
 	port->tcpc->set_pd_rx(port->tcpc, false);
-	tcpm_init_vbus(port);	/* also disables charging */
+	ret = tcpm_init_vbus(port);
 	tcpm_init_vconn(port);
 	tcpm_set_current_limit(port, 0, 0);
 	tcpm_set_polarity(port, TYPEC_POLARITY_CC1);
@@ -5211,6 +5277,7 @@ static void tcpm_reset_port(struct tcpm_port *port)
 	tcpm_partner_source_caps_reset(port);
 	usb_power_delivery_unregister(port->partner_pd);
 	port->partner_pd = NULL;
+	return ret;
 }
 
 static void tcpm_detach(struct tcpm_port *port)
@@ -5226,7 +5293,8 @@ static void tcpm_detach(struct tcpm_port *port)
 		port->tcpc->set_bist_data(port->tcpc, false);
 	}
 
-	tcpm_reset_port(port);
+	if (tcpm_reset_port(port) < 0)
+		tcpm_retry_vbus_reset(port);
 }
 
 static void tcpm_src_detach(struct tcpm_port *port)
@@ -5416,12 +5484,21 @@ static void tcpm_set_initial_negotiated_rev(struct tcpm_port *port)
 	port->negotiated_rev_prime = port->negotiated_rev;
 }
 
+static int tcpm_init_port_status(struct tcpm_port *port);
+
 static void run_state_machine(struct tcpm_port *port)
 {
 	int ret;
 	enum typec_pwr_opmode opmode;
 	unsigned int msecs;
 	enum tcpm_state upcoming_state;
+
+	/* Also fence delayed transitions queued before a callback failed. */
+	if (port->vbus_control_error && port->state != PORT_RESET &&
+	    port->state != PORT_RESET_FAILED) {
+		tcpm_set_state(port, PORT_RESET, 0);
+		return;
+	}
 
 	if (port->tcpc->check_contaminant && port->state != CHECK_CONTAMINANT)
 		port->potential_contaminant = ((port->enter_state == SRC_ATTACH_WAIT &&
@@ -5443,6 +5520,8 @@ static void run_state_machine(struct tcpm_port *port)
 		if (!port->non_pd_role_swap)
 			tcpm_swap_complete(port, -ENOTCONN);
 		tcpm_src_detach(port);
+		if (port->vbus_control_error)
+			break;
 		if (port->potential_contaminant) {
 			tcpm_set_state(port, CHECK_CONTAMINANT, 0);
 			break;
@@ -5696,6 +5775,8 @@ static void run_state_machine(struct tcpm_port *port)
 			tcpm_swap_complete(port, -ENOTCONN);
 		tcpm_aug_supply_req_complete(port, -ENOTCONN);
 		tcpm_snk_detach(port);
+		if (port->vbus_control_error)
+			break;
 		if (port->potential_contaminant) {
 			tcpm_set_state(port, CHECK_CONTAMINANT, 0);
 			break;
@@ -5828,8 +5909,9 @@ static void run_state_machine(struct tcpm_port *port)
 			if (!tcpm_set_sink_current_limit(port, current_lim, 5000))
 				break;
 			/* Not sink vbus if operational current is 0mA */
-			tcpm_set_charge(port, !port->pd_supported ||
-					pdo_max_current(port->snk_pdo[0]));
+			if (tcpm_set_charge(port, !port->pd_supported ||
+					    pdo_max_current(port->snk_pdo[0])) < 0)
+				break;
 
 			if (!port->pd_supported)
 				tcpm_set_state(port, SNK_READY, 0);
@@ -6071,6 +6153,8 @@ static void run_state_machine(struct tcpm_port *port)
 	/* Accessory states */
 	case ACC_UNATTACHED:
 		tcpm_acc_detach(port);
+		if (port->vbus_control_error)
+			break;
 		if (port->port_type == TYPEC_PORT_SRC)
 			tcpm_set_state(port, SRC_UNATTACHED, 0);
 		else
@@ -6124,7 +6208,8 @@ static void run_state_machine(struct tcpm_port *port)
 		 * drive VBUS to vSafe0V as shown in Figure 7-9.
 		 */
 		tcpm_set_vconn(port, false);
-		tcpm_set_vbus(port, false);
+		if (tcpm_set_vbus(port, false) < 0)
+			break;
 		tcpm_set_roles(port, port->self_powered, TYPEC_STATE_USB, TYPEC_SOURCE,
 			       tcpm_data_role_for_source(port));
 		/*
@@ -6142,7 +6227,8 @@ static void run_state_machine(struct tcpm_port *port)
 		break;
 	case SRC_HARD_RESET_VBUS_ON:
 		tcpm_set_vconn(port, true);
-		tcpm_set_vbus(port, true);
+		if (tcpm_set_vbus(port, true) < 0)
+			break;
 		if (port->ams == HARD_RESET)
 			tcpm_ams_finish(port);
 		if (port->pd_supported)
@@ -6155,8 +6241,8 @@ static void run_state_machine(struct tcpm_port *port)
 		tcpm_set_auto_vbus_discharge_threshold(port, TYPEC_PWR_MODE_USB, false, 0);
 		memset(&port->pps_data, 0, sizeof(port->pps_data));
 		tcpm_set_vconn(port, false);
-		if (port->pd_capable)
-			tcpm_set_charge(port, false);
+		if (port->pd_capable && tcpm_set_charge(port, false) < 0)
+			break;
 		tcpm_set_roles(port, port->self_powered, TYPEC_STATE_USB, TYPEC_SINK,
 			       tcpm_data_role_for_sink(port));
 		/*
@@ -6196,7 +6282,8 @@ static void run_state_machine(struct tcpm_port *port)
 							 5000))
 				break;
 			/* Not sink vbus if operational current is 0mA */
-			tcpm_set_charge(port, !!pdo_max_current(port->snk_pdo[0]));
+			if (tcpm_set_charge(port, !!pdo_max_current(port->snk_pdo[0])) < 0)
+				break;
 		}
 		if (port->ams == HARD_RESET)
 			tcpm_ams_finish(port);
@@ -6339,7 +6426,8 @@ static void run_state_machine(struct tcpm_port *port)
 		 * Prevent vbus discharge circuit from turning on during PR_SWAP
 		 * as this is not a disconnect.
 		 */
-		tcpm_set_vbus(port, false);
+		if (tcpm_set_vbus(port, false) < 0)
+			break;
 		port->explicit_contract = false;
 		/* allow time for Vbus discharge, must be < tSrcSwapStdby */
 		tcpm_set_state(port, PR_SWAP_SRC_SNK_SOURCE_OFF,
@@ -6381,13 +6469,15 @@ static void run_state_machine(struct tcpm_port *port)
 		 */
 		tcpm_set_auto_vbus_discharge_threshold(port, TYPEC_PWR_MODE_USB,
 						       port->pps_data.active, 0);
-		tcpm_set_charge(port, false);
+		if (tcpm_set_charge(port, false) < 0)
+			break;
 		tcpm_set_state(port, ERROR_RECOVERY, port->timings.ps_src_off_time);
 		break;
 	case PR_SWAP_SNK_SRC_SOURCE_ON:
 		tcpm_enable_auto_vbus_discharge(port, true);
 		tcpm_set_cc(port, tcpm_rp_cc(port));
-		tcpm_set_vbus(port, true);
+		if (tcpm_set_vbus(port, true) < 0)
+			break;
 		/*
 		 * allow time VBUS ramp-up, must be < tNewSrc
 		 * Also, this window overlaps with CC debounce as well.
@@ -6526,7 +6616,10 @@ static void run_state_machine(struct tcpm_port *port)
 		tcpm_set_state(port, PORT_RESET, 0);
 		break;
 	case PORT_RESET:
-		tcpm_reset_port(port);
+		if (tcpm_reset_port(port) < 0) {
+			tcpm_retry_vbus_reset(port);
+			break;
+		}
 		if (port->self_powered)
 			tcpm_set_cc(port, TYPEC_CC_OPEN);
 		else
@@ -6536,9 +6629,26 @@ static void run_state_machine(struct tcpm_port *port)
 			       PD_T_ERROR_RECOVERY);
 		break;
 	case PORT_RESET_WAIT_OFF:
+		if (port->init_pending) {
+			ret = tcpm_init_port_status(port);
+			if (ret < 0) {
+				if (++port->init_status_attempts < TCPM_VBUS_RESET_ATTEMPTS) {
+					tcpm_set_state(port, PORT_RESET_WAIT_OFF,
+						       PD_T_ERROR_RECOVERY);
+				} else {
+					port->vbus_control_error = ret;
+					port->vbus_reset_attempts = TCPM_VBUS_RESET_ATTEMPTS;
+					tcpm_retry_vbus_reset(port);
+				}
+			}
+			break;
+		}
 		tcpm_set_state(port,
 			       tcpm_default_state(port),
 			       port->vbus_present ? port->timings.ps_src_off_time : 0);
+		break;
+	case PORT_RESET_FAILED:
+		/* Park until tcpm_tcpc_reset() explicitly rearms recovery. */
 		break;
 
 	/* AMS intermediate state */
@@ -6580,7 +6690,12 @@ static void tcpm_state_machine_work(struct kthread_work *work)
 	mutex_lock(&port->lock);
 	port->state_machine_running = true;
 
-	if (port->queued_message && tcpm_send_queued_message(port))
+	/* Do not transmit an old contract's reply before running its reset. */
+	if (port->state == PORT_RESET || port->delayed_state == PORT_RESET)
+		port->queued_message = PD_MSG_NONE;
+
+	if (!port->vbus_control_error && !port->init_pending &&
+	    port->queued_message && tcpm_send_queued_message(port))
 		goto done;
 
 	/* If we were queued due to a delayed state change, update it now */
@@ -6600,7 +6715,7 @@ static void tcpm_state_machine_work(struct kthread_work *work)
 	do {
 		prev_state = port->state;
 		run_state_machine(port);
-		if (port->queued_message)
+		if (!port->vbus_control_error && !port->init_pending && port->queued_message)
 			tcpm_send_queued_message(port);
 	} while (port->state != prev_state && !port->delayed_state);
 
@@ -7898,50 +8013,51 @@ swap_unlock:
 	return ret;
 }
 
-static void tcpm_init(struct tcpm_port *port)
+static int tcpm_init_port_status(struct tcpm_port *port)
 {
 	enum typec_cc_status cc1, cc2;
+	bool vsafe0v;
+	int vbus, ret;
 
+	vbus = port->tcpc->get_vbus(port->tcpc);
+	if (vbus < 0)
+		return vbus;
+	if (vbus)
+		vsafe0v = false;
+	else if (!port->tcpc->is_vbus_vsafe0v)
+		vsafe0v = true;
+	else
+		vsafe0v = port->tcpc->is_vbus_vsafe0v(port->tcpc);
+	ret = port->tcpc->get_cc(port->tcpc, &cc1, &cc2);
+	if (ret < 0)
+		return ret;
+
+	port->vbus_present = vbus;
+	if (vbus)
+		port->vbus_never_low = true;
+	port->vbus_vsafe0v = vsafe0v;
+	port->init_pending = false;
+	port->init_status_attempts = 0;
+	tcpm_set_state(port, tcpm_default_state(port), 0);
+	/* Replay the snapshot after reset; an already plugged cable may not IRQ. */
+	_tcpm_cc_change(port, cc1, cc2);
+	return 0;
+}
+
+static void tcpm_init(struct tcpm_port *port)
+{
+	/* Startup or an explicit TCPC reset starts a new bounded attempt set. */
+	port->vbus_reset_attempts = 0;
+	port->init_status_attempts = 0;
+	port->init_pending = true;
 	port->tcpc->init(port->tcpc);
 
-	tcpm_reset_port(port);
+	if (tcpm_reset_port(port) < 0) {
+		tcpm_retry_vbus_reset(port);
+		return;
+	}
 
-	/*
-	 * XXX
-	 * Should possibly wait for VBUS to settle if it was enabled locally
-	 * since tcpm_reset_port() will disable VBUS.
-	 */
-	port->vbus_present = port->tcpc->get_vbus(port->tcpc);
-	if (port->vbus_present)
-		port->vbus_never_low = true;
-
-	/*
-	 * 1. When vbus_present is true, voltage on VBUS is already at VSAFE5V.
-	 * So implicitly vbus_vsafe0v = false.
-	 *
-	 * 2. When vbus_present is false and TCPC does NOT support querying
-	 * vsafe0v status, then, it's best to assume vbus is at VSAFE0V i.e.
-	 * vbus_vsafe0v is true.
-	 *
-	 * 3. When vbus_present is false and TCPC does support querying vsafe0v,
-	 * then, query tcpc for vsafe0v status.
-	 */
-	if (port->vbus_present)
-		port->vbus_vsafe0v = false;
-	else if (!port->tcpc->is_vbus_vsafe0v)
-		port->vbus_vsafe0v = true;
-	else
-		port->vbus_vsafe0v = port->tcpc->is_vbus_vsafe0v(port->tcpc);
-
-	tcpm_set_state(port, tcpm_default_state(port), 0);
-
-	if (port->tcpc->get_cc(port->tcpc, &cc1, &cc2) == 0)
-		_tcpm_cc_change(port, cc1, cc2);
-
-	/*
-	 * Some adapters need a clean slate at startup, and won't recover
-	 * otherwise. So do not try to be fancy and force a clean disconnect.
-	 */
+	/* Always force a disconnect, then sample VBUS/vSafe0V/CC after recovery. */
 	tcpm_set_state(port, PORT_RESET, 0);
 }
 
@@ -8588,6 +8704,9 @@ static enum power_supply_property tcpm_psy_props[] = {
 static int tcpm_psy_get_online(struct tcpm_port *port,
 			       union power_supply_propval *val)
 {
+	if (port->vbus_control_error)
+		return port->vbus_control_error;
+
 	if (port->vbus_charge) {
 		if (port->pps_data.active)
 			val->intval = TCPM_PSY_PPS_ONLINE;
@@ -9021,6 +9140,8 @@ void tcpm_unregister_port(struct tcpm_port *port)
 	hrtimer_cancel(&port->state_machine_timer);
 
 	power_supply_put_system_batteries(port->fixed_batt, port->fixed_batt_cnt);
+	/* One last best-effort shutdown; the worker is already gone. */
+	port->vbus_reset_attempts = 0;
 	tcpm_reset_port(port);
 
 	tcpm_port_unregister_pd(port);

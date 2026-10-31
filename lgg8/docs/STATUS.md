@@ -570,9 +570,11 @@ C208 修正了 C207 的无效对照：本次有效配置启用 `CONFIG_DRM_CLIEN
 
 ### C224：电池存在与温控寄存器只读观测候选（尚未真机测试）
 
-在 C223 使用的配置和构建目录上增量编译当前源码，生成 RAM-only 候选 `out/lgg8-c224-fg-presence-observe-20261031/boot/boot.img`，SHA-256 为 `c535c66a42eaf836c0267b4c29913962b23824e8a8df3b788c14aadee3b7f4cf`。`bootimg.py verify` 通过；与 C223 比较，源 DTB、initramfs、模板、stock DTBs、bootargs、装载约束及时间戳一致。内核更新包含 FG `PRESENT`、SMB5 软 JEITA 原始字节，以及 C223 之后其他已提交变更（包括 TCPM 恢复变更）；因此这不是单变量内核对照。vmlinux 包含对应 FG 回调和四个属性符号。
+在 C223 使用的配置和构建目录上增量编译当前源码，生成 RAM-only 候选 `out/lgg8-c224-fg-presence-observe-20261031/boot/boot.img`，SHA-256 为 `c535c66a42eaf836c0267b4c29913962b23824e8a8df3b788c14aadee3b7f4cf`。`bootimg.py verify` 通过；与 C223 比较，源 DTB、initramfs、模板、stock DTBs、bootargs、装载约束及打包 gzip 时间戳一致；内核自身的构建标识和时间不同。内核更新包含 FG `PRESENT`、SMB5 软 JEITA 原始字节，以及 C223 之后其他已提交变更（包括 TCPM 恢复变更）；因此这不是单变量内核对照。vmlinux 包含对应 FG 回调和四个属性符号。
 
 本候选尚未启动，不能证明状态读取、桌面、触控、Android 回收或硬件保护在此镜像上通过。`PRESENT` 仅报告电池缺失位；软阈值字节不是温度或停充证明。构建前 C223 的 Image 和 provenance 保存在候选目录内以保留比较基线；打包临时目录已移除。
+
+独立复审确认 FG、SMB5 和 TCPM 对象在本轮重编，Image 与 vmlinux 各节及内嵌配置一致。构建收据记录的是打包前现有产物和源码状态，不能证明整个构建期间每个旧对象的来源，未完成独立干净重建；本候选不宣称严格可复现。复审发现共享构建目录中的收据仍是 C223，已核对 Image、DTB 和配置哈希后更新为 C224 收据；原收据保存在上述基线目录。
 
 ### C211：PM8150B SMB5 只读状态首轮真机通过（2026-10-31）
 

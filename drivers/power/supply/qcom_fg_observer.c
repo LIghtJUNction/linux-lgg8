@@ -151,6 +151,36 @@ static enum power_supply_property fg_observer_properties[] = {
 	POWER_SUPPLY_PROP_PRESENT,
 };
 
+/* Presence checks cannot guarantee an atomic or fresh measurement. */
+static int fg_observer_check_present(struct qcom_fg_observer *fg)
+{
+	unsigned int status;
+	int ret;
+
+	if (!fg->has_rradc)
+		return 0;
+	ret = regmap_read_bypassed(fg->regmap,
+				   fg->rradc_base + FG_RRADC_STATUS_OFFSET,
+				   &status);
+	if (ret)
+		return ret;
+	return status & FG_RRADC_BATTERY_MISSING ? -ENODEV : 0;
+}
+
+static int fg_observer_read_measurement(struct qcom_fg_observer *fg, u32 offset,
+					u32 shadow_offset, u16 *raw)
+{
+	int ret;
+
+	ret = fg_observer_check_present(fg);
+	if (ret)
+		return ret;
+	ret = fg_observer_read_pair(fg, offset, shadow_offset, raw);
+	if (ret)
+		return ret;
+	return fg_observer_check_present(fg);
+}
+
 static int fg_observer_get_property(struct power_supply *psy,
 				    enum power_supply_property property,
 				    union power_supply_propval *val)
@@ -172,14 +202,14 @@ static int fg_observer_get_property(struct power_supply *psy,
 		val->intval = !(status & FG_RRADC_BATTERY_MISSING);
 		return 0;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		ret = fg_observer_read_pair(fg, FG_VOLTAGE_OFFSET,
+		ret = fg_observer_read_measurement(fg, FG_VOLTAGE_OFFSET,
 					    FG_VOLTAGE_SHADOW_OFFSET, &raw);
 		if (ret)
 			return ret;
 		val->intval = div_s64((s64)raw * 122070, 1000);
 		return 0;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
-		ret = fg_observer_read_pair(fg, FG_CURRENT_OFFSET,
+		ret = fg_observer_read_measurement(fg, FG_CURRENT_OFFSET,
 					    FG_CURRENT_SHADOW_OFFSET, &raw);
 		if (ret)
 			return ret;

@@ -37,6 +37,8 @@ struct regmap {
     unsigned int reads[256], read_count, writes;
     unsigned int fail_reg;
     int read_error;
+    unsigned int fail_at_count, change_at_count, change_reg;
+    u8 change_value;
 };
 struct fwnode_handle {
     u32 bases[4];
@@ -99,6 +101,10 @@ static inline int regmap_read(struct regmap *map, unsigned int reg, unsigned int
     assert(reg < sizeof(map->bytes));
     assert(map->read_count < ARRAY_SIZE(map->reads));
     map->reads[map->read_count++] = reg;
+    if (map->read_count == map->change_at_count)
+        map->bytes[map->change_reg] = map->change_value;
+    if (map->read_count == map->fail_at_count && map->read_error)
+        return map->read_error;
     if (reg == map->fail_reg && map->read_error)
         return map->read_error;
     *v = map->bytes[reg];

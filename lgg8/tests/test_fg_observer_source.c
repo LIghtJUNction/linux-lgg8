@@ -184,6 +184,45 @@ static void legacy_rradc_attrs_unsupported(void)
     }
     done(&f);
 }
+static void measurements_check_presence(void)
+{
+    const enum power_supply_property properties[] = {
+        POWER_SUPPLY_PROP_VOLTAGE_NOW, POWER_SUPPLY_PROP_CURRENT_NOW,
+    };
+    for (size_t p = 0; p < ARRAY_SIZE(properties); p++) {
+        for (unsigned int mode = 0; mode < 5; mode++) {
+            struct fixture f;
+            union power_supply_propval value = { .intval = 1234 };
+            setup(&f, 3);
+            assert(fg_observer_probe(&f.pdev) == 0);
+            f.map.read_count = 0;
+            if (mode == 0) f.map.bytes[0x4210] = 1;
+            if (mode == 1 || mode == 2) {
+                f.map.fail_at_count = mode == 1 ? 1 : 6;
+                f.map.read_error = -ETIMEDOUT;
+            }
+            if (mode == 3) {
+                f.map.change_at_count = 6;
+                f.map.change_reg = 0x4210;
+                f.map.change_value = 1;
+            }
+            assert(get(&f, properties[p], &value) ==
+                   (mode == 1 || mode == 2 ? -ETIMEDOUT :
+                    mode == 4 ? 0 : -ENODEV));
+            assert(value.intval == (mode == 4 ? 0 : 1234));
+            assert(f.map.read_count == (mode == 0 || mode == 1 ? 1U : 6U));
+            done(&f);
+        }
+        struct fixture old;
+        union power_supply_propval value;
+        setup(&old, 2);
+        assert(fg_observer_probe(&old.pdev) == 0);
+        old.map.read_count = 0;
+        assert(get(&old, properties[p], &value) == 0);
+        assert(old.map.read_count == 4);
+        done(&old);
+    }
+}
 static void raw_attrs_propagate_read_errors(void)
 {
     const struct {
@@ -233,6 +272,7 @@ int main(void)
     identities_and_faults();
     old_measurements_and_raw_attrs();
     legacy_rradc_attrs_unsupported();
+    measurements_check_presence();
     raw_attrs_propagate_read_errors();
     printf("observer actual-source: %u fixtures + all 256 presence bytes passed; zero writes\n", cases);
     return 0;

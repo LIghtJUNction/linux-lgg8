@@ -26,11 +26,12 @@
 | 默认诊断 PID 1 | **QEMU virt 实际运行通过** | 同一内核进入 PID 1 并按期复位；非 PID 1 返回 91 保护也通过；不代表手机通过 |
 | 原生 initramfs | **GNU cpio 解析通过** | 说明归档可解析，不证明真机能启动 |
 | 本仓新内核真机启动 | **完整默认参数已运行** | C160 与 C162–169 使用 GPIO 保护、启用 TLMM、默认无 blacklist；每轮均回收 Android 且 A/B boot 哈希不变 |
-| RAM 桌面用户态 | **PID 1/桌面工作进程可运行；可见桌面未验收** | C206–208 用户态标记和 ACM shell 成功；C208 屏幕观察未确认 |
+| RAM 桌面用户态 | **C208-R3 用户观察到蓝底终端与极简桌面；同次 ACM 通过** | 显示＋ACM 里程碑 M1 通过；屏幕证据为用户观察，无录像 |
 | Linux USB 枚举和 shell | **RAM-only 路径通过** | C206 空 client 与 C208 有效 log client 均通过 `18d1:4ee7` ACM shell；C207 的 log client 未编译，C203 默认 fbdev 未到达 ACM |
 | ramoops/pstore 真机证据 | **C192 首次导出 console-ramoops；内容损坏，pmsg 未确认** | 早期与回收后同一 32878 字节记录；C191 为空；C192 用户态标记及 DPU pmsg 仍未观察到 |
-| 显示与触控 | **显示链已启动，画面错误；触控未验收** | C165/166 分别检测到 2 个 connected connector、fb0 存在；这些状态不证明正确 scanout |
-| 桌面/Omarchy | **未通过** | 不能由源码编译或通用 QEMU 推导 |
+| 显示与触控 | **C208-R3 显示通过用户观察；Linux 触控无响应** | 同次启动用户看到蓝色背景、终端和极简桌面；主线仍缺 SW42000 节点与协议驱动 |
+| Weston RAM 桌面 | **同次显示＋ACM 通过** | C208-R3；见下方记录与独立审查文档 |
+| Omarchy | **未通过** | Weston 极简桌面不等于 Omarchy；不能由源码编译或通用 QEMU 推导 |
 | 当前 Android 与软件 fastboot 修复 | 历史真机通过 | 依赖当前已安装 Android 启动镜像；覆盖后不可假设保留 |
 | 新主线 boot 持久刷入与恢复 | **未验证** | 目前仅给有前置条件的人工流程 |
 | ABL 改写 | 本轮未请求 | 不作为当前恢复或适配步骤 |
@@ -522,7 +523,19 @@ C202 唯一硬件参数变化是把 SW43410 HS lane rate 从 `920145600` 调到 
 
 C203 保持 C202 内核和其余输入不变，只把 `watchdog.open_timeout` 从 120 秒改为 60 秒；没有 ACM，Android 于 +114.179 秒返回。C204 保持该面板速率和启动参数，添加 `CONFIG_DETECT_HUNG_TASK=y`、30 秒检测阈值及首个 hung task panic。它仍未枚举 ACM，Android 于 +114.162 秒返回，回收后的 pstore 经完整校验为空，没有取得卡死堆栈。C204 镜像 SHA-256 `5613717b44a2747fe4466dba32de4bb00839fcd7ea25150cd24e11cac04509b7`。C205 再启用 soft-lockup 检测及 panic；同样没有 ACM，Android 于 +113.966 秒返回，完整 pstore 仍为空。C202–C205 均为 RAM-only；Android `boot_completed=1`、slot `_b`、boot_a/boot_b 哈希保持基线，未写入分区。
 
-屏幕目前有正常画面的目测证据，但触控与充电尚未验收。设备树已声明 SW42000 触控所在的 QUP SE17 I²C 总线，注释明确指出协议仍需主线驱动，且没有触控器节点；不能宣称触屏已适配。内核配置启用了通用 `CHARGER_QCOM_SMB2`，但 G8 设备树只有 `simple-battery` 描述和 PM8150B VBUS 调节器，未发现对应 SMB2 充电器节点；不能宣称充电已适配，后续须先从原厂固件确认真实 charger/fuel-gauge 配置，禁止猜参数试充。
+Linux 的可见桌面与 ACM 已在 C208-R3 同次 RAM-only 启动通过；用户观察为蓝底、终端和极简桌面，未留录像。用户报告该 Linux 阶段触控没有响应。
+
+C208-R3 回 Android 后的只读采集确认当前 Android 运行设备树声明 `lge,sw42000`，I²C client `4-0028` 的名称为 `sw42000` 并绑定 `lge_touch`，触摸中断线名为 `lge_touch`，输入设备列表中有 `touch_dev`；运行设备树中 SW42000 节点为 `status=okay`、地址 `0x28`、IRQ 122，Synaptics S3707 节点为 disabled。当前 Android `/proc/config.gz` 含 `CONFIG_LGE_TOUCH_LGSIC_SW42000=y`。该输入属于当前 Android 内核，不能证明本仓 Linux 已有支持。本仓仍没有 SW42000 协议驱动或板级触摸子节点；Linux 触控尚未适配。只读原始记录位于忽略目录 `out/lgg8-c208-drm-log-enabled/run-03/android-readonly.txt` 与 `android-dt-details.txt`。
+
+同一 Android 只读采集显示 `battery`、`dc`、`main`、`pc_port`、`usb` 等 power_supply 设备归属 `qcom,qpnp-smb5`，`bms` 归属 `qcom,fg-gen4`，运行设备树还含 Qnovo 与 SMB1355 节点；配置含 `CONFIG_QPNP_SMB5=y`、`CONFIG_QPNP_FG_GEN4=y`、`CONFIG_SMB1355_SLAVE_CHARGER=y`、`CONFIG_QPNP_QNOVO5=y` 与 `CONFIG_LGE_PM=y`。这确认了当前 Android 软件栈使用的电源路径，但不等于本仓主线支持或本轮实测充电。`qcom,battery-data` 引用和选中 profile 尚未解析。主线当前的 `CHARGER_QCOM_SMB2` 不等同于 SMB5/FG GEN4；电量计可能写 PMIC SDAM/学习状态，因此不新增猜测的 charger/FG 节点，也不做试充。
+
+### C208-R3：同次 Weston 桌面与 ACM 通过（2026-10-31）
+
+复用 C208 原镜像 `3ead08159f1f99d7582ad21dd3af45b69bd05fe4e1ea8a9d99ab6d4b9c767176`，只执行 RAM-only `fastboot boot`。物理口 1-2 的 Fastboot `18d1:4ee0` 断开后，Linux Gadget `18d1:4ee7` 于 +37.077 秒出现并绑定 `ttyACM0`。随机首尾标记、dmesg snapshot 和结束码全部通过；回执共 519 行、39,716 字节。用户在同一 Linux 阶段观察到蓝色背景、终端和极简桌面，用户态状态含 `WPROC=1`。
+
+Linux USB 于 +93.935 秒断开，Android ADB 于 +114.027 秒恢复；全轮 124.51 秒。设备仍为 `LM-G820` / `alphalm_lao_com`、slot `_b`、`boot_completed=1`；boot ID 轮转，boot_a/boot_b 哈希不变且 boot_b 仍匹配已知基线。启动前、早期回连和回收后 pstore 快照均通过完整清单与源哈希校验。未写入任何分区。触控无响应属用户观察，不是对屏幕硬件的电气故障诊断。
+
+完整运行结果位于忽略目录 `out/lgg8-c208-drm-log-enabled/run-03/`；更详尽的证据边界见 [C208 阶段审查与 M1 验收](C208-NEXT-MILESTONE-REVIEW.md)。
 
 ### C206：禁用 DRM in-kernel client 后首次稳定到达 Linux ACM shell（2026-10-31）
 

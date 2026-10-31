@@ -2,7 +2,7 @@
 
 这是独立维护 LG G8 内核、设备树和 Android boot image 封装的完整 Linux 源码仓库。上游基线为官方标签 **v7.3**，提交 **`c03c1a14507dfaf8b856c2608f9ac216021fc222`**。根目录的上游 `README` 保持原样，LG 专用说明从这里进入。
 
-本仓可以构建 `Image`、`sm8150-lg-alphalm.dtb`、诊断 initramfs 和可选 Weston RAM 桌面，再打包成 Android `boot.img`。维护内核已在 C119 旧 DTB 对照取得原生用户态时序证据；桌面根已通过 QEMU headless 会话、终端帧提交和离线封装。**手机桌面仍未通过**：C133 全套新仓镜像 RAM 实验提前复位，Linux USB/shell、正常显示、触控和持久刷入也未验收。
+本仓可以构建 `Image`、`sm8150-lg-alphalm.dtb`、诊断 initramfs 和 Weston RAM 桌面，再打包成 Android `boot.img`。C208-R3 复用已核验镜像，以 RAM-only 方式同次通过 ACM shell，并由用户观察到蓝色背景、终端和极简桌面。**Linux 触控与充电、持久刷入仍未验收**；C208-R3 也没有测试触控输入或充电闭环。
 
 - [项目布局、维护边界与快速构建](lgg8/README.md)
 - [依赖、源码构建、模板准备和离线验证](lgg8/docs/BUILD.md)

@@ -1,13 +1,13 @@
-# LG G8：C208 后的证据约束攻关
+# LG G8：C208 阶段审查与 M1 验收
 
 日期：2026-10-31  
 基线：`LIghtJUNction/linux-lgg8@dbff2e50685d2f87655179850bba0a9d54e08b27`  
 独立分支：`lgg8/review-c208-drm-client-config`  
 代码提交：`0eaf7ce5cf87a388cccdd3c2d4a480b158ef6624`
 
-## 首选里程碑
+## M1：同次 Weston 桌面与 ACM 已通过
 
-**先验收同一次 RAM-only 启动中的可读 Weston 桌面与 ACM shell。** 下一次硬件候选复用 C208 原镜像，镜像零改动。先完成本机静态检查和当前 Android 的只读取证。
+Candidate C208-R3 复用原 C208 镜像，镜像零改动。用户在 Linux 阶段观察到蓝色背景、终端和极简桌面；同一启动的 ACM shell 严格标记探针通过。按本项目验收条件，M1 已通过。用户同时报告 Linux 阶段没有触控响应，触摸仍未适配。
 
 C208 镜像 SHA-256：
 
@@ -15,19 +15,17 @@ C208 镜像 SHA-256：
 3ead08159f1f99d7582ad21dd3af45b69bd05fe4e1ea8a9d99ab6d4b9c767176
 ```
 
-当前 rootfs 已启动 Weston，并设置 require-input=false；无需先有触摸才能验收桌面。[S1][S2] 没有原 C208 制品或 manifest 时，先恢复精确制品身份，不把重新构建的镜像称为同一候选。
-
-本轮完成源码审查、公开上游／LG 下游对照、主机校验补丁与测试；未访问、重启手机或运行 fastboot。C208 的设备结果来自用户记录及固定提交 STATUS，本轮没有重复设备验证。
+当前 rootfs 启动 Weston，并设置 require-input=false；无需先有触摸才能验收桌面。[S1][S2] R3 使用已核对的原始 C208 制品，没有重新构建镜像。
 
 ## 证据排序与真实支持状态
 
 | 项目 | 已知证据 | 未证明 |
 | --- | --- | --- |
-| C208 USB/ACM | 物理口 1-2、18d1:4ee7、shell 探针通过，519 行／39,716 字节 | 本轮未重跑 |
-| C208 DRM | LOG=y、active=log，无 Unknown，有 DPU framebuffer 活动 | 屏幕可读、输出归属、Weston 可见 |
-| Android 回收 | boot_completed=1、slot _b、boot ID 轮转、boot_a/b 哈希不变 | 不覆盖 PMIC SDAM、FG SRAM、触摸固件 |
-| 充电 | simple-battery，SMB2 对象已编入 | PM8150B charger/FG、profile、温控和充电闭环 |
-| 触摸 | GENI I2C 和 input 基础配置已开 | touchscreen child、SW42000 主线驱动、实际输入事件 |
+| C208-R3 USB/ACM | 物理口 1-2、18d1:4ee7、标记探针通过；519 行／39,716 字节 | 不证明其他镜像的 USB 行为 |
+| C208-R3 显示 | 用户观察到蓝色背景、终端和极简桌面；用户态标记含 Weston 工作进程 | 没有录像，画面观察来自用户报告 |
+| Android 回收 | boot_completed=1、slot _b、boot ID 轮转、boot_a/b 哈希不变 | 不覆盖 PMIC SDAM、FG SRAM 或触摸固件 |
+| Android 充电绑定 | 当前 Android 的 battery/dc/main/pc_port/usb supply 归属 qcom,qpnp-smb5；bms 归属 qcom,fg-gen4 | 不证明本仓主线有充电支持或本轮实测充电闭环 |
+| Android 触摸绑定 | I2C client 4-0028 名称 sw42000、驱动 lge_touch、运行 DT compatible lge,sw42000；用户报告 Linux 阶段无触控 | 不证明本仓主线有 SW42000 驱动或触摸输入 |
 
 强度依次是：同次真机完整回执；精确源码合同／匹配表；相邻候选受控对照；同板族下游参考；connector/fb0、历史目测与跨启动地址巧合。C196 缺 beacon、未试 gadget 的纠正保留，但已不能用于解释当前 USB。C208 已有 shell，不沿用旧版“无 ttyGS0 shell”结论。[S1]
 
@@ -59,9 +57,9 @@ pm8150b.dtsi 没有本板 charger/FG 节点；VBUS regulator 与 Type-C 默认 d
 
 公开下游普通 alpha_lao_com 启用 lge,sw42000@28，基础 DTS 给出 IRQ GPIO122、reset GPIO54、vdd GPIO152、vcl GPIO59，raw 最大坐标 1439×3119。存在多触摸方案和 early revision 差异，必须对照本机运行实例；这些值不是可直接写入主线的参数清单。[S13][S14]
 
-SW42000 的专用两字节请求头与 132 字节触点报告不兼容通用 Synaptics RMI4、SiS 或 Silead。下游依赖 LG touch_core、复位／电源、显示选择与 firmware updater。lge.touchid=0 映射到 SIW，内部 TYPE_SW42000=9 不是应填写的 bootarg。[S15][S16]
+SW42000 的专用两字节请求头与 132 字节触点报告不兼容通用 Synaptics RMI4、SiS 或 Silead。下游依赖 LG touch_core、复位／电源、显示选择与 firmware updater。[S15][S16] 下游 `devices_lge.c` 对 `lge.touchid=0` 的选择解释，与本机 Android 运行态中 `4-0028` 已绑定 `sw42000` 的观察需要结合该 ROM 的精确构建与选型路径继续核对；不能仅凭 bootarg 推断驱动绑定。
 
-先取得实际 input event → I2C client → driver/of_node 的对应关系，以及生效的 IRQ/reset/power/pinctrl/maker selection、board revision 和 input sysfs 的缓存能力。精确 ABS 数值范围需另用已核对实现的只读 EVIOCGABS 采集器。若实际绑定 Synaptics，就停止沿 SW42000 假设实现。
+Android 只读采集已把 input event、I2C client、driver 与 of_node 的一部分关系连起来：运行态出现 `4-0028` / `sw42000` / `lge_touch`，触摸 IRQ 行名为 `lge_touch`，输入列表含 `touch_dev`，bootarg 为 `lge.touchid=0`。运行设备树还包含 `synaptics,s3707` compatible，但本轮没有发现相应 I2C client；这只限本次采集结果。下一步仍需采集 SW42000 节点实际生效的 IRQ/reset/power/pinctrl/maker 属性、board revision 和缓存能力；精确 ABS 数值范围需另用已核对实现的只读 EVIOCGABS 采集器。
 
 **不能递归 cat vendor touch sysfs。** 已核实读取 fw_upgrade 会排队固件升级，读取 click_test 会注入触摸。这不是泛泛风险提示，是下游 show 函数的实际行为。[S17]
 
@@ -118,7 +116,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 
 ## 手机已在 Android 时的只读取证
 
-下面命令均为建议，未执行。序列号仅本地使用；分享时删去序列号、IMEI、账户与无关日志。无权限的项目记为不可读取，不重启 adbd、不改 SELinux、不重新绑定驱动。
+下面命令是只读采集示例。C208-R3 已执行身份字段、power_supply/I2C/input 绑定、触摸相关中断行、`lge.touchid` 和已知电源/触摸 compatible 子集；完整电池 profile、目标节点的全部属性与 `/proc/config.gz` 尚未采集。序列号仅本地使用；分享时删去序列号、IMEI、账户与无关日志。无权限的项目记为不可读取，不重启 adbd、不改 SELinux、不重新绑定驱动。
 
 ### 1. 身份、回收状态与服务缓存
 
@@ -242,9 +240,28 @@ adb -s "$LGG8_SERIAL" exec-out cat /proc/config.gz |
 
 本批不用 i2cdetect/i2cget、new_device、bind/unbind、GPIO export、regmap/debugfs 寄存器读取或充电写入。power_supply getter 也不能统一承诺为“硬件零写”，所以优先取链接、DT、服务缓存，不扫描全部 uevent/IIO/vendor 属性。
 
-## 下一次 RAM-only 视觉复测
+## C208-R3：视觉复测记录与证据
 
-**候选仍是原 C208，镜像零改动。** 本轮 packer guard 不要求重打包它。
+镜像 SHA-256：`3ead08159f1f99d7582ad21dd3af45b69bd05fe4e1ea8a9d99ab6d4b9c767176`。候选通过 manifest 与组件哈希预检，执行 RAM-only `fastboot boot`，没有使用 `flash`、`erase` 或其他分区写入命令。
+
+同次启动证据：
+
+- 物理 USB 1-2 的 Fastboot `18d1:4ee0` 出现，随后断开；Linux Gadget `18d1:4ee7` 于 +37.077 秒出现，ACM `ttyACM0` 绑定到该物理端口。
+- ACM shell 探针随机首尾标记、snapshot 与 dmesg 退出码全部通过；收到 519 行、39,716 字节，38 行包含 DRM/DPU 诊断特征。
+- 用户在这段 Linux 阶段看到蓝色背景、终端和极简桌面；同次启动用户态状态包含 `WPROC=1`。这不是独立录像证据，故明确标注为用户观察。
+- USB 于 +93.935 秒断开；Android ADB 在 +114.027 秒恢复。整轮 124.51 秒完成。
+- Android 回收后仍为 LM-G820 / alphalm_lao_com、slot `_b`、`boot_completed=1`；boot ID 轮转，boot_a 与 boot_b 哈希均未变，且 boot_b 仍匹配已知基线。启动前、早期回连和回收后 pstore 快照均通过清单及源哈希核验。
+- 用户未观察到 Linux 触控响应。该候选没有 SW42000 主线驱动和板级触摸节点；此结果与当前代码缺口一致，不能据此断言控制器或面板损坏。
+
+本次测试结束后在 Android 中做了只读 sysfs/proc/运行设备树采集，结果仅保存在忽略目录 `out/lgg8-c208-drm-log-enabled/run-03/android-readonly.txt`。运行 Android 的 SMB5/FG 驱动绑定与本仓主线状态分开记录，不能拿 Android 驱动绑定代替 Linux 适配验收。
+
+继续限定在静态运行设备树和 `/proc/config.gz` 的只读采集中：SW42000 节点 `status=okay`、I²C 地址 `0x28`、中断号 122；相邻 `synaptics,s3707@20` 节点 `status=disabled`。运行配置包含 `CONFIG_LGE_TOUCH_LGSIC_SW42000=y`、`CONFIG_QPNP_SMB5=y`、`CONFIG_QPNP_FG_GEN4=y`、`CONFIG_SMB1355_SLAVE_CHARGER=y`、`CONFIG_QPNP_QNOVO5=y` 和 `CONFIG_LGE_PM=y`。节点同时含 GPIO、pinctrl、面板选择和测试属性；本轮只读取了属性名及必要的 compatible/status/reg/interrupts 字节，尚未读取或应用复位／供电脚值、坐标、profile 内容或测试控制属性。Android 配置属于当前已安装系统，不声称是 LG 原厂构建。
+
+SMB5 与 FG GEN4 的 `qcom,battery-data` 引用值可见，但 profile 节点和选中 battery ID 未完成解析；因此仍不能确定主线充电所需的电芯曲线、保护责任分工和安全参数。宽范围扫描 phandle 超过了 35 秒只读采集期限，未留下结果文件；不把它算作采集成功，也没有重试全树扫描。
+
+### 后续 RAM-only 复测流程
+
+如果需要重复显示验收，仍复用原 C208 镜像，镜像零改动；本轮 packer guard 不要求重打包它。
 
 1. 启动前核对镜像 SHA、manifest、当前 Android 的 boot_completed、slot、boot ID、boot_a/b 哈希，并沿用已验证的 pstore 快照。
 2. 物理口 1-2 用现有被动监视器／sysfs 缓存观察。不要循环 fastboot getvar、USB reset 或 lsusb -v。启动只沿用已核对设备的 RAM-only fastboot boot 流程。
@@ -265,12 +282,12 @@ tail -n 30 /run/weston.stdout
 
 由已有 collector 包裹严格起止标记、退出码与超时。若某个可选文件不存在，保留该结果，不把整个采集吞成成功。若已有 debugfs 挂载，确认实际路径后才读 dri/<minor>/internal_clients；其源码只列内部 client。没有挂载就记录，本候选不要求新增挂载。继续不读 per-CRTC status/state，不写 debugfs 控制。[S20]
 
-6. 同一时间段 ACM 往返成功，手机上能读出当前 Weston 终端和桌面布局，才算 M1。只有可读 boot log 算部分显示进展；没有可靠实拍，显示仍未知。
+6. 本次同一启动中 ACM 往返成功且用户观察到终端与极简桌面，已满足 M1。若后续需要形成录像证据，再从 Android → Linux → Android 同步记录；只有可读 boot log 仍只算部分显示进展。
 7. 自动回 Android 后核对 boot_completed=1、slot _b、boot ID 轮转、boot_a/b 哈希一致与 pstore。保留视频、时间轴、collector 返回、manifest 和前后检查。
 
 | 观察 | 下一步 |
 | --- | --- |
-| 可读 Weston 与 ACM 同时成立 | M1 可验收，随后评估触摸专用驱动 |
+| 可读 Weston 与 ACM 同时成立 | C208-R3 已验收 M1；接着评估 SW42000 专用驱动 |
 | boot log 可读、Weston 不可见 | 查 Weston backend、输出选择、接管时间与 client |
 | 有进程／framebuffer 活动、黑屏或花屏 | 补同次 DPU/DSI/scanout 证据，不猜面板参数 |
 | 相同原镜像不再有 ACM | 先核对制品、端口和回收，不能直接归因充电／触摸 |

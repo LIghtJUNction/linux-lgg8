@@ -7,7 +7,7 @@
 | 层次 | 产物或操作 | 通过后能说明什么 |
 | --- | --- | --- |
 | 源码构建 | ARM64 `Image`、板级 DTB、静态诊断 initramfs | GPIO 保护后的完整默认无 blacklist 镜像已 RAM 启动；A/B 分区哈希保持 |
-| RAM 桌面用户态 | Alpine / Weston / pixman / 终端 | QEMU 画面提交通过；C167 手机回传到终端派生阶段，用户看到花屏 |
+| RAM 桌面用户态 | Alpine / Weston / pixman / 终端 | C208-R3 同次 ACM 通过；用户观察到蓝底、终端和极简桌面，触控无响应 |
 | 离线打包/校验 | `boot.img` 与 manifest | 格式、输入哈希、布局和分区容量符合工具检查范围 |
 | RAM 临时启动 | 人工 `fastboot boot` | 仅在取得可归属到本镜像的真机证据后，确认实际运行到的阶段 |
 | 持久刷入 | 人工写入明确的 `boot_b` | 需要另外验证刷后冷启动、回读哈希和恢复；目前未通过 |
@@ -64,7 +64,7 @@ TEMPLATE_DIR="$PWD/private/template" PARTITION_SIZE='<BOOT_B_BYTES>' \
 
 原生 PID 1 每约 5 秒列出 UDC、DRM、graphics 状态，默认约 45 秒后请求复位，另有约 50 秒后备路径；不配置 USB gadget，也没有默认 shell。它不挂载手机上的 Android、userdata 或其他持久分区；临时内容位于 RAM 中的 initramfs/devtmpfs，proc/sysfs 提供内核视图。无持久分区挂载不等于整个内核绝不访问硬件。
 
-45 秒是用户态诊断策略，不是从 `fastboot boot` 开始计时的硬件复位保证。早期内核挂起、PID 1 未运行、复位路径失效都可能使该策略无法执行。当前 USB/shell、显示、触控与桌面仍未通过，不能依赖候选提供恢复入口。
+45 秒是用户态诊断策略，不是从 `fastboot boot` 开始计时的硬件复位保证。早期内核挂起、PID 1 未运行、复位路径失效都可能使该策略无法执行。C208-R3 已通过同次可见桌面与 ACM 验收；触控、充电和持久刷入仍未通过，不能依赖候选提供恢复入口。
 
 完整内核、DTB、boot.img 离线核验和 46 项本地测试已通过；QEMU virt 已运行诊断 PID 1 并按期复位。本仓 Image 的真机阶段控制与当前延期探测异常，详见 [STATUS.md](docs/STATUS.md)；首轮和增量制品分开记录在 [LOCAL-VALIDATION.md](docs/LOCAL-VALIDATION.md)。
 
@@ -75,4 +75,4 @@ TEMPLATE_DIR="$PWD/private/template" PARTITION_SIZE='<BOOT_B_BYTES>' \
 约 48 MiB 的未压缩 CPIO 已实际运行 headless 桌面会话，
 确认同一 surface 的 buffer、damage、commit 和帧回调完成。
 手机镜像明确走 DRM；headless 仅用于本机测试，不会作为手机显示失败的自动替代。
-最新真机 C162–168 已用默认无 blacklist 参数进入主线桌面栈；状态回传确认 2 个 connected connector、fb0、终端派生阶段和 1 个 UDC。用户看到全屏花屏，主机仍未见 Linux USB `18d1:4ee7`，因此正常显示、可交互桌面和 USB shell 仍未通过。详见 [逐轮状态与限制](docs/STATUS.md#c162c168ram-桌面阶段回传与真实设备状态)。
+历史真机 C162–168 曾进入主线桌面栈但用户看到全屏花屏；该结果已由后续实验推进。C208-R3 复用已核验镜像，用户同次观察到蓝底终端和极简桌面，Linux ACM shell 也通过；Linux 触控没有响应。详见 [逐轮状态与限制](docs/STATUS.md)。

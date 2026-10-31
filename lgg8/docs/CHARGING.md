@@ -523,6 +523,20 @@ parameter table's 50 mA encoding, both ICL status bytes are 500 mA; AICL
 status bit 0 is named done. These are separate non-atomic status/configuration
 reads, not measured current or evidence of the Linux state. Debugfs selectors
 were restored and ADB returned to shell mode.
+
+C223 used the verified RAM-only image
+`5ba74b93049fcdf6b95bf7a2c14977f4dba765ea8641fb8d98ed4f68fdddc203`
+and obtained a complete ACM capture on physical USB 1-2. Linux returned
+`0x1042=01`, `0x1340=00`, `0x1342=00`, `0x1365=a5`, `0x1366=02`,
+`0x1380=d4`, `0x1106=0a`, `0x1108=0a`, `0x110a=01`, and `0x1370=1e`.
+Under the vendor's PM8150B 50 mA encoding, the ICL configuration represents
+1.5 A while both status bytes represent 0.5 A. These are sequential reads,
+not a measured current, an atomic snapshot, or proof of a particular active
+limit mode. They demonstrate why the configured ICL byte alone is insufficient
+to establish what is enforced. Temperature raw/config/period were `21/02/01`.
+Android returned with `boot_completed=1`, a rotated boot ID, and unchanged
+hashes for both boot partitions. Raw evidence and the exact-port runner are in
+`out/lgg8-c223-smb5-icl-observe-20261031/run-01/`; no partition was written.
 The experimental observer exposes the raw input-suspend command byte read-only;
 its value is not evidence of actual input current or a verified shutdown. Source:
 [downstream SMB5 register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h),

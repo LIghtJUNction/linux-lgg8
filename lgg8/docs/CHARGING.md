@@ -316,6 +316,18 @@ ADB was returned to shell mode. The experiment read only the one PMIC address;
 the debugfs selector writes are host interface state, and the BMS property can
 perform vendor FG arbitration. No charging-control register was changed.
 
+C221 then tested the same raw byte in mainline using the observer's
+`battery_temp_rr_raw` attribute. The independently verified RAM-only image
+(`da155c433f4b2f86fb54c6b8b5caca400637afc0b2f06cf2c6681cb171bb9094`)
+enumerated Linux ACM on physical USB 1-2 and returned `0x1f` with the end marker
+verified. The result matches the nearby Android raw byte, but one sample does
+not establish that the register updates after Linux takes over, that it tracks
+an independent temperature, or that a charging protection can rely on it.
+The phone returned to Android with `boot_completed=1`, slot `_b`, a changed
+boot ID, and unchanged `boot_a` and `boot_b` hashes. No partition was written.
+The full raw capture and runner result are in
+`out/lgg8-c221-fg-rr-temp-20261031/run-01/`.
+
 The vendor ADC5 driver treats the three battery-thermistor channels as voltage
 for the SM8150 alpha/beta boards, rather than applying its generic thermistor
 temperature mapping. This further rules out treating a generic LUT as an

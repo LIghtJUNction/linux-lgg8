@@ -539,6 +539,17 @@ generation and revocation and handle events even while a transaction is busy.
 Neither a software lockout nor a requested stop proves the power path stopped.
 These requirements have not been verified against PM8150B hardware.
 
+An unwired transaction experiment now latches stop requests before waiting
+for the transaction mutex and exercises interleavings with host threads. The
+public entry points intentionally have no hardware backend and return
+`-EOPNOTSUPP`. A stop can arrive after a resume check and before the backend
+call, or between the final check and publishing `RESUMED`; a concurrent
+observer must prioritize the latched stop and wait for an independently
+confirmed stop. If a callback hangs, the stop caller can also remain blocked.
+The experiment does not solve contract revocation, object lifetime, bounded
+hardware response, or physical stop confirmation and must not be wired to
+charging on the strength of its offline tests.
+
 The PM8150B charger watchdog is not yet established as a fail-safe. In the
 fixed LG downstream source, initialization clears the bite-disable-charging
 bit in `SNARL_BARK_BITE_WD_CFG_REG`, enables bark interrupts and enables the

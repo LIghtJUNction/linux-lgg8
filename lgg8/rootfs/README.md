@@ -1,6 +1,6 @@
 # RAM 桌面根文件系统
 
-这是 Alpine 3.24.3 / AArch64 的文件级精简桌面：Weston 14.0.2、DRM + pixman、desktop-shell、终端、seatd、eudev 和 Liberation Mono。另保留小型 headless 后端供 QEMU 系统测试。**C198 已在 LG G8 真机验证 USB ACM root shell 命令往返；DRM scanout、可读桌面、面板和触控仍未验收。**
+这是 Alpine 3.24.3 / AArch64 的文件级精简桌面：Weston 14.0.2、DRM + pixman、desktop-shell、终端、seatd、eudev 和 Liberation Mono。另保留小型 headless 后端供 QEMU 系统测试。**C208-R3 的 RAM 启动中，用户观察到桌面和终端，且同次 ACM shell 通过；C210 用户确认触控有效。** C210 未采到内核日志，启动花屏仍在调查；这些结果不自动适用于新镜像。
 
 源文件仅在本目录，默认生成物位于 `out/lgg8/desktop`。可用 `LGG8_DESKTOP_OUT=/absolute/path` 指定独立输出目录；构建缓存可通过该目录的 `cache` 符号链接复用。构建器没有设备、Git、主机软件安装或主机挂载操作。它不修改内核、DTS、通用 bootpacker 或 `build.sh`。
 

@@ -30,6 +30,13 @@ LG combination of SMB5, FG Gen4, Qnovo5, and SMB1355 drivers. Reusing the
 existing SMB2 driver or copying charger register writes without a complete
 profile and safety review is not a valid substitute.
 
+The fixed downstream SMB5 driver is not a passive telemetry probe. Its
+`smb5_probe()` calls `smblib_init()` and then `smb5_init_hw()` before registering
+the USB and battery power supplies. `smb5_init_hw()` programs thermal
+regulation and HVDCP settings, among other charger setup. Do not bind this
+driver merely to inspect status on a baseline boot; first split and audit a
+read-only observation path from the initialization writes.
+
 ## Alpha-family downstream reference
 
 An additional fixed-source audit of
@@ -126,6 +133,7 @@ baseline. Do not use a charging-rate increase as the first hardware test.
 - [Pinned alpha-family power DTSI](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/sm8150-alpha/sm8150-alpha_common/sm8150-alpha_common-pm.dtsi)
 - [Tocad 3500 mAh battery profile](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/battery_profile/LGE_BLT41_Tocad_3500mAh.dtsi)
 - [LGC 3500 mAh battery profile](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/battery_profile/LGE_BLT41_LGC_3500mAh.dtsi)
+- [LG SMB5 probe and hardware initialization](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-smb5.c#L3976)
 - [LG charging-time profile parser](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/charging-time.c)
 - [LAO model-to-DTS mapping](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/Makefile) and [LAO PM include](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/sm8150-alpha/sm8150-alpha_lao_com/sm8150-alpha_lao_com-pm.dtsi)
 - [Battery profile selector](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/extension-fg-gen4.c) and [LG battery-temperature protection](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/protection-battemp.c)

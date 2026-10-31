@@ -324,6 +324,18 @@ transaction alone would not validate sample freshness, calibration or battery
 temperature. These gaps must be resolved with device-specific evidence before
 the draft is connected to a running kernel.
 
+C222's same-run observer capture reports `algorithm_peek_config=0x00` and
+`memory_arbitration_config=0x04`; the current experimental preflight expects
+PEEK `0xac` and rejects the `MEM_CLR_LOG` bit. Thus the observed boot does not
+meet that draft's access conditions. Do not bypass the checks or change these
+registers solely to make the draft proceed. The downstream `batt-temp-delta`
+interrupt is a change event, not evidence of each completed conversion; the
+SOC update heartbeat and a DMA grant likewise do not establish temperature
+freshness. No ordering or maximum delay from temperature conversion to SRAM
+publication and interrupt has yet been established for this device.
+[Downstream IRQ mapping](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/qcom/pm8150b.dtsi#L425),
+[SOC update comment](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-util.c#L587).
+
 The downstream Gen4 register header separately names ADC_RR battery-temperature
 bytes at offsets `0x88` and `0x89`; with the PM8150B ADC_RR base `0x4200`,
 these suggest addresses `0x4288` and `0x4289`. This is a possible path around

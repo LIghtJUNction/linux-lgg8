@@ -29,6 +29,7 @@
 | RAM 桌面用户态 | **C208-R3 用户观察到蓝底终端与极简桌面；同次 ACM 通过** | 显示＋ACM 里程碑 M1 通过；屏幕证据为用户观察，无录像 |
 | Linux USB 枚举和 shell | **RAM-only 路径通过** | C206 空 client 与 C208 有效 log client 均通过 `18d1:4ee7` ACM shell；C207 的 log client 未编译，C203 默认 fbdev 未到达 ACM |
 | SMB5 充电状态与 USB ADC | **C212 RAM-only 真机读取成功** | `present=1`、`online=1`；USB 输入 4.876 V，电流检测 ADC 64.489 mV（按 PM8150B buck 标定约 322 mA USB 输入）；不是电池充电电流，也未启用充电 |
+| FG 原始温度字节 | **C221 RAM-only 真机读到 `0x1f`** | Android 同地址近期也为 `0x1f`；尚未验证 Linux 下持续更新或可用于温度保护 |
 | 电池侧 ADC 遥测 | **C213 RAM-only 真机读回** | VBAT 4.421559 V；原厂 30k/100k/400k 电池热敏上拉电压均读回，按 1.875 V 参考换算阻值约 47–49 kΩ；仍未接温度保护或充电控制 |
 | ramoops/pstore 真机证据 | **C192 首次导出 console-ramoops；内容损坏，pmsg 未确认** | 早期与回收后同一 32878 字节记录；C191 为空；C192 用户态标记及 DPU pmsg 仍未观察到 |
 | 显示与触控 | **C210 RAM-only 真机：桌面触控有效（用户确认）；显示花屏状态另行追踪** | C210 X/Y 轴注册修复；自动回 Android，boot_a/boot_b 哈希不变；ACM 内核日志因主机 tty 权限未取到 |

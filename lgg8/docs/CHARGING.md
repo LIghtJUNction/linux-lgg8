@@ -20,9 +20,9 @@ Read-only Android runtime captures in
 - PM8150B `qpnp,fg` uses `qcom,fg-gen4` and supplies `bms`.
 - PM8150B `qcom,sdam-qnovo@b000` uses `qcom,qpnp-qnovo5`.
 - An I²C SMB1355 at `0x0c` is enabled and supplies `parallel`.
-- SMB5 and FG both reference `qcom,battery-data`; the runtime capture has not
-  resolved the phandle to the selected battery profile or decoded its
-  thermistor, resistance, and charge-limit tables.
+- SMB5 and FG both reference the runtime `qcom,battery-data` node. Android's
+  BMS reports the Tocad profile; thermal conversion and protection ownership
+  in mainline are not yet validated.
 
 The current upstream tree's `qcom_smbx` driver binds to PMI8998 and PM660
 charger compatibles; it is not a PM8150B SMB5 driver. This tree also lacks the
@@ -57,12 +57,23 @@ values, not confirmed settings for the live phone.
 An unprivileged, read-only Android check on 2026-10-31 returned
 `ro.boot.vendor.lge.battid=91695`. Under the downstream selector's ±15% ID
 matching rule, this value fits the 91 kΩ Tocad range and not the 12 kΩ LGC
-range, making Tocad the likely profile for the current Android boot. The live
-device tree exposes both profile node names, but ordinary ADB cannot read the
-profile properties or the SMB5/FG phandles; the physical pack ID and active
-driver selection are therefore not independently confirmed. Do not use the
-candidate profile values as mainline charging limits until the exact
-pack/profile and protection ownership are confirmed.
+range, making Tocad the likely profile for the current Android boot.
+
+On 2026-10-31 a root ADB read of the running Android system gave stronger
+evidence: `bms/battery_type` reported `LGE_BLT41_Tocad_3500mAh` and
+`bms/resistance_id` returned `91695`. The live FG and SMB5 `qcom,battery-data`
+properties both contained phandle `0x643`, matching the live
+`/vendor/qcom,battery-data` node. Its Tocad child reported ID 91 kΩ, FCC
+3000 mA, maximum voltage 4430000 µV, thermistor pull-up 100, center offset 91,
+and coefficient cells `0x230d 0x0cf0 0x0042 0xccbe 0x81ca`. The BMS reported
+`voltage_max_design=4430000`, `charge_full_design=3530000` and `temp=326`
+(32.6 °C). These are Android runtime observations, not independent physical
+pack identification or validation of the Linux thermal path. Reading Android
+FG properties can itself use the vendor driver's SRAM arbitration; the
+observation does not prove an electrically passive register path. ADB was
+returned to non-root mode after collection. Do not use these profile values as
+mainline charging limits until the physical pack and protection ownership are
+confirmed.
 
 A second read-only snapshot on 2026-10-31 identified `alphalm_lao_com` /
 `LM-G820`. Android reported the battery full at 100%, 4421 mV and 32.9 °C,

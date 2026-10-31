@@ -440,6 +440,15 @@ is `0x4210` bit 0; a clear bit does not certify temperature validity. No
 Gen4 sample-ready indicator has been established. Debugfs selectors were
 restored and ADB returned to shell mode after the Android observation.
 
+The fixed vendor PM8150B device tree assigns RRADC IRQ 1 to `batt-id` and IRQ
+2 to `batt-temp-delta`. The mainline SPMI interrupt controller reads peripheral
+offset `0x10` as the corresponding IRQ line-level bitmap. Thus the observed
+`0x4210=0x02` indicates the IRQ 1 line level under this mapping; it is not a
+temperature-conversion completion indication. `batt-temp-delta` is a change
+interrupt, not evidence of every completed sample. This source-level mapping
+does not prove conversion cadence or the meaning of other undocumented bits.
+[Fixed vendor IRQ mapping](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/qcom/pm8150b.dtsi#L425-L438).
+
 C222 tested these observer attributes in a verified RAM-only image
 (`44e089a41225fa90cc3efa0f21efd42095c3bf1a902b29922dbc82ba7a84530b`).
 Linux read `0x4210=02`, `0x4281=02`, `0x4282=01`, and `0x4288=21`; the
@@ -468,6 +477,12 @@ contain the battery thermistor channels present in the current source DTSI.
 Do not assume that image can expose those channels based on today's source.
 An ADC5 conversion configures registers and writes a conversion request, so
 an IIO read that initiates a conversion is not a zero-register-write probe.
+In the current mainline ADC5 driver, an IRQ-mode conversion waits for the
+completion callback; an interrupt timeout falls back to polling the EOC status.
+The IRQ-success path does not itself reread EOC before consuming the data. A
+separate temperature experiment would therefore need to establish the actual
+IRQ/completion behavior and the board's sensor conversion; it cannot use the
+mere existence of an IIO value as proof of a fresh calibrated temperature.
 The actual DTB embedded in the C223 image, in contrast, includes all three
 `channel@2a`, `channel@4a`, and `channel@6a` nodes; it matches the packaged
 `linux.dtb` and the same DTB in C221 and C222. This establishes node presence,

@@ -1296,12 +1296,15 @@ static int tcpm_set_current_limit(struct tcpm_port *port, u32 max_ma, u32 mv)
 
 	tcpm_log(port, "Setting voltage/current limit %u mV %u mA", mv, max_ma);
 
+	if (port->tcpc->set_current_limit) {
+		ret = port->tcpc->set_current_limit(port->tcpc, max_ma, mv);
+		if (ret < 0)
+			return ret;
+	}
+
 	port->supply_voltage = mv;
 	port->current_limit = max_ma;
 	power_supply_changed(port->psy);
-
-	if (port->tcpc->set_current_limit)
-		ret = port->tcpc->set_current_limit(port->tcpc, max_ma, mv);
 
 	return ret;
 }

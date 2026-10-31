@@ -378,8 +378,18 @@ experimental DMA transaction, ownership, and error-recovery gaps remain.
 C222's same-run observer capture reports `algorithm_peek_config=0x00` and
 `memory_arbitration_config=0x04`; the current experimental preflight expects
 PEEK `0xac` and rejects the `MEM_CLR_LOG` bit. Thus the observed boot does not
-meet that draft's access conditions. Do not bypass the checks or change these
-registers solely to make the draft proceed. The downstream `batt-temp-delta`
+meet that draft's access conditions. These are draft restrictions, not proven
+V2 DMA hardware requirements: the fixed vendor normal transaction only polls
+algorithm activity for the V1 workaround. Vendor initialization configures
+PEEK `0xac` for V1 DMA and V2 ADC-lockup handling. Normal DMA request/release
+updates only arbitration bit 0 and does not reject bit 2; ordinary RMW would
+carry an observed `0x04` through `0x05` and back to `0x04`. Source alone does
+not establish whether writing bit 2 back has pulse, clear, or other hardware
+semantics, nor whether omitting the V2 ADC workaround is safe. Keep those
+questions separate from the draft's extra entry checks; do not enable the
+draft or change PMIC state just to satisfy them.
+[Vendor request/release and initialization](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-memif.c#L827-L921).
+The downstream `batt-temp-delta`
 interrupt is a change event, not evidence of each completed conversion; the
 SOC update heartbeat and a DMA grant likewise do not establish temperature
 freshness. No ordering or maximum delay from temperature conversion to SRAM
@@ -505,12 +515,19 @@ contain the battery thermistor channels present in the current source DTSI.
 Do not assume that image can expose those channels based on today's source.
 An ADC5 conversion configures registers and writes a conversion request, so
 an IIO read that initiates a conversion is not a zero-register-write probe.
-In the current mainline ADC5 driver, an IRQ-mode conversion waits for the
-completion callback; an interrupt timeout falls back to polling the EOC status.
-The IRQ-success path does not itself reread EOC before consuming the data. A
-separate temperature experiment would therefore need to establish the actual
-IRQ/completion behavior and the board's sensor conversion; it cannot use the
-mere existence of an IIO value as proof of a fresh calibrated temperature.
+The ADC5 conversion path has been changed to check the existing EOC polling
+helper after IRQ completion as well as in polling mode. Previously successful
+IRQ completion skipped this check. The low status bits must indicate EOC set
+and request status clear before data is read. Seventeen offline cases execute
+the extracted production functions and cover early IRQ, busy/ready status, read errors, IRQ timeout,
+polling, result publication, and lock release; the unmodified function fails
+the early-IRQ/busy regression. The ARM64 driver object compiles, but this
+revision has not been booted. It affects ADC5 and ADC rev2 users of `adc5_info`,
+not ADC7 or gen3. Normal IRQ handling adds a status read; unresolved status
+may add the existing bounded polling loop or return an error. This is not a
+conversion-generation check, a complete fault check, or temperature calibration:
+the helper only examines the low two bits and cannot distinguish all stale
+EOC/late-IRQ cases. Its 400 retries do not impose a hard wall-clock deadline.
 The actual DTB embedded in the C223 image, in contrast, includes all three
 `channel@2a`, `channel@4a`, and `channel@6a` nodes; it matches the packaged
 `linux.dtb` and the same DTB in C221 and C222. This establishes node presence,

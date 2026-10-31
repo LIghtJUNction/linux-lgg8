@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -31,6 +32,9 @@ ARTIFACT_PATHS = (r.IMAGE, r.REFERENCE, HERE / "boot/manifest.json",
 NO_ARTIFACTS = not any(path.exists() for path in ARTIFACT_PATHS)
 PREFIX = "C224_" + "A" * 24 + "_00"
 LINUX_ID = "00000000-0000-4000-8000-000000000003"
+BUSYBOX_ROOT = r.ROOT / "out/lgg8/desktop/root"
+BUSYBOX = BUSYBOX_ROOT / "bin/busybox"
+BUSYBOX_SHA = "97d52efa149563c8d886e3670e2496d4140d3c54138017afd3a105e0397fae2e"
 
 
 def android(boot_id="00000000-0000-4000-8000-000000000001"):
@@ -384,6 +388,45 @@ class OfflineTests(unittest.TestCase):
                 io.recover()
             self.assertFalse(any(x[-1] == "reboot" for x in commands))
             self.assertEqual(io.deadline, 1)
+
+
+@unittest.skipUnless(shutil.which("qemu-aarch64") and BUSYBOX.is_file(),
+                     "pinned ARM64 BusyBox or qemu-aarch64 unavailable")
+class BusyBoxScriptIntegration(unittest.TestCase):
+    def run_script(self, temp, missing=False, fail_sha=False):
+        self.assertEqual(hashlib.sha256(BUSYBOX.read_bytes()).hexdigest(), BUSYBOX_SHA)
+        wrapper = Path(temp) / "busybox-wrapper"
+        inject = '[ "$1" = sha256sum ] && exit 42\n' if fail_sha else ''
+        wrapper.write_text('#!/bin/sh\n' + inject + 'exec qemu-aarch64 -L ' +
+                           shlex.quote(str(BUSYBOX_ROOT)) + ' ' +
+                           shlex.quote(str(BUSYBOX)) + ' "$@"\n')
+        wrapper.chmod(0o700)
+        script = r.capture_script(PREFIX, ["/bin/busybox", "cat", "/proc/uptime"]).decode()
+        if missing:
+            script = script.replace("/proc/uptime", shlex.quote(str(Path(temp) / "missing")))
+        script = script.replace("/bin/busybox", shlex.quote(str(wrapper)))
+        script = script.replace("/run/" + PREFIX, shlex.quote(str(Path(temp) / PREFIX)))
+        result = subprocess.run(["/bin/sh", "-c", script], capture_output=True,
+                                timeout=15, check=True)
+        return result.stdout
+
+    def test_real_busybox_success_and_read_failure(self):
+        with tempfile.TemporaryDirectory(prefix="offline-c224-busybox-", dir=TEMP_ROOT) as temp:
+            good = r.parse_frame(self.run_script(temp), PREFIX)
+            self.assertEqual(good["exit_code"], 0)
+            self.assertTrue(good["stdout"])
+            self.assertFalse(good["stderr"])
+            failed = r.parse_frame(self.run_script(temp, missing=True), PREFIX)
+            self.assertNotEqual(failed["exit_code"], 0)
+            self.assertFalse(failed["stdout"])
+            self.assertTrue(failed["stderr"])
+            self.assertTrue(good["payload_integrity_verified"] and failed["payload_integrity_verified"])
+
+    def test_real_busybox_sha_failure_cannot_pass(self):
+        with tempfile.TemporaryDirectory(prefix="offline-c224-busybox-", dir=TEMP_ROOT) as temp:
+            raw = self.run_script(temp, fail_sha=True)
+            with self.assertRaises(ValueError):
+                r.parse_frame(raw, PREFIX)
 
 
 class IntegrityAndCoverageRegressions(unittest.TestCase):

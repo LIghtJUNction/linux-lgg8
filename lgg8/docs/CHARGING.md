@@ -357,6 +357,21 @@ phone returned to Android, and both boot partition hashes matched the pre-run
 values. Evidence: `out/lgg8-c221-fg-rr-temp-20261031/run-02/` and the adjacent
 `android-before-series.txt` / `android-after-series.txt` snapshots.
 
+The vendor FG driver configures ADC_RR thermistor pull-up at `0x4281[1:0]`
+and sample period at `0x4282`; the target vendor device tree specifies an
+eight-second period. A same-boot Android regmap observation read `0x4210=02`,
+`0x4281=02`, `0x4282=08`, and `0x4288=21`, while `bms/temp=339` (33.9 °C).
+The pull-up field matches the vendor's 100 kΩ selection and the period byte
+matches its configuration. These are register snapshots, not proof of sample
+freshness or of a shared calibration path. The Gen4 battery-missing indication
+is `0x4210` bit 0; a clear bit does not certify temperature validity. No
+Gen4 sample-ready indicator has been established. The observer now exposes
+these three raw bytes on demand for the next Linux comparison; that new code
+has not yet been tested on the phone. Debugfs selectors were restored and ADB
+returned to shell mode after the Android observation.
+[Vendor ADC_RR period setup](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L5428),
+[sample period units](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/Documentation/devicetree/bindings/power/supply/qcom/qpnp-fg-gen4.txt#L231).
+
 The vendor ADC5 driver treats the three battery-thermistor channels as voltage
 for the SM8150 alpha/beta boards, rather than applying its generic thermistor
 temperature mapping. This further rules out treating a generic LUT as an

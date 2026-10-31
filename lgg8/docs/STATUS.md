@@ -26,8 +26,8 @@
 | 默认诊断 PID 1 | **QEMU virt 实际运行通过** | 同一内核进入 PID 1 并按期复位；非 PID 1 返回 91 保护也通过；不代表手机通过 |
 | 原生 initramfs | **GNU cpio 解析通过** | 说明归档可解析，不证明真机能启动 |
 | 本仓新内核真机启动 | **完整默认参数已运行** | C160 与 C162–169 使用 GPIO 保护、启用 TLMM、默认无 blacklist；每轮均回收 Android 且 A/B boot 哈希不变 |
-| RAM 桌面用户态 | **PID 1/桌面工作进程可运行；可见桌面未验收** | C206/207 用户态阶段标记和 ACM shell 成功；屏幕本轮无可靠观察 |
-| Linux USB 枚举和 shell | **有条件通过** | C206 空 client 参数下 `18d1:4ee7` ACM shell 通过；C207 `active=log` 实际因 `CONFIG_DRM_CLIENT_LOG=n` 被拒为未知 client，仍属于无 client 路径；默认 fbdev 的 C203 未到达 ACM |
+| RAM 桌面用户态 | **PID 1/桌面工作进程可运行；可见桌面未验收** | C206–208 用户态标记和 ACM shell 成功；C208 屏幕观察未确认 |
+| Linux USB 枚举和 shell | **RAM-only 路径通过** | C206 空 client 与 C208 有效 log client 均通过 `18d1:4ee7` ACM shell；C207 的 log client 未编译，C203 默认 fbdev 未到达 ACM |
 | ramoops/pstore 真机证据 | **C192 首次导出 console-ramoops；内容损坏，pmsg 未确认** | 早期与回收后同一 32878 字节记录；C191 为空；C192 用户态标记及 DPU pmsg 仍未观察到 |
 | 显示与触控 | **显示链已启动，画面错误；触控未验收** | C165/166 分别检测到 2 个 connected connector、fb0 存在；这些状态不证明正确 scanout |
 | 桌面/Omarchy | **未通过** | 不能由源码编译或通用 QEMU 推导 |
@@ -540,4 +540,6 @@ RAM-only `fastboot boot` 首次成功在物理 USB 1-2 枚举 Linux ACM `18d1:4e
 
 源码调用链已收敛到：`msm_drm_kms_post_init()` → `drm_client_setup()` → `drm_fbdev_client_setup()` → `drm_client_register()` 同步触发 fbdev hotplug → `drm_fb_helper_initial_config()`。这给出可插入阶段标记的位置，但具体阻塞函数仍未证实。
 
-当前有效 Linux 版本标识为 `7.3.0-lgg8+`。C208 正在启用 `CONFIG_DRM_CLIENT_LOG` 后以 `active=log` 做有效 log-client 测试；触屏、充电和可见桌面仍未验收。
+C208 修正了 C207 的无效对照：本次有效配置启用 `CONFIG_DRM_CLIENT_LOG=y`，保持默认 client 为 `fbdev`，仅用 `drm_client_lib.active=log` 选择 log client。RAM-only 启动镜像 SHA-256 为 `3ead08159f1f99d7582ad21dd3af45b69bd05fe4e1ea8a9d99ab6d4b9c767176`；kernel SHA-256 为 `2a9d1be7f2725cd2756a99a33248a9cd6beebbbcb40949abe3d8f358765c9dcc`。ACM shell 探针通过，读取 519 行、39,716 字节；启动参数含 `active=log`，没有 `Unknown DRM client log`，并记录到 DPU framebuffer 准备活动。Android 自动回收，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a/boot_b 哈希均与启动前一致。屏幕未获可靠观察，因此此结果证明有效 log-client 配置下 Linux/ACM 路径可用，不证明可见桌面正常。证据保存在 `out/lgg8-c208-drm-log-enabled/run-02/`。
+
+当前有效 Linux 版本标识为 `7.3.0-lgg8+`。触屏、充电和可见桌面仍未验收；充电需先完成板级电源芯片、GPIO/中断与电池路径的源码和设备证据核对，再做只读验证。

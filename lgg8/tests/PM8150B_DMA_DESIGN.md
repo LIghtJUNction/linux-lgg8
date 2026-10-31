@@ -43,7 +43,7 @@ fg-util.c        6ffb5cec6f9d944cc4fb58c95ffa853dc183c3b63b00a7760d42331cc327e37
 
 | 次序 | 模拟操作 | 对应行为 |
 | --- | --- | --- |
-| 1 | 锁定同一 FakeRegmap，检查前提与占用 | 新增：拒绝未知 revision、未初始化、PEEK 未配置、缺电池、陈旧数据或被隔离的接口。V2 下游初始化也配置 PEEK，以支持 ADC lockup workaround；这项模拟前提不证明实际保护工作。预读两处请求字段，已占用则不写也不清理；仲裁寄存器的 `MEM_CLR_LOG_BIT` 为 1 时也保守拒绝。 |
+| 1 | 锁定同一 FakeRegmap，检查前提与占用 | 新增：拒绝未知 revision、未初始化、PEEK 未配置、缺电池、陈旧数据或被隔离的接口。V2 下游初始化也配置 PEEK，以支持 ADC lockup workaround；这项模拟前提不证明实际保护工作。预读两处请求字段及 grant，已占用或出现遗留 grant 则不写也不清理；仲裁寄存器的 `MEM_CLR_LOG_BIT` 为 1 时也保守拒绝。 |
 | 2 | V1：读 `0x41ef` bit 3，最多 35 次 | 下游算法活跃等待；每次仍活跃延迟 10000µs，成功后 1000µs。PEEK 配置未经模拟声明时拒绝。 |
 | 3 | `update_bits(0x4340, 0x01, 0x01)` | 下游仲裁请求。写前即标记需要清理。 |
 | 4 | `update_bits(0x4350, 0xa0, 0x80)` | 下游 DMA 请求，同时清除 IACS 选择位。 |

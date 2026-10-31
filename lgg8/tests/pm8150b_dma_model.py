@@ -59,10 +59,12 @@ class FakeRegmap:
     """
 
     def __init__(self, *, raw=100, grant_after=0, alg_inactive_after=0,
+                 stale_grant=False,
                  faults=None, short_data=False):
         self.registers = {ARB: 0x02, INTF: 0x04, TEMP: raw & 0xFF,
                           TEMP + 1: (raw >> 8) & 0xFF}
         self.grant_after = grant_after
+        self.stale_grant = stale_grant
         self.alg_inactive_after = alg_inactive_after
         self.faults = dict(faults or {})
         self.short_data = short_data
@@ -93,6 +95,8 @@ class FakeRegmap:
         self.trace.append((stage, "read", address, length))
         self._check(stage)
         if address == STATUS:
+            if stage == "preflight_grant":
+                return bytes([GRANT if self.stale_grant else 0])
             granted = (self.grant_after is not None
                        and self.polls >= self.grant_after)
             self.polls += 1
@@ -150,6 +154,8 @@ def read_temperature(regmap, *, revision="v2", peek_configured=False,
                                           ARB_MASK | ARB_CLEAR_LOG)):
                 if regmap.read(stage, address)[0] & mask:
                     raise BusError(stage, EBUSY)
+            if regmap.read("preflight_grant", STATUS)[0] & GRANT:
+                raise BusError("preflight_grant", EBUSY)
             if revision == "v1":
                 for _ in range(35):
                     if not regmap.read("alg_status", PEEK)[0] & 0x08:

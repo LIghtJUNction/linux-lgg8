@@ -35,6 +35,7 @@ class TemperatureTransactionTest(unittest.TestCase):
         self.assertEqual(regmap.trace, [
             ("preflight_dma", "read", 0x4350, 1),
             ("preflight_arb", "read", 0x4340, 1),
+            ("preflight_grant", "read", 0x4310, 1),
             ("request_arb", "update_bits", 0x4340, 0x01, 0x01),
             ("request_dma", "update_bits", 0x4350, 0xA0, 0x80),
             ("delay", 40),
@@ -183,7 +184,10 @@ class TemperatureTransactionTest(unittest.TestCase):
             self.assertEqual(run(regmap).rc, -EBUSY)
             self.assertEqual(regmap.registers, before)
             self.assertTrue(all(event[1] == "read" for event in regmap.trace))
-        for stage in ("preflight_dma", "preflight_arb"):
+        regmap = FakeRegmap(stale_grant=True)
+        self.assertEqual(run(regmap).rc, -EBUSY)
+        self.assertTrue(all(event[1] == "read" for event in regmap.trace))
+        for stage in ("preflight_dma", "preflight_arb", "preflight_grant"):
             regmap = FakeRegmap(faults={stage: Fault()})
             self.assertEqual(run(regmap).rc, -EIO)
             self.assertNotIn("release_dma", stages(regmap))

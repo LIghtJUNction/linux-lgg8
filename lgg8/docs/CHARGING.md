@@ -233,6 +233,16 @@ hard-limit settings, failure handling, and stop confirmation are established.
 [FG profile load sequence](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L2539),
 [JEITA register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h#L110).
 
+The C216 Linux observer recorded `jeita_config=0x00`; a separate Android
+capture also recorded `0x1090=00`. Under the fixed LG source's register
+definition, both snapshots have the hard-limit enable bit 4 clear. They are
+different boots and do not prove what the bit was at other times, how this
+device implements the bit, whether other protection paths were active, or
+whether a battery was charging. In particular they cannot establish a working
+hard-temperature cutoff for the mainline port. The original captures are in
+`out/lgg8-c216-smb5-config-20261031/run-01/smb5-readback-raw.txt` and
+`out/lgg8-c220-fg-dma-status-20261031/android-smb5-config-reference.txt`.
+
 The running Android device tree's `/vendor/lge-veneer-psy/protection-battemp`
 node was read on 2026-10-31. The eight upward/downward temperature threshold
 cells were respectively `30, 120, 450, 550` and `520, 430, 100, 0`; the LG

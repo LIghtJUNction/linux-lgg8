@@ -309,7 +309,8 @@ class DrmClientTests(unittest.TestCase):
                 b.check_drm_client("drm_client_lib.active=log", self.CONFIG.replace(symbol + b"=y", symbol + b"=n"))
 
     def test_incompatible_build_stops_before_compilation_or_publication(self):
-        with tempfile.TemporaryDirectory(prefix="lgg8-drm-client-tests-") as folder:
+        with tempfile.TemporaryDirectory(prefix="lgg8-drm-client-tests-",
+                                         dir=Path(__file__).resolve().parents[2] / "out") as folder:
             root = Path(folder)
             stock = template_image()
             (root / "source.img").write_bytes(stock)

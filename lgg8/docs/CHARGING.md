@@ -222,6 +222,17 @@ SMB1355 needs a shared current budget and its own watchdog/termination audit;
 loading its driver alone does not make parallel charging safe. Keep Qnovo
 disabled until its Android userspace daemon/config dependency is understood.
 
+The downstream JEITA helper clears the cold/warm compensation bits, but does
+not change the separately defined hard-limit enable bit. This does not prove
+that the hard limit is enabled or that its thresholds and physical cut-off are
+valid on this phone. The FG profile loader also sets `PROFILE_LOADED` before
+configuring the profile's thermistor parameters; a later configuration failure
+is logged, so the loaded flag alone does not prove calibration succeeded.
+Any future charging owner must keep charging stopped until the actual sensor,
+hard-limit settings, failure handling, and stop confirmation are established.
+[FG profile load sequence](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-fg-gen4.c#L2539),
+[JEITA register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h#L110).
+
 The running Android device tree's `/vendor/lge-veneer-psy/protection-battemp`
 node was read on 2026-10-31. The eight upward/downward temperature threshold
 cells were respectively `30, 120, 450, 550` and `520, 430, 100, 0`; the LG

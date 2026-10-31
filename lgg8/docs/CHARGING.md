@@ -353,6 +353,15 @@ transaction alone would not validate sample freshness, calibration or battery
 temperature. These gaps must be resolved with device-specific evidence before
 the draft is connected to a running kernel.
 
+For the current source tree, the PM8150B observer gets its regmap from the
+parent `qcom,spmi-pmic` device. That driver's `spmi_regmap_config` does not
+set `cache_type`; the zero enum value is `REGCACHE_NONE`. Therefore this
+particular mainline regmap does not use a software register cache. This narrows
+one possible explanation for repeated readings, but it does not establish that
+the PMIC performs new temperature conversions, that the returned value is
+fresh, or that another regmap/backend has the same configuration. The
+experimental DMA transaction, ownership, and error-recovery gaps remain.
+
 C222's same-run observer capture reports `algorithm_peek_config=0x00` and
 `memory_arbitration_config=0x04`; the current experimental preflight expects
 PEEK `0xac` and rejects the `MEM_CLR_LOG` bit. Thus the observed boot does not

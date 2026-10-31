@@ -409,7 +409,21 @@ int dsi_link_clk_set_rate_6g(struct msm_dsi_host *msm_host)
 
 	ret = clk_set_rate(msm_host->pixel_clk, msm_host->pixel_clk_rate);
 	if (ret) {
+		struct clk *parent = clk_get_parent(msm_host->pixel_clk);
+		struct clk *grandparent = parent ? clk_get_parent(parent) : NULL;
+		long rounded = clk_round_rate(msm_host->pixel_clk,
+					      msm_host->pixel_clk_rate);
+
 		pr_err("%s: Failed to set rate pixel clk, %d\n", __func__, ret);
+		dev_err(&msm_host->pdev->dev,
+			"pixel clock diag: requested=%lu rounded=%ld current=%lu byte=%lu (requested=%lu) parent=%s:%lu grandparent=%s:%lu\n",
+			msm_host->pixel_clk_rate, rounded,
+			clk_get_rate(msm_host->pixel_clk),
+			clk_get_rate(msm_host->byte_clk), msm_host->byte_clk_rate,
+			parent ? __clk_get_name(parent) : "none",
+			parent ? clk_get_rate(parent) : 0,
+			grandparent ? __clk_get_name(grandparent) : "none",
+			grandparent ? clk_get_rate(grandparent) : 0);
 		return ret;
 	}
 

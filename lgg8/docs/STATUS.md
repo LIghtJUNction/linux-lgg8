@@ -498,6 +498,30 @@ R5 的脱敏运行与 ACM 输出保存在本机忽略目录 `out/lgg8-c198-usb-s
 
 使用与 C198 完全相同的 kernel Image、source DTB、initramfs 和私有启动模板，只将两项日志参数追加到 C198 原始 bootargs：`drm.debug=0x40 log_buf_len=4M`。C198 对应的精确 `.config` 为 `CONFIG_LOG_BUF_SHIFT=17`（默认 128 KiB）、`CONFIG_LOG_CPU_MAX_BUF_SHIFT=12`，未启用 `CONFIG_DYNAMIC_DEBUG`。`include/drm/drm_print.h` 将 `DRM_UT_STATE` 定义为类别索引 6，过滤条件是 `__drm_debug & BIT(category)`，所以 `0x40` 只启用 state 类；`drivers/gpu/drm/msm/msm_fb.c` 的 `msm_framebuffer_prepare()` 在第 90 行用 `drm_dbg_state()` 打印 `FB[id] iova`。`kernel/printk/printk.c` 的 `log_buf_len` early parameter 接受 `4M`，用于保留早期日志到 ACM shell 可用时。没有改内核、设备树源码、initramfs、显示时序或 MMIO。
 
-离线构建产物为 `out/lgg8-c199-drm-state-20261031-1/boot/boot.img`，SHA-256 `03bb98ad7662809d0aa1fe733294b84ae6881e76811dab586eb41c13cc15f91c`，大小 30,818,304 字节。initramfs SHA-256 仍为 `0e26a5bcd088b78f7f9a4fe4bbffab942c63a099ed6a8e729b920ae5149fd449`，kernel SHA-256 仍为 `2962224f1fda3031af28c01b05f3b0a9e15101cb266fccafb38ce5c6848463d6`，source DTB SHA-256 仍为 `88207ff2e9b28cca8d0b98dc4e5ca64552c7023930d51b207a5546ebe71d4ef2`；derived DTB 因 bootargs 更新而变为 `0bdaf3e3d276f56ead6de981c9722bf3b01217329eb3c6517b6fd7ce38130965`。`lgg8/tools/bootimg.py verify` 返回 `PASSED`，`device_acceptance=NOT_TESTED`。尚未在手机启动。
+离线构建产物为 `out/lgg8-c199-drm-state-20261031-1/boot/boot.img`，SHA-256 `03bb98ad7662809d0aa1fe733294b84ae6881e76811dab586eb41c13cc15f91c`，大小 30,818,304 字节。initramfs SHA-256 仍为 `0e26a5bcd088b78f7f9a4fe4bbffab942c63a099ed6a8e729b920ae5149fd449`，kernel SHA-256 仍为 `2962224f1fda3031af28c01b05f3b0a9e15101cb266fccafb38ce5c6848463d6`，source DTB SHA-256 仍为 `88207ff2e9b28cca8d0b98dc4e5ca64552c7023930d51b207a5546ebe71d4ef2`；derived DTB 因 bootargs 更新而变为 `0bdaf3e3d276f56ead6de981c9722bf3b01217329eb3c6517b6fd7ce38130965`。`lgg8/tools/bootimg.py verify` 返回 `PASSED`；镜像只在 RAM 启动，未写任何分区。
 
-该候选沿用 `ignore_loglevel` 与 `console=tty0`，因此 state 调试日志也可能显示在屏幕上；C199 屏幕不能作为干净的显示验收结果。下一步只在完成物理口 1-2、Android/pstore/分区哈希前置检查后 RAM-only 启动，通过 root ACM shell 过滤采集 `FB[id] iova` 与 SMMU fault 相关 dmesg 行，随后核验 Android 完整回收。禁止写分区、改 splash 映射或读取 per-CRTC `status`/`state`。Pro Round 5 的完整独立审阅尚未进入 `30-response.md`；以上是离线已核实的候选产物和代码路径，不代表真机验证或显示里程碑完成。
+该候选沿用 `ignore_loglevel` 与 `console=tty0`，因此 state 调试日志也可能显示在屏幕上；C199 屏幕不能作为干净的显示验收结果。
+
+#### C199-R5：同次启动关联 framebuffer IOVA 与 SMMU fault（2026-10-31）
+
+C199 run-01 的 ACM 探针曾把“命令回显”误判为成功，随后 SIGTERM 中断；那次没有形成有效日志或完整 Android 回收证据，结果作废。run-02 加入严格的随机标记与结束码校验后，正确报出 shell 命令失败（退出码 127，提示符同步竞争），没有误报采集成功；设备仍在 148.8 秒后回到 Android，`boot_completed=1`、slot `_b`、boot ID 轮转，`boot_a`/`boot_b` 与已知基线哈希不变，启动前/早期/回收后 pstore 快照均核验为空。
+
+run-03 使用完全相同的 boot.img（SHA-256 `03bb98ad7662809d0aa1fe733294b84ae6881e76811dab586eb41c13cc15f91c`），只修正 ACM 提示符握手，没有改内核、DTB、initramfs 或 bootargs。提示符握手、随机首尾标记及完整 dmesg 结束码均验证通过；root shell 实际读回 147,444 字节，`/proc/cmdline` 含 `drm.debug=0x40 log_buf_len=4M`，`/sys/module/drm/parameters/debug` 为 `64`。物理口 1-2 的时序为 Fastboot `18d1:4ee0` → 断开 → Linux Gadget `18d1:4ee7`（+39.274 秒）→ 断开（+120.284 秒）→ Android `1004:631f` 返回（+137.896 秒）；总计 148.5 秒完成 postflight。Android `boot_completed=1`、slot `_b`、boot ID 从 `062bc90b-6338-4efc-8d3e-442d78bf0ce3` 轮转至 `c22f9d7b-1a7b-4390-986a-3eb7429c9f89`；`boot_a` SHA `a826651669b4e9c8e2835e315082cedb821585a683fea9afede3f23517cfe4e6`、`boot_b` SHA `fec418e5227a31927af27daf71d2225246f5adcf8dda38b5856200760b5205cd` 均保持不变。三次 pstore 采集完整且为空，没有分区写入。
+
+关键的同次启动时序：`FB[93]` 在 0.716822 秒映射到 IOVA `0x2000`；随后 SMMUv2 SID `0xc20`/CB10 在 0.732277 秒 fault 于 `0x9d2fbf00`，并在 0.749874、0.764460 秒 fault 于 `0x9d200c00`。三个 fault 地址都落在 DTB `splash_mem` 的预留区间 `[0x9d200000, 0x9e400000)`；而此启动中日志到达的 framebuffer IOVA 是 `FB[93/97]=0x2000`、`FB[98]=0x01126000`。DPU `frame done timeout` 从 0.902303 秒开始并持续出现。由此可确认这些 fault 与这次启动及显示子系统 stream 同时相关，并且不是日志中这几个 DRM framebuffer IOVA 的同一数值；地址落在 splash carveout 仍不足以证明是哪一个硬件请求者或哪个 buffer 引发 fault，也不足以宣称 splash 是已证实根因。可读显示仍未验收。
+
+源码顺序审计得到一条更强的待证假设：MDP5 在 `mdp5_kms.c` 中会先关闭 interface timing engine，再调用 `msm_kms_init_vm()` 附加 IOMMU；DPU 的 `dpu_kms_hw_init()` 则在初始化初期调用 `_dpu_kms_mmu_init()`/`msm_kms_init_vm()`，当前路径未见等价的“先停 bootloader display DMA”步骤。它可能使固件遗留 scanout 在新 SMMU domain 下访问 splash 区域，但日志尚未证明这些 fault 一定由遗留 scanout 触发。下一步应先只读审查 DPU 可安全停止/复位的硬件路径，再决定是否做一个 RAM-only、单变量的先停显示再附加 IOMMU 实验；不直接改 splash 映射，不读取易触发问题的 per-CRTC `status`/`state`。
+
+Pro Round 5 独立审阅已写入并从 Drive 读回；它也指出 `stolenfb` 名称不证明其 backing 来自 splash carveout，跨启动比较 IOVA 不能证明同一映射。run-01/02/03 的原始和结构化证据保存在本机忽略目录 `out/lgg8-c199-drm-state-20261031-1/`；候选镜像的屏幕可能显示调试日志，因此这些运行不算显示验收。
+
+### C200–C205：像素时钟根因、正常画面与早期启动卡点（2026-10-31）
+
+C200 因误用基础 `.config`，与 C199 的有效配置不一致，设备结果不用于单变量归因。之后从 C199 boot.img 的 `IKCFG_ST` 内核配置块恢复并核对精确配置，SHA-256 为 `ada1d054a4ae9004dc167a6b88ae5b62daa908098cb65e3b3c9a070e2e9f7b9b`。C201 在该配置下加入 DSI pixel-clock 失败日志，RAM-only 启动成功进入 ACM；日志显示请求像素时钟 `139416000 Hz` 的 `clk_round_rate()` 返回 `-22`，当时 parent 与 grandparent 均约 `153357593 Hz`，对应 `920145600 Hz` HS lane rate 的六分之一。
+
+C202 唯一硬件参数变化是把 SW43410 HS lane rate 从 `920145600` 调到 `836496000 Hz`，使 lane-rate/6 与请求像素时钟对齐。用户在 Linux 阶段确认屏幕画面正常，这是本轮显示里程碑；但物理口 1-2 在 +16.264 秒断开后，直到 +174.462 秒才以 Android `1004:631f` 返回，未观察到 Linux ACM，因此不能声称 Linux 用户态或 USB gadget 已启动。C202 镜像 SHA-256 `00a62b8d1ba5a1277c132025870c3e2b45d97c6012db33804208ebfbcf0ec9d6`。
+
+C203 保持 C202 内核和其余输入不变，只把 `watchdog.open_timeout` 从 120 秒改为 60 秒；没有 ACM，Android 于 +114.179 秒返回。C204 保持该面板速率和启动参数，添加 `CONFIG_DETECT_HUNG_TASK=y`、30 秒检测阈值及首个 hung task panic。它仍未枚举 ACM，Android 于 +114.162 秒返回，回收后的 pstore 经完整校验为空，没有取得卡死堆栈。C204 镜像 SHA-256 `5613717b44a2747fe4466dba32de4bb00839fcd7ea25150cd24e11cac04509b7`。C205 再启用 soft-lockup 检测及 panic；同样没有 ACM，Android 于 +113.966 秒返回，完整 pstore 仍为空。C202–C205 均为 RAM-only；Android `boot_completed=1`、slot `_b`、boot_a/boot_b 哈希保持基线，未写入分区。
+
+屏幕目前有正常画面的目测证据，但触控与充电尚未验收。设备树已声明 SW42000 触控所在的 QUP SE17 I²C 总线，注释明确指出协议仍需主线驱动，且没有触控器节点；不能宣称触屏已适配。内核配置启用了通用 `CHARGER_QCOM_SMB2`，但 G8 设备树只有 `simple-battery` 描述和 PM8150B VBUS 调节器，未发现对应 SMB2 充电器节点；不能宣称充电已适配，后续须先从原厂固件确认真实 charger/fuel-gauge 配置，禁止猜参数试充。
+
+当前有效 Linux 版本标识为 `7.3.0-lgg8+`。下一步优先定位 C202 起屏后未到达 ACM 的内核阶段，并为 Linux 用户态/USB gadget 恢复提供可读日志；触控和充电作为独立硬件适配项目处理。

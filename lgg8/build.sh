@@ -56,16 +56,30 @@ if free < needed:
     raise SystemExit(f'Build requires at least {needed} bytes free space.')
 PY
     mkdir -p -- "$OUT/kernel"
-    cp -- "$ROOT/lgg8/configs/lgg8.config" "$OUT/kernel/.config"
+    CONFIG_INPUTS=("$ROOT/lgg8/configs/lgg8.config")
+    CONFIG_PROFILE="base"
     if [[ "$ACTION" == diag-ftrace ]]; then
-        "$ROOT/scripts/kconfig/merge_config.sh" -m -O "$OUT/kernel" \
-            "$OUT/kernel/.config" "$ROOT/lgg8/configs/pstore-ftrace-diagnostic.config"
+        CONFIG_INPUTS+=("$ROOT/lgg8/configs/pstore-ftrace-diagnostic.config")
+        CONFIG_PROFILE="diag-ftrace"
+    elif [[ "$ACTION" == diag-pstore ]]; then
+        CONFIG_INPUTS+=("$ROOT/lgg8/configs/dpu-pstore-diagnostic.config")
+        CONFIG_PROFILE="diag-pstore"
     fi
-    if [[ "$ACTION" == diag-pstore ]]; then
-        "$ROOT/scripts/kconfig/merge_config.sh" -m -O "$OUT/kernel" \
-            "$OUT/kernel/.config" "$ROOT/lgg8/configs/dpu-pstore-diagnostic.config"
+    CONFIG_PROFILE="$CONFIG_PROFILE:$(sha256sum "${CONFIG_INPUTS[@]}" | sha256sum | cut -d' ' -f1)"
+    CONFIG_PROFILE_FILE="$OUT/kernel/.lgg8-config-profile"
+    if [[ ! -f "$CONFIG_PROFILE_FILE" ||
+          "$(cat "$CONFIG_PROFILE_FILE")" != "$CONFIG_PROFILE" ]]; then
+        cp -- "$ROOT/lgg8/configs/lgg8.config" "$OUT/kernel/.config"
+        if [[ "$ACTION" == diag-ftrace ]]; then
+            "$ROOT/scripts/kconfig/merge_config.sh" -m -O "$OUT/kernel" \
+                "$OUT/kernel/.config" "$ROOT/lgg8/configs/pstore-ftrace-diagnostic.config"
+        elif [[ "$ACTION" == diag-pstore ]]; then
+            "$ROOT/scripts/kconfig/merge_config.sh" -m -O "$OUT/kernel" \
+                "$OUT/kernel/.config" "$ROOT/lgg8/configs/dpu-pstore-diagnostic.config"
+        fi
     fi
     make -C "$ROOT" O="$OUT/kernel" ARCH=arm64 LLVM=1 olddefconfig
+    printf '%s\n' "$CONFIG_PROFILE" > "$CONFIG_PROFILE_FILE"
     TARGETS=(qcom/sm8150-lg-alphalm.dtb)
     [[ "$ACTION" == dtb ]] || TARGETS=(Image "${TARGETS[@]}")
     make -C "$ROOT" O="$OUT/kernel" ARCH=arm64 LLVM=1 -j"$JOBS" "${TARGETS[@]}"

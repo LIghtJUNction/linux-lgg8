@@ -20,7 +20,7 @@
 
 #include "panel-lg-sw43410-cmds.h"
 
-#define SW43410_HS_RATE_HZ	920145600UL
+#define SW43410_HS_RATE_HZ	836496000UL
 
 static const struct regulator_bulk_data sw43410_supplies[] = {
 	{ .supply = "vddi", .init_load_uA = 62000 },

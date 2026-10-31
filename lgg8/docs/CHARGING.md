@@ -328,6 +328,17 @@ boot ID, and unchanged `boot_a` and `boot_b` hashes. No partition was written.
 The full raw capture and runner result are in
 `out/lgg8-c221-fg-rr-temp-20261031/run-01/`.
 
+C221 run 02 reused the identical verified image and collected eight further
+raw samples about four seconds apart (about 28 seconds from first to last).
+All were `0x20`; the ACM end marker and all sample labels were received.
+Android Battery Service reported 33.5 °C before the reboot and 34.5 °C after
+returning. These compensated Android readings are not simultaneous with Linux
+samples, and `0x20` differs from run 01's `0x1f` across an intervening Android
+boot. Neither observation proves the register updated while Linux ran. The
+phone returned to Android, and both boot partition hashes matched the pre-run
+values. Evidence: `out/lgg8-c221-fg-rr-temp-20261031/run-02/` and the adjacent
+`android-before-series.txt` / `android-after-series.txt` snapshots.
+
 The vendor ADC5 driver treats the three battery-thermistor channels as voltage
 for the SM8150 alpha/beta boards, rather than applying its generic thermistor
 temperature mapping. This further rules out treating a generic LUT as an

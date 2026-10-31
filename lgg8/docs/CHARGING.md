@@ -303,6 +303,18 @@ register remains valid when the Android FG driver is absent. In particular,
 do not infer that `0x4289` is part of the earlier single-byte reading.
 [Historical Gen4 change](https://android.googlesource.com/kernel/msm/%2B/14ba56753e9ad830e1b9ec8a807aeaa56a11229e%5E2..14ba56753e9ad830e1b9ec8a807aeaa56a11229e/).
 
+On 2026-10-31, on the running Android system, three successive debugfs regmap
+reads of PM8150B `spmi0-02:0x4288` each returned `0x1f`. The historical
+signed-byte interpretation would be 31 °C. Android `bms/temp` was 322
+(32.2 °C) immediately before and after; it is a vendor property that may
+include temperature compensation and an SRAM access. This is a single short
+cross-check, not independent calibration, an atomic comparison, a freshness
+test, or proof that the register updates under mainline Linux. Debugfs address
+and count were restored to `0x00000000` and `1`; Android remained booted and
+ADB was returned to shell mode. The experiment read only the one PMIC address;
+the debugfs selector writes are host interface state, and the BMS property can
+perform vendor FG arbitration. No charging-control register was changed.
+
 The vendor ADC5 driver treats the three battery-thermistor channels as voltage
 for the SM8150 alpha/beta boards, rather than applying its generic thermistor
 temperature mapping. This further rules out treating a generic LUT as an

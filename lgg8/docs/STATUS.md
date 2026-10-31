@@ -532,6 +532,8 @@ Linux 的可见桌面与 ACM 已在 C208-R3 同次 RAM-only 启动通过；用�
 
 下一次需要屏幕观察时，可以在相同内核、设备树和 rootfs 下，仅将 `drm_client_lib.active=log` 改成 `drm_client_lib.active=`，记录从启动到 Weston 首帧的完整画面和时间。C206 曾证明空 client 可到达 ACM，但缺少可靠画面观察，不是此对照的结果。若花屏仍在，再对齐面板亮屏、首次 DPU kickoff/frame-done 和 Weston 首次提交；不要把固定延时或将 `0x29` 移到 enable 当成已证明的首帧同步。
 
+已用 C208 的原始输入打包空 client 对照镜像，保存在忽略目录 `out/lgg8-c208-empty-client-contrast-20261031/boot/`，SHA-256 为 `b9b535dfb4cf5225e227f6603679dabdbec6d14048eebcd2f8d824c40c374ac6`。打包器独立 verify 通过；比较了解码后的完整 DTB、bootargs、kernel、source DTB、initramfs、shim、stock DTBs、外部 ramdisk、构建来源与加载范围，仅 bootargs 的 `log` 被移除。此镜像尚未在设备启动，不能据此判断花屏是否消失。
+
 C208-R3 回 Android 后的只读采集确认当前 Android 运行设备树声明 `lge,sw42000`，I²C client `4-0028` 的名称为 `sw42000` 并绑定 `lge_touch`，触摸中断线名为 `lge_touch`，输入设备列表中有 `touch_dev`；运行节点地址 `0x28`、IRQ 122、reset GPIO54、vdd GPIO152、vcl GPIO59、maker_id GPIO7、坐标最大值 1439×3119、reset delay 40 ms，均与公开 alpha_lao_com 下游树匹配。Android `/proc/config.gz` 含 `CONFIG_LGE_TOUCH_LGSIC_SW42000=y`。只读记录在忽略目录 `out/lgg8-c208-drm-log-enabled/run-03/` 下的 `android-readonly.txt`、`android-dt-details.txt`、`touch-runtime-node-readonly.txt`、`touch-runtime-pinctrl-readonly.txt`；本次没有触碰触摸 sysfs、I²C 总线或 GPIO。
 
 新分支 `lgg8/sw42000-touch` 已加入精简 SW42000 主线 I²C/input 驱动、LG G8 设备树节点及绑定文档，并启用 `CONFIG_TOUCHSCREEN_LGE_SW42000=y`。完整配置内核与板级 DTB 已编译通过；离线 C 报文解析测试覆盖坐标/压力/宽度、多点、UP 释放、零计数拒绝、非法计数、重复 ID、非触摸报文与 palm 取消并通过。驱动版本检查要求芯片 ID 10 / 协议 4，只写正常 I²C 模式、扫描模式和中断控制；没有固件升级、工厂测试、手势或调试 sysfs。`dt_binding_check`、YAML lint 与针对 LG G8 编译 DTB 的 targeted `dt-validate` 均通过。C209 发现输入轴未注册；C210 修复轴并由用户在 RAM-only Linux 桌面确认触控有效，随后自动回 Android，boot_a/boot_b 哈希保持原值。ACM 串口权限导致本次内核日志未采集。候选镜像 SHA-256 为 `befe11656fe2e6941edda75beaf0935a7602c5823a3da06f0408d0819f22cef4`。suspend/resume、手势和睡眠恢复尚未实现。

@@ -7,6 +7,7 @@
 
 #include <dt-bindings/arm/qcom,ids.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/iio/qcom,spmi-vadc.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/phy/phy.h>
@@ -534,6 +535,16 @@
 	qcom,phy-timing-override = <0x00 0x1d 0x07 0x07 0x23 0x22 0x07
 				     0x07 0x05 0x02 0x04 0x00 0x18 0x17>;
 	status = "okay";
+};
+
+&pm8150_adc {
+	channel@4d {
+		reg = <ADC5_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "skin_therm";
+	};
 };
 
 &pm8150_gpios {

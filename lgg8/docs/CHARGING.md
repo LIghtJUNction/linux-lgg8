@@ -137,6 +137,14 @@ before and after matched 4,430,000 µV. The separate reads are not an atomic
 snapshot. C228 recovered Android with both boot hashes unchanged. These are
 inherited settings, not measurements or validation of a Linux charge policy.
 
+Do not translate `charger_status` alone into the standard battery `STATUS`.
+The fixed downstream status code also considers USB/DC availability, charge
+phase enables and software exceptions; LG's displayed status can additionally
+depend on reported capacity and supplier votes. For example, a displayed Full
+is therefore not an independent measurement of the hardware charging phase.
+[Downstream decision path](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L2093-L2232),
+[LG displayed status](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/veneer-psy.c#L440-L456).
+
 C212 adds the PM8150B `ADC5_USB_IN_I` and `ADC5_USB_IN_V_16` IIO channels using
 the prescaling from LG's alpha-family device tree. The RAM-only ACM readback
 reported USB input `4875776 µV` and current-sense output `64489 µV`. LG's SMB5
@@ -164,6 +172,17 @@ verified; agreement alone does not prove board scaling or temperature. The
 FG Gen4 factory thermistor coefficients are programmed into PMIC SRAM, so the
 mainline charge path must not depend on these values until that mapping is
 reproduced and checked against Android readings.
+
+The running Android device also exposes `skin-therm` via the PM8150 (SID 0)
+ADC thermal monitor channel `0x4d`, with ratiometric calibration, 200 µs
+settling and a 1:1 prescale. This is a separate board-skin channel from the
+PM8150B battery temperature source. An Android snapshot reported 33.842 °C
+skin and 32.6 °C battery; the source and sample record are in
+`out/lgg8-c229-skin-therm-20261101/android-before.txt`. The board-specific
+mainline DT now exposes the skin ADC channel; the new DT has not yet been
+verified on the phone. Skin and cell temperature can differ substantially, so
+this is an additional observation, not an independent cell thermometer or a
+validated charging-protection input.
 
 The ADC reads request conversions and write ADC configuration registers;
 they are not a zero-PMIC-write observation. The same run saw USB

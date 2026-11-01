@@ -458,14 +458,14 @@ def parse_frame(raw, prefix):
         return None
     indices = [lines.index(name) for name in names]
     b, o, e, end = indices
-    rcs = [(i, x) for i, x in enumerate(lines) if x.startswith(p + b"_RC_")]
+    rcs = [(i, x) for i, x in enumerate(lines) if b < i < end and x.startswith(p + b"_RC_")]
     if len(rcs) != 1 or not b < o < e < rcs[0][0] < end:
         raise ValueError("missing/duplicate/out-of-order receipt")
     match = re.fullmatch(re.escape(p) + rb"_RC_([0-9]{1,3})", rcs[0][1])
     if match is None or int(match[1]) > 255:
         raise ValueError("invalid command status")
     def control(suffix, pattern):
-        found = [(i, x) for i, x in enumerate(lines) if x.startswith(p + suffix)]
+        found = [(i, x) for i, x in enumerate(lines) if b < i < end and x.startswith(p + suffix)]
         if len(found) != 1:
             raise ValueError("missing or duplicate payload metadata")
         m = re.fullmatch(re.escape(p + suffix) + pattern, found[0][1])
@@ -550,6 +550,7 @@ class SerialChannel:
 
     def configure(self):
         self.buffer = bytearray()
+        self.cursor_replies = 0
         settings = termios.tcgetattr(self.fd)
         settings[0] &= ~(termios.IGNBRK | termios.BRKINT | termios.PARMRK | termios.ISTRIP |
                          termios.INLCR | termios.IGNCR | termios.ICRNL | termios.IXON)
@@ -595,7 +596,22 @@ class SerialChannel:
             self.buffer.extend(chunk)
             if len(self.buffer) > 1024 * 1024:
                 raise ValueError("ACM capture exceeds 1 MiB")
+            pending = self.buffer.count(b"\x1b[6n") - self.cursor_replies
+            if pending > 8:
+                raise ValueError("excessive terminal cursor queries")
+            if pending:
+                self.send(b"\x1b[1;7R" * pending, deadline)
+                self.cursor_replies += pending
         raise TimeoutError("serial receipt timeout")
+
+
+def synchronize_shell(channel, deadline):
+    prompt = b"lgg8# "
+    channel.until(lambda data: prompt in data, deadline)
+    count = bytes(channel.buffer).count(prompt)
+    # Discard partial input left by tty setup before submitting a command.
+    channel.send(b"\x15\n", deadline)
+    channel.until(lambda data: data.count(prompt) > count, deadline)
 
 
 def collect(channel, manifest, monitor, save):
@@ -603,7 +619,7 @@ def collect(channel, manifest, monitor, save):
     nonce = secrets.token_hex(12).upper()
     deadline = time.monotonic() + 15
     try:
-        channel.until(lambda b: b"lgg8# " in b, min(deadline, time.monotonic() + 4))
+        synchronize_shell(channel, min(deadline, time.monotonic() + 4))
         ready = "C224_" + nonce + "_READY"
         # No scratch file or register read before this check. Only /run is used.
         check = ("/bin/busybox awk '$5 == \"/run\" { n++; for(i=7;i<=NF;i++) "
@@ -809,6 +825,7 @@ class LiveIO:
 
     def observe(self):
         end = min(self.deadline, self.boot_time + 180)
+        open_retries = 0
         while time.monotonic() < end:
             if not self.monitor.healthy():
                 raise RuntimeError("USB monitor stopped while waiting for ACM")
@@ -816,7 +833,13 @@ class LiveIO:
             if located:
                 node, parent, serial = located
                 fingerprint = usb_snapshot()
-                channel = SerialChannel(node, self.out)
+                try:
+                    channel = SerialChannel(node, self.out)
+                except (PermissionError, FileNotFoundError):
+                    # The device node can precede udev's ownership/ACL update.
+                    open_retries += 1
+                    time.sleep(0.1)
+                    continue
                 try:
                     if fingerprint != usb_snapshot() or self.base.acm_parent_for_port() != located:
                         raise RuntimeError("ACM identity changed while opening")
@@ -825,6 +848,7 @@ class LiveIO:
                     result["usb_binding"] = {"tty": str(node), "parent": str(parent),
                                              "gadget_serial": serial, "snapshot": fingerprint}
                     result["raw_capture"] = str(self.out / "acm-raw.bin")
+                    result["tty_open_retries"] = open_retries
                     self.save("capture", result)
                     return result
                 finally:
@@ -835,7 +859,7 @@ class LiveIO:
             if (snap.get("vid"), snap.get("pid"), snap.get("serial")) == ("18d1", "4ee0", self.serial) and time.monotonic() - self.boot_time >= 30:
                 return {"status": "STILL_FASTBOOT_AFTER_30_SECONDS"}
             time.sleep(0.2)
-        return {"status": "NO_ACM_WITHIN_DEADLINE"}
+        return {"status": "NO_ACM_WITHIN_DEADLINE", "tty_open_retries": open_retries}
 
     def recover(self):
         # Fixed from before the transition; no timeout renewal on retries/signals.

@@ -51,7 +51,7 @@ later successful resume or rebind.
 
 The driver does not contain firmware upgrade, bus factory-test, gesture or
 vendor sysfs code. It does not read or write firmware files. Real-device
-suspend/resume and Android EVIOCGABS coordinate comparison remain open.
+suspend/resume and a runtime Linux EVIOCGABS comparison remain open.
 
 ## Offline parser check
 
@@ -84,7 +84,7 @@ boot partition hashes before and after.
 
 For repeat acceptance, confirm that `LG SW42000 Touchscreen` appears in
 `/proc/bus/input/devices`, then tap and drag on the Weston desktop. Candidate
-C210 passed the user's tap/drag observation. Probe logs, Android
+C210 passed the user's tap/drag observation. Probe logs, runtime Linux
 EVIOCGABS-coordinate comparison, suspend/resume, and gesture support remain
 open; parser and build success do not establish those behaviors.
 
@@ -111,3 +111,28 @@ platform sleep. First validate the PM flow locally and establish a practical
 recovery method: another driver's callback can still hang, and neither this
 test nor a returned USB connection proves real sleep, wakeup, or touch input
 after resume. Do not count injected input events as physical touch acceptance.
+
+## Android axis comparison (C235)
+
+On the running Android device, read-only `getevent -lp` reported `touch_dev`
+with X `0..1439`, Y `0..3119`, pressure `0..255`, and ten slots. The C234
+source declares those same maxima, and its packed DTB declares a size of
+`1440 × 3120` and maximum pressure `255`. This compares Android's input
+ioctl results with the mainline source and compiled DTB: no Linux EVIOCGABS or
+physical touch events were captured in this observation. The Android boot ID
+was unchanged across the read.
+
+The Android driver advertises `ABS_MT_WIDTH_MAJOR/MINOR` and orientation;
+the current mainline driver instead reports the decoded major/minor values as
+`ABS_MT_TOUCH_MAJOR/MINOR` and does not report orientation. The pinned vendor
+[controller](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/input/touchscreen/lge/lgsic/sw42000/touch_sw42000.c#L3643-L3656)
+and [input core](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/input/touchscreen/lge/touch_core.c#L102-L121)
+also associate those fields with the width events. Linux's
+[multi-touch protocol](../../Documentation/input/multi-touch-protocol.rst)
+assigns different meanings to touch and tool width. The physical meaning of
+the device's width fields and the effect on Linux userspace remain unverified;
+do not assume the two event types are interchangeable.
+
+The redacted capability listing and result are in
+`out/lgg8-c235-android-touch-axes-20261101/`; result SHA-256:
+`106a6b3522ffb2dedf935dfb2ee941c8df013d6e444782b58465e7bdc1633b96`.

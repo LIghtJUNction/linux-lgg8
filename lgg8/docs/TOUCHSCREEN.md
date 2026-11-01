@@ -526,11 +526,16 @@ an authenticated receipt. Android returned on `_b`, both boot partition hashes
 matched preflight, and passive USB 1-2 monitoring covered the run. See
 `out/lgg8-pm-reconnect-20261101/pm-devices-20261101-121354-c897e6dd/`.
 
-These were device-PM debug mode, not actual system sleep, and did not capture a
-post-resume touch event. The runner now has an opt-in `--touch-after-pm` mode
-that requests a human tap only after a successful device-PM record; it retains
-an absolute recovery budget and has local tests, but has not been run on the
-phone in this mode. Even a successful tap there would only test touch after
-the debug cycle, not after actual system sleep. The shell restart cannot fix a kernel or userspace
-that did not resume; neither these runs nor the QEMU test proves real sleep,
-touch recovery, or charging safety.
+A third RAM-only device-PM run used the opt-in `--touch-after-pm` mode.
+The unauthenticated kernel log records `sw42000_suspend` returning 0 after
+31,783 µs and `sw42000_resume` returning 0 after 50,301 µs. The evdev probe
+then recorded a completed event at (890, 1762), within the advertised bounds
+0–1439 × 0–3119. A human-touch notification was sent, but the event's physical
+origin has not been independently confirmed. Android returned, slot and both
+boot partition hashes matched preflight, and USB 1-2 monitoring passed. See
+`out/lgg8-pm-reconnect-20261101/pm-devices-20261101-131835-000b2739/`.
+
+These runs used device-PM debug mode, not actual system sleep. The event only
+shows input after the debug cycle, not after actual sleep. The shell restart
+cannot fix a kernel or userspace that did not resume; neither these runs nor
+the QEMU test proves real sleep, touch recovery after sleep, or charging safety.

@@ -31,7 +31,8 @@ class FgObserverTest(unittest.TestCase):
                                  pmic_header, re.MULTILINE).group(1)
         with tempfile.TemporaryDirectory(prefix="test-fg-observer-", dir=TESTS) as temp:
             directory = Path(temp)
-            for header in ("linux/math64.h", "linux/module.h", "linux/platform_device.h",
+            for header in ("linux/interrupt.h", "linux/math64.h", "linux/module.h",
+                           "linux/of_irq.h", "linux/platform_device.h", "linux/pm.h",
                            "linux/power_supply.h", "linux/property.h", "linux/regmap.h",
                            "linux/unaligned.h", "soc/qcom/qcom-spmi-pmic.h"):
                 path = directory / header

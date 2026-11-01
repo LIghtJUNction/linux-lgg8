@@ -9,6 +9,7 @@ static void setup(struct fixture *f, int count)
 {
     memset(f, 0, sizeof(*f));
     f->pdev.dev.parent = &f->parent;
+    f->pdev.dev.of_node = &f->pdev.dev.node;
     f->parent.map = &f->map;
     f->pdev.dev.pmic.subtype = PM8150B_SUBTYPE;
     f->pdev.dev.node = (struct fwnode_handle) { .count = count,
@@ -22,8 +23,7 @@ static void setup(struct fixture *f, int count)
 static void done(struct fixture *f)
 {
     assert(f->map.writes == 0);
-    free(f->pdev.dev.psy);
-    free(f->pdev.dev.allocation);
+    host_release_resources(&f->pdev.dev);
     cases++;
 }
 static bool advertises(struct fixture *f, enum power_supply_property property)
@@ -376,6 +376,121 @@ static void raw_attrs_propagate_read_errors(void)
         done(&f);
     }
 }
+static void setup_irqs(struct fixture *f, bool extended)
+{
+    setup(f, 4);
+    f->pdev.dev.node.interrupts = !extended;
+    f->pdev.dev.node.extended = extended;
+    f->pdev.dev.node.interrupt_names = true;
+    f->pdev.dev.node.irq_count = f->pdev.dev.node.name_count = 3;
+    f->pdev.dev.node.names[0] = "msoc-delta";
+    f->pdev.dev.node.names[1] = "soc-ready";
+    f->pdev.dev.node.names[2] = "batt-missing";
+    for (int i = 0; i < 3; i++) f->pdev.dev.node.irqs[i] = 101 + i;
+}
+
+static void irq_notifications_and_resume(void)
+{
+    for (int count = 2; count <= 4; count++) {
+        struct fixture f;
+        setup(&f, count);
+        assert(fg_observer_probe(&f.pdev) == 0);
+        assert(!f.pdev.dev.irq_lookups && !f.pdev.dev.irq_requests);
+        assert(!f.pdev.dev.node.count_calls);
+        assert(fg_observer_driver.driver.pm->resume(&f.pdev.dev) == 0);
+        assert(fg_observer_driver.driver.pm->thaw(&f.pdev.dev) == 0);
+        assert(fg_observer_driver.driver.pm->restore(&f.pdev.dev) == 0);
+        assert(f.pdev.dev.notifications == 3);
+        done(&f);
+    }
+    for (unsigned int extended = 0; extended < 2; extended++) {
+        struct fixture f;
+        setup_irqs(&f, extended);
+        f.pdev.dev.immediate_irq = f.pdev.dev.irq_during_release = true;
+        assert(fg_observer_probe(&f.pdev) == 0);
+        assert(f.pdev.dev.irq_requests == 3 && f.pdev.dev.notifications == 3);
+        assert(f.map.read_count == 4 && !f.map.writes);
+        f.map.read_error = -EIO;
+        for (unsigned int i = 0; i < 3; i++)
+            assert(f.pdev.dev.handlers[i].thread(f.pdev.dev.handlers[i].irq,
+                        f.pdev.dev.handlers[i].data) == IRQ_HANDLED);
+        assert(f.pdev.dev.notifications == 6 && f.map.read_count == 4);
+        assert(fg_observer_driver.driver.pm->resume(&f.pdev.dev) == 0);
+        assert(f.pdev.dev.notifications == 7 && f.map.read_count == 4);
+        host_release_resources(&f.pdev.dev);
+        assert(!f.pdev.dev.psy && !f.pdev.dev.active_irqs);
+        assert(f.pdev.dev.notifications == 10 && f.pdev.dev.released_irqs == 3);
+        done(&f);
+    }
+}
+
+static void irq_declarations_and_mapping_failures(void)
+{
+    for (unsigned int mode = 0; mode < 13; mode++) {
+        struct fixture f;
+        setup_irqs(&f, false);
+        switch (mode) {
+        case 0: f.pdev.dev.node.interrupts = false; break;
+        case 1: f.pdev.dev.node.interrupt_names = false; break;
+        case 2: f.pdev.dev.node.name_count = 2; break;
+        case 3: f.pdev.dev.node.name_count = 4; break;
+        case 4: f.pdev.dev.node.irq_count = 2; break;
+        case 5: f.pdev.dev.node.irq_count = 4; break;
+        case 6: f.pdev.dev.node.names[2] = "soc-update"; break;
+        case 7: f.pdev.dev.node.names[2] = "soc-ready"; break;
+        case 8: f.pdev.dev.node.extended = true; break;
+        case 9: f.pdev.dev.node.count = 3; break;
+        case 10: f.pdev.dev.node.name_error = -EIO; break;
+        case 11: f.pdev.dev.node.irqs[1] = f.pdev.dev.node.irqs[0]; break;
+        default: f.pdev.dev.node.irqs[0] = 0; break;
+        }
+        assert(fg_observer_probe(&f.pdev) == -EINVAL);
+        assert(!f.pdev.dev.psy && !f.pdev.dev.irq_requests);
+        done(&f);
+    }
+    const int errors[] = {-EPROBE_DEFER, -ENXIO, -EINVAL, -ENODEV, -EIO};
+    for (int index = 0; index < 3; index++) {
+        for (size_t i = 0; i < ARRAY_SIZE(errors); i++) {
+            struct fixture f;
+            setup_irqs(&f, false);
+            f.pdev.dev.node.irqs[index] = errors[i];
+            assert(fg_observer_probe(&f.pdev) == errors[i]);
+            assert(!f.pdev.dev.psy && !f.pdev.dev.irq_requests);
+            assert(f.pdev.dev.irq_lookups == (unsigned int)index + 1);
+            done(&f);
+        }
+    }
+}
+
+static void irq_request_failures(void)
+{
+    const int errors[] = {-EBUSY, -ENOMEM, -EPROBE_DEFER, -EIO};
+    for (unsigned int request = 1; request <= 3; request++) {
+        for (size_t i = 0; i < ARRAY_SIZE(errors); i++) {
+            struct fixture f;
+            setup_irqs(&f, false);
+            f.pdev.dev.fail_request = request;
+            f.pdev.dev.request_error = errors[i];
+            f.pdev.dev.immediate_irq = f.pdev.dev.irq_during_release = true;
+            assert(fg_observer_probe(&f.pdev) == errors[i]);
+            assert(f.pdev.dev.irq_requests == request);
+            assert(f.pdev.dev.active_irqs == request - 1);
+            assert(f.pdev.dev.notifications == request - 1 && f.map.read_count == 4);
+            host_release_resources(&f.pdev.dev);
+            assert(!f.pdev.dev.psy && !f.pdev.dev.active_irqs);
+            assert(f.pdev.dev.released_irqs == request - 1);
+            assert(f.pdev.dev.notifications == 2 * (request - 1));
+            done(&f);
+        }
+    }
+    struct fixture f;
+    setup_irqs(&f, false);
+    f.pdev.dev.register_error = -ENOMEM;
+    assert(fg_observer_probe(&f.pdev) == -ENOMEM);
+    assert(!f.pdev.dev.irq_requests && !f.pdev.dev.psy);
+    done(&f);
+}
+
 int main(void)
 {
     presence();
@@ -386,6 +501,9 @@ int main(void)
     measurements_check_presence();
     capacity_measurements();
     raw_attrs_propagate_read_errors();
-    printf("observer actual-source: %u fixtures, all 256 presence and capacity bytes passed; zero writes\n", cases);
+    irq_notifications_and_resume();
+    irq_declarations_and_mapping_failures();
+    irq_request_failures();
+    printf("observer actual-source: %u fixtures, all 256 presence/capacity bytes, IRQ lifecycle/resume passed; zero leaf regmap writes (irqchip not modeled)\n", cases);
     return 0;
 }

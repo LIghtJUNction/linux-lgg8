@@ -24,6 +24,12 @@ description: |
   do not expose PRESENT; nodes without the fourth address do not expose CAPACITY.
   Read errors are propagated; presence and capacity do not establish valid
   temperature, calibration or charging safety.
+  The three change-notification interrupts are an optional complete group for
+  four-address nodes. They do not initialize the gauge or enable IRQ wakeup.
+  The parent SPMI irqchip programs interrupt type, enable and latch-clear
+  registers; IRQ support therefore does not imply zero PMIC writes or guarantee
+  protection against interrupt storms. No charging or FG algorithm configuration
+  is performed by this driver.
 
 properties:
   compatible:
@@ -40,6 +46,34 @@ properties:
       - description: Optional fuel-gauge battery-SOC peripheral base
 
   status: true
+
+  interrupts:
+    maxItems: 3
+
+  interrupts-extended:
+    maxItems: 3
+
+  interrupt-names:
+    items:
+      - const: msoc-delta
+      - const: soc-ready
+      - const: batt-missing
+
+dependencies:
+  interrupts: [interrupt-names]
+  interrupts-extended: [interrupt-names]
+  interrupt-names:
+    oneOf:
+      - required: [interrupts]
+      - required: [interrupts-extended]
+
+allOf:
+  - if:
+      required: [interrupt-names]
+    then:
+      properties:
+        reg:
+          minItems: 4
 
 required:
   - compatible

@@ -614,6 +614,22 @@ def synchronize_shell(channel, deadline):
     channel.until(lambda data: data.count(prompt) > count, deadline)
 
 
+def request_ram_reboot(channel, deadline):
+    result = {"line_fully_sent": False, "intent_marker_received": False,
+              "attempt_started_monotonic_ns": time.monotonic_ns()}
+    marker = "RAM_REBOOT_" + secrets.token_hex(12).upper()
+    try:
+        synchronize_shell(channel, deadline)
+        channel.send((f"printf '\\n{marker}\\n'; /bin/busybox reboot -f\n").encode(), deadline)
+        result["line_fully_sent"] = True
+        channel.until(lambda data: re.search(rb"(?:^|\n)" + marker.encode() + rb"\r?\n", data), deadline)
+        result["intent_marker_received"] = True
+    except Exception as error:
+        result["error"] = repr(error)
+    # The marker precedes reboot; only the normal Android return checks prove recovery.
+    return result
+
+
 def collect(channel, manifest, monitor, save):
     report = {"status": "INCOMPLETE", "receipts": [], "risk": dict(RISK)}
     nonce = secrets.token_hex(12).upper()
@@ -741,7 +757,7 @@ def run_session(io):
 
 class LiveIO:
     """Only constructed after the explicit CLI execution option and local gate."""
-    def __init__(self, serial, out):
+    def __init__(self, serial, out, *, reboot_after_capture=False):
         if file_sha(REFERENCE) != REFERENCE_SHA:
             raise RuntimeError("legacy helper changed")
         spec = importlib.util.spec_from_file_location("c224_pinned_legacy", REFERENCE)
@@ -752,6 +768,7 @@ class LiveIO:
         b.LOCAL_TMP.mkdir(mode=0o700)
         os.environ.update({"TMPDIR": str(b.LOCAL_TMP), "TMP": str(b.LOCAL_TMP), "TEMP": str(b.LOCAL_TMP)})
         self.serial, self.out = serial, out
+        self.reboot_after_capture = reboot_after_capture
         self.monitor = None
         self.deadline = None
         self.boot_time = None
@@ -849,6 +866,14 @@ class LiveIO:
                                              "gadget_serial": serial, "snapshot": fingerprint}
                     result["raw_capture"] = str(self.out / "acm-raw.bin")
                     result["tty_open_retries"] = open_retries
+                    if self.reboot_after_capture:
+                        if result["status"] != "PASS":
+                            result["reboot_after_capture"] = {"skipped": "capture not PASS"}
+                        elif not self.monitor.healthy() or fingerprint != usb_snapshot() or self.base.acm_parent_for_port() != located:
+                            result["reboot_after_capture"] = {"skipped": "monitor or ACM identity changed"}
+                        else:
+                            result["reboot_after_capture"] = request_ram_reboot(
+                                channel, min(self.deadline, time.monotonic() + 4))
                     self.save("capture", result)
                     return result
                 finally:
@@ -925,10 +950,12 @@ def entrypoint(argv=None):
     parser.add_argument("--execute-ram-only", action="store_true",
                         help="explicit future device execution; never used by offline review/tests")
     parser.add_argument("--serial", help="explicit Android/fastboot serial; no environment autodetection")
+    parser.add_argument("--reboot-after-capture", action="store_true",
+                        help="request a RAM kernel reboot only after a complete verified capture")
     args = parser.parse_args(argv)
     if not args.execute_ram_only:
-        if args.serial is not None:
-            parser.error("--serial without explicit execution is rejected")
+        if args.serial is not None or args.reboot_after_capture:
+            parser.error("device options without explicit execution are rejected")
         print(json.dumps(review(), indent=2))
         return 0
     if not args.serial or re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", args.serial) is None:
@@ -937,7 +964,7 @@ def entrypoint(argv=None):
     os.umask(0o077)
     out = HERE / (time.strftime("run-%Y%m%d-%H%M%S", time.gmtime()) + "-" + secrets.token_hex(4))
     out.mkdir(mode=0o700)
-    io = LiveIO(args.serial, out)
+    io = LiveIO(args.serial, out, reboot_after_capture=args.reboot_after_capture)
     signals = []
     def interrupted(signum, frame):
         signals.append(signum)

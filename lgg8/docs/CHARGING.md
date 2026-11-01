@@ -521,8 +521,11 @@ IRQ completion skipped this check. The low status bits must indicate EOC set
 and request status clear before data is read. Seventeen offline cases execute
 the extracted production functions and cover early IRQ, busy/ready status, read errors, IRQ timeout,
 polling, result publication, and lock release; the unmodified function fails
-the early-IRQ/busy regression. The ARM64 driver object compiles, but this
-revision has not been booted. It affects ADC5 and ADC rev2 users of `adc5_info`,
+the early-IRQ/busy regression. The ARM64 driver object compiles, and C225
+booted this revision with three successful rounds of VBAT and all three
+battery-thermistor voltage channels; see [STATUS.md](STATUS.md#c225adc5-完成检查及电池观测已真机通过)
+for the image identity, readings and recovery evidence. This tests normal
+reads on hardware, not injected early IRQs or bus faults. It affects ADC5 and ADC rev2 users of `adc5_info`,
 not ADC7 or gen3. Normal IRQ handling adds a status read; unresolved status
 may add the existing bounded polling loop or return an error. This is not a
 conversion-generation check, a complete fault check, or temperature calibration:

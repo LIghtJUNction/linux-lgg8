@@ -53,6 +53,35 @@ class TestObservation(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()):
             observation.main()
 
+    def test_failed_sample_retains_postflight_and_cannot_pass(self):
+        saved = []
+        class FakeIO:
+            def __init__(self, serial, output):
+                (output / "tmp").mkdir()
+                self.monitor = types.SimpleNamespace(healthy=lambda: True)
+                self.base = types.SimpleNamespace(
+                    command=lambda *a, **kw: {"exit_code": 1, "timed_out": False},
+                    require_adb=lambda _: None, android=lambda _: ["same"])
+            def start_monitor(self): pass
+            def preflight(self): return ["same"]
+            def stop_monitor(self, start, end):
+                return {"exit_code": 0, "sampling_verified": True, "session_coverage_verified": True,
+                        "log_integrity_verified": True, "observation_verified": True}
+            def save(self, name, report): saved.append(report.copy())
+        legacy = types.SimpleNamespace(LiveIO=FakeIO, usb_snapshot=lambda: {"serial": observation.SERIAL},
+                                       validate_android=lambda _: None)
+        with tempfile.TemporaryDirectory(prefix="test-thermal-fail-", dir=Path(__file__).parent) as tmp, \
+             patch.object(observation, "ROOT", Path(tmp)), \
+             patch.object(observation, "pinned_legacy", return_value=legacy), \
+             patch.object(sys, "argv", ["observe", "--execute-read-only"]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                observation.main()
+        self.assertEqual(error.exception.code, 1)
+        self.assertEqual(len(saved[0]["samples"]), 1)
+        self.assertTrue(saved[0]["unchanged_android"])
+        self.assertIn("temperature observation failed", saved[0]["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

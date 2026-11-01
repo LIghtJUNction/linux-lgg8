@@ -537,7 +537,12 @@ The downstream `batt-temp-delta`
 interrupt is a change event, not evidence of each completed conversion; the
 SOC update heartbeat and a DMA grant likewise do not establish temperature
 freshness. No ordering or maximum delay from temperature conversion to SRAM
-publication and interrupt has yet been established for this device.
+publication and interrupt has yet been established for this device. The offline
+thermal policy can only check the timestamp supplied by its caller: a test
+shows that rereading an unchanged old value and incorrectly assigning the read
+time makes that value appear fresh. An eventual provider must establish the
+actual conversion time or a conservative bound including sensor-pipeline
+latency; a successful bus read or a fresh software timestamp is insufficient.
 [Downstream IRQ mapping](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/qcom/pm8150b.dtsi#L425),
 [SOC update comment](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-util.c#L587).
 

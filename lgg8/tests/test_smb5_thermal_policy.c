@@ -215,6 +215,14 @@ static void test_age_and_order(void)
 	in.now_ms = 1200;
 	stopped(qcom_smb5_thermal_policy_step(&fixture_config, &r.next, &in),
 		SMB5_THERMAL_SAMPLE_EXPIRED);
+	/* Negative demonstration, not a safety feature: the same old values
+	 * become admissible if a provider incorrectly timestamps a software
+	 * reread as a fresh physical conversion. The pure policy cannot tell.
+	 */
+	in.sample.captured_at_ms = in.now_ms;
+	advised(qcom_smb5_thermal_policy_step(&fixture_config, &r.next, &in),
+		SMB5_THERMAL_GOOD, 3000000, 4430000, false);
+	in.sample.captured_at_ms = 200;
 	in.now_ms = UINT64_MAX;
 	stopped(qcom_smb5_thermal_policy_step(&fixture_config, &r.next, &in),
 		SMB5_THERMAL_SAMPLE_EXPIRED);

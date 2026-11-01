@@ -57,7 +57,11 @@ struct smb5_thermal_config {
 	unsigned int voltage_max_uv;
 };
 
-/* TEMP and voltage must belong to one coherent, calibrated acquisition. */
+/* TEMP and voltage must belong to one coherent, calibrated acquisition.
+ * captured_at_ms must bound the actual physical conversion age, including
+ * sensor pipeline latency; a new software read of an old register does not
+ * renew it. The policy cannot independently verify this provider assertion.
+ */
 struct smb5_thermal_sample {
 	u64 session_id;
 	u64 captured_at_ms;

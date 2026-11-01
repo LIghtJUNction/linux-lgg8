@@ -11,6 +11,7 @@
 
 #define FG_SUBTYPE_OFFSET 0x05
 #define FG_BATT_INFO_SUBTYPE 0x11
+#define FG_BATT_SOC_SUBTYPE 0x10
 #define FG_MEM_IF_SUBTYPE 0x0d
 #define FG_RRADC_SUBTYPE 0x13
 #define FG_RRADC_STATUS_OFFSET 0x10
@@ -19,6 +20,7 @@
 #define FG_CURRENT_OFFSET 0xa2
 #define FG_VOLTAGE_SHADOW_OFFSET 0xa6
 #define FG_CURRENT_SHADOW_OFFSET 0xa8
+#define FG_MONOTONIC_SOC_OFFSET 0x09
 #define FG_READ_ATTEMPTS 5
 
 struct qcom_fg_observer {
@@ -27,7 +29,9 @@ struct qcom_fg_observer {
 	u32 base;
 	u32 mem_base;
 	u32 rradc_base;
+	u32 soc_base;
 	bool has_rradc;
+	bool has_soc;
 };
 
 /* Experimental raw byte; no claim about freshness or temperature encoding. */
@@ -147,8 +151,9 @@ static int fg_observer_read_pair(struct qcom_fg_observer *fg, u32 offset,
 static enum power_supply_property fg_observer_properties[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
-	/* Keep last: legacy two-address nodes do not advertise PRESENT. */
+	/* Optional properties follow the same order as the DT resources. */
 	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_CAPACITY,
 };
 
 /* Presence checks cannot guarantee an atomic or fresh measurement. */
@@ -179,6 +184,42 @@ static int fg_observer_read_measurement(struct qcom_fg_observer *fg, u32 offset,
 	if (ret)
 		return ret;
 	return fg_observer_check_present(fg);
+}
+
+static int fg_observer_read_capacity(struct qcom_fg_observer *fg, int *capacity)
+{
+	u8 data[2];
+	int ret, i;
+
+	if (!fg->has_soc)
+		return -EOPNOTSUPP;
+	ret = fg_observer_check_present(fg);
+	if (ret)
+		return ret;
+
+	/* The second byte is the shadow of the first, not a 16-bit value. */
+	for (i = 0; i < FG_READ_ATTEMPTS; i++) {
+		ret = regmap_bulk_read(fg->regmap, fg->soc_base + FG_MONOTONIC_SOC_OFFSET,
+				       data, sizeof(data));
+		if (ret)
+			return ret;
+		if (data[0] == data[1])
+			break;
+	}
+	if (i == FG_READ_ATTEMPTS)
+		return -EAGAIN;
+	ret = fg_observer_check_present(fg);
+	if (ret)
+		return ret;
+
+	/* Match the downstream 0/255 endpoints and 1..99 interior mapping. */
+	if (data[0] == 0)
+		*capacity = 0;
+	else if (data[0] == 255)
+		*capacity = 100;
+	else
+		*capacity = DIV_ROUND_CLOSEST((data[0] - 1) * 98, 253) + 1;
+	return 0;
 }
 
 static int fg_observer_get_property(struct power_supply *psy,
@@ -216,6 +257,8 @@ static int fg_observer_get_property(struct power_supply *psy,
 		/* FG uses the opposite polarity to the power-supply battery ABI. */
 		val->intval = -div_s64((s64)(s16)raw * 488281, 1000);
 		return 0;
+	case POWER_SUPPLY_PROP_CAPACITY:
+		return fg_observer_read_capacity(fg, &val->intval);
 	default:
 		return -EINVAL;
 	}
@@ -247,7 +290,7 @@ static int fg_observer_probe(struct platform_device *pdev)
 	const struct qcom_spmi_pmic *pmic;
 	struct qcom_fg_observer *fg;
 	struct power_supply *psy;
-	u32 bases[3];
+	u32 bases[4];
 	int ret, num_bases;
 
 	pmic = qcom_pmic_get(&pdev->dev);
@@ -264,16 +307,19 @@ static int fg_observer_probe(struct platform_device *pdev)
 	num_bases = device_property_count_u32(&pdev->dev, "reg");
 	if (num_bases < 0)
 		return num_bases;
-	if (num_bases != 2 && num_bases != 3)
+	if (num_bases != 2 && num_bases != 3 && num_bases != 4)
 		return -EINVAL;
 	ret = device_property_read_u32_array(&pdev->dev, "reg", bases, num_bases);
 	if (ret)
 		return ret;
 	fg->base = bases[0];
 	fg->mem_base = bases[1];
-	fg->has_rradc = num_bases == 3;
+	fg->has_rradc = num_bases >= 3;
 	if (fg->has_rradc)
 		fg->rradc_base = bases[2];
+	fg->has_soc = num_bases == 4;
+	if (fg->has_soc)
+		fg->soc_base = bases[3];
 	ret = fg_observer_check_subtype(fg, fg->base, FG_BATT_INFO_SUBTYPE);
 	if (ret)
 		return ret;
@@ -285,7 +331,14 @@ static int fg_observer_probe(struct platform_device *pdev)
 		if (ret)
 			return ret;
 	}
+	if (fg->has_soc) {
+		ret = fg_observer_check_subtype(fg, fg->soc_base, FG_BATT_SOC_SUBTYPE);
+		if (ret)
+			return ret;
+	}
 	fg->desc = fg_observer_desc;
+	if (!fg->has_soc)
+		fg->desc.num_properties--;
 	if (!fg->has_rradc)
 		fg->desc.num_properties--;
 	cfg.drv_data = fg;

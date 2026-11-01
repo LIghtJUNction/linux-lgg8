@@ -434,3 +434,15 @@ also transfers more data than the actual probe while enforcing the existing
 resynchronizing for reboot, but that is not guaranteed recovery. A matching
 PTY test exercises interruption of an unterminated command. These are local
 checks, not proof that a subsequent device transfer or watchdog reset works.
+
+A second awake-only RAM boot completed all 951 transfer acknowledgements and
+the probe emitted `ARMED timeout_seconds=10`. The physical USB 1-2 monitor
+first recorded absence about 16.13 seconds after the host received that line;
+Android subsequently returned, boot-completed on slot `_b`, and both boot
+partition hashes matched the pre-run baseline. Android reported `bootloader`
+as its boot reason and the post-run pstore inventory was verified empty.
+Therefore the timing is consistent with a reset but does not identify its
+cause, and this observation does not establish watchdog-controlled recovery or
+safety during suspend. The full run is in
+`out/lgg8-touch-candidate-20261101/watchdog-reset-20261101-102801-6a1af497/`.
+No suspend was attempted.

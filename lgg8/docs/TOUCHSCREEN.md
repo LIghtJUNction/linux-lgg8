@@ -461,5 +461,14 @@ manifest SHA-256
 `85870f71b735ac9cdee15edff6fdde89e5b13cca4989e04f291d9806b674f373`.
 Packaging used the existing kernel build receipt and did not recalculate a
 workspace-wide provenance digest. Verification is local only; this candidate
-has not been booted or tested on the phone. A `pm_test=devices` run would test
-device callbacks but would not establish actual system sleep or wake.
+was subsequently booted RAM-only for a `pm_test=devices` attempt. The serial
+log shows the kernel reported `devices` selected, after which USB ACM
+closed while the state write was in progress. No return status or completed
+callback sequence was captured, so the device-PM test did not pass and neither
+real sleep nor touch recovery was established. Android returned with slot `_b`
+and unchanged boot partition hashes; passive USB monitoring remained valid.
+The pre-run pstore inventory was empty, while the post-run console was present
+but corrupted and did not establish the failure or reset cause. Records are in
+`out/lgg8-pm-test-20261101/pm-devices-20261101-104652-e780406c/`. Device-PM
+debug mode, even when it completes, does not establish actual system sleep or
+wake.

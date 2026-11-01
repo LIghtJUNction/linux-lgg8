@@ -91,7 +91,7 @@ def main():
     previous = {s: signal.signal(s, interrupted) for s in (signal.SIGINT, signal.SIGTERM)}
     try:
         result = run_session(io)
-        result.update(success_scope='pm_test selection and state write returned zero with Android recovery; callback execution not proven',
+        result.update(success_scope='if capture passes: pm_test selected and state write returned zero; callback execution not proven',
                       real_sleep_verified=False, touch_after_resume_verified=False,
                       charging_safety_verified=False)
         io.inner.save('pm-devices-signals', signals)

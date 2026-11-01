@@ -10,6 +10,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/pm.h>
 
 #include "lge_sw42000_protocol.h"
 
@@ -29,6 +30,7 @@
 #define SW42000_HW_RESET_DELAY_MS	40
 #define SW42000_POWER_OFF_DELAY_US	1000
 #define SW42000_TC_STOP_DELAY_MS	30
+#define SW42000_STOP_DRIVING		0x02
 #define SW42000_ACTIVE_DRIVING		0x311
 #define SW42000_MAX_X			1439
 #define SW42000_MAX_Y			3119
@@ -42,6 +44,8 @@ struct sw42000_ts {
 	struct gpio_desc *vdd_gpio;
 	struct gpio_desc *vcl_gpio;
 	struct touchscreen_properties prop;
+	/* PM and unbind are serialized by the device core; the IRQ uses no lock. */
+	bool irq_enabled;
 };
 
 /* Vendor QCT transport sends the two-byte address separately from the read. */
@@ -161,18 +165,117 @@ static int sw42000_initialize_controller(struct sw42000_ts *ts)
 		return ret;
 
 	/* Match the vendor normal-mode stop then U3 1/2-swing sequence. */
-	ret = sw42000_write_u32(ts, SW42000_REG_DRIVING_CONTROL, 0x02);
+	ret = sw42000_write_u32(ts, SW42000_REG_DRIVING_CONTROL,
+			       SW42000_STOP_DRIVING);
 	if (ret)
 		return ret;
 	msleep(SW42000_TC_STOP_DELAY_MS);
 
-	ret = sw42000_write_u32(ts, SW42000_REG_DRIVING_CONTROL, 0x311);
+	ret = sw42000_write_u32(ts, SW42000_REG_DRIVING_CONTROL,
+			       SW42000_ACTIVE_DRIVING);
 	if (ret)
 		return ret;
 
 	/* Enable controller interrupts only after the Linux IRQ is installed. */
 	return sw42000_write_u32(ts, SW42000_REG_INTERRUPT_CONTROL, 1);
 }
+
+static void sw42000_quiesce(struct sw42000_ts *ts)
+{
+	unsigned int i;
+
+	if (ts->irq_enabled) {
+		/* Wait for a report in flight before touching the bus or releasing slots. */
+		disable_irq(ts->client->irq);
+		ts->irq_enabled = false;
+	}
+
+	for (i = 0; i < SW42000_REPORT_CONTACTS; i++) {
+		input_mt_slot(ts->input, i);
+		input_mt_report_slot_state(ts->input, MT_TOOL_FINGER, false);
+	}
+	input_mt_sync_frame(ts->input);
+	input_report_key(ts->input, BTN_TOUCH, false);
+	input_sync(ts->input);
+}
+
+static int sw42000_stop_controller(struct sw42000_ts *ts)
+{
+	int ret;
+
+	/* Downstream tc_driving(LCD_MODE_STOP), without its separate clock-off step. */
+	ret = sw42000_write_u32(ts, SW42000_REG_DRIVING_CONTROL,
+			       SW42000_STOP_DRIVING);
+	/* A failed transfer may still have changed the controller. */
+	msleep(SW42000_TC_STOP_DELAY_MS);
+	return ret;
+}
+
+/* Linux IRQ must remain disabled throughout this sequence. */
+static int sw42000_start_controller(struct sw42000_ts *ts)
+{
+	u8 report[SW42000_REPORT_SIZE];
+	int ret, stop_ret;
+
+	ret = sw42000_check_firmware(ts);
+	if (ret)
+		return ret;
+
+	ret = sw42000_initialize_controller(ts);
+	if (!ret)
+		/* Consume the pending report without replaying pre-suspend contacts. */
+		ret = sw42000_read_reg(ts, SW42000_REG_TOUCH_STATUS,
+				       report, sizeof(report));
+	if (ret) {
+		stop_ret = sw42000_stop_controller(ts);
+		if (stop_ret)
+			dev_err(&ts->client->dev,
+				"failed to stop controller after start error: %d\n",
+				stop_ret);
+	}
+
+	return ret;
+}
+
+static int sw42000_resume(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct sw42000_ts *ts = i2c_get_clientdata(client);
+	int ret;
+
+	sw42000_quiesce(ts);
+	ret = sw42000_start_controller(ts);
+	if (ret) {
+		dev_err(dev, "failed to resume touchscreen: %d\n", ret);
+		return ret;
+	}
+
+	enable_irq(client->irq);
+	ts->irq_enabled = true;
+	return 0;
+}
+
+static int sw42000_suspend(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct sw42000_ts *ts = i2c_get_clientdata(client);
+	int ret, restore_ret;
+
+	/* Retain rails/reset/clock. I2C cannot wake the downstream clock-off mode. */
+	sw42000_quiesce(ts);
+	ret = sw42000_stop_controller(ts);
+	if (ret) {
+		/* PM will not resume this device when its own suspend callback fails. */
+		restore_ret = sw42000_resume(dev);
+		if (restore_ret)
+			dev_err(dev, "failed to recover aborted suspend: %d\n",
+				restore_ret);
+	}
+
+	return ret;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(sw42000_pm_ops, sw42000_suspend, sw42000_resume);
 
 static void sw42000_report_frame(struct sw42000_ts *ts,
 				 const struct sw42000_frame *frame)
@@ -316,14 +419,15 @@ static int sw42000_probe(struct i2c_client *client)
 
 	ret = devm_request_threaded_irq(dev, client->irq, NULL,
 					sw42000_irq_thread,
-					IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+						IRQF_TRIGGER_FALLING | IRQF_ONESHOT |
+						IRQF_NO_AUTOEN,
 					dev_name(dev), ts);
 	if (ret) {
 		sw42000_power_off(ts);
 		return dev_err_probe(dev, ret, "failed to request IRQ\n");
 	}
 
-	ret = sw42000_initialize_controller(ts);
+	ret = sw42000_start_controller(ts);
 	if (ret) {
 		sw42000_power_off(ts);
 		return dev_err_probe(dev, ret,
@@ -331,6 +435,8 @@ static int sw42000_probe(struct i2c_client *client)
 	}
 
 	i2c_set_clientdata(client, ts);
+	enable_irq(client->irq);
+	ts->irq_enabled = true;
 	dev_info(dev, "SW42000 touchscreen ready (%dx%d)\n",
 		 input_abs_get_max(input, ABS_MT_POSITION_X) + 1,
 		 input_abs_get_max(input, ABS_MT_POSITION_Y) + 1);
@@ -341,6 +447,7 @@ static void sw42000_remove(struct i2c_client *client)
 {
 	struct sw42000_ts *ts = i2c_get_clientdata(client);
 
+	sw42000_quiesce(ts);
 	sw42000_power_off(ts);
 }
 
@@ -360,6 +467,7 @@ static struct i2c_driver sw42000_driver = {
 	.driver = {
 		.name = "lge-sw42000",
 		.of_match_table = sw42000_of_match,
+		.pm = pm_sleep_ptr(&sw42000_pm_ops),
 	},
 	.probe = sw42000_probe,
 	.remove = sw42000_remove,

@@ -123,6 +123,38 @@ recovery method: another driver's callback can still hang, and neither this
 test nor a returned USB connection proves real sleep, wakeup, or touch input
 after resume. Do not count injected input events as physical touch acceptance.
 
+## QEMU PM build-pairing blocker
+
+The draft run at
+`out/lgg8-c234-integration-20261101/qemu-pm-draft/run-20261101-055926-7c284170/`
+never ran its PM scenarios: the guest rejected module version
+`7.3.0-lgg8+` against kernel `7.3.0-lgg8`.
+Do not remove the suffix and assume ABI compatibility.
+
+A read-only follow-up audit is reproducible with:
+
+```sh
+python3 -B lgg8/tests/check_qemu_build_pairing.py --self-test
+python3 -B lgg8/tests/check_qemu_build_pairing.py
+```
+
+For the current C232 build, the audit deliberately exits 1
+(`PAIRING_REJECTED`). Image SHA-256 remains
+`d4a37b083e0bc025247760166ebdce45eebae3c2b5db41e53dd83f8fec8bb2d2`;
+the receipt, embedded IKCONFIG, `.config` and generated `autoconf.h` agree.
+The ELF export sections match the corresponding Image bytes, but
+`Module.symvers` claims **13,386** built-in exports against **12,893** in the
+binary, including **493** extra names (predominantly tracing-related).
+The configuration disables FTRACE. Thus this is not just a release-string
+mismatch: the existing symbol manifest is not an exact export inventory of
+this Image. Preserve `out/lgg8/kernel` unchanged while investigating a private
+reproducible build. The audit does not prove source/header ABI compatibility,
+namespace/license metadata or runtime PM even if all its tripwires pass.
+
+The complete local audit is retained at
+`out/lgg8-pairing-audit-20261101/pairing.json`. No phone boot, real suspend,
+module load or charging acceptance was performed by this audit.
+
 ## Android axis comparison (C235)
 
 On the running Android device, read-only `getevent -lp` reported `touch_dev`

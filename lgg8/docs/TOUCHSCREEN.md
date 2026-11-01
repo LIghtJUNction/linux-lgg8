@@ -510,6 +510,14 @@ all other initramfs entry bytes and modes were checked unchanged. Image
 `out/lgg8-pm-reconnect-20261101/boot/boot.img` SHA-256 is
 `97bd999393bc8e034c3dffaf4acbbffbb49b285f63fb4330388fb79e2d1fc9ee`;
 manifest verification passed and device acceptance remains `NOT_TESTED`.
-It has not yet been tested against real gadget disconnect. The restart cannot
-fix a kernel or userspace that did not resume, and is not evidence that device
-PM, touch recovery or charging works.
+A subsequent RAM-only phone `pm_test=devices` experiment selected the mode,
+recorded a zero return from the `/sys/power/state` write and reset `pm_test`
+to `none`; the detached result was read after gadget re-enumeration. The record
+is not independently authenticated, and these returns alone do not prove which
+callbacks ran. Android returned on slot `_b`; both boot partition hashes
+matched the preflight values. Passive USB 1-2 monitoring covered the session.
+See `out/lgg8-pm-reconnect-20261101/pm-devices-20261101-115337-e9b0e4fc/`.
+This was device-PM debug mode, not actual system sleep, and did not capture a
+post-resume touch event. The shell restart cannot fix a kernel or userspace
+that did not resume; neither this run nor the QEMU test proves real sleep,
+touch recovery, or charging safety.

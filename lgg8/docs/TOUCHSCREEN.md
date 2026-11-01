@@ -255,6 +255,15 @@ awake probe merely to claim a suspend hang is recoverable. A separate,
 independently validated recovery mechanism is still required before relying
 on unattended suspend testing.
 
+A narrower possible experiment is `pm_test=devices`: in the current kernel,
+`kernel/power/suspend.c` checks that test immediately after
+`dpm_suspend_start()` and returns before `suspend_enter()` reaches late
+suspend, so the Qualcomm watchdog's *late* suspend callback is not called on
+that successful path. This source ordering does not establish watchdog clock
+continuity, its actual reset behavior or recovery from a hang; those would
+need separate evidence. It also is not real system sleep. QEMU has exercised
+this entry path already, but a phone test remains unperformed.
+
 ## QEMU PM build-pairing blocker
 
 The draft run at

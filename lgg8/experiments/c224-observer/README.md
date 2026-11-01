@@ -3,9 +3,15 @@
 This directory preserves the source of the C224 read-only observation
 experiment and its offline tests. It is a device-specific research artifact,
 not a general-purpose charging driver or a validated device test procedure.
-The source was moved from the ignored `out/` experiment directory with only
-the paths to local artifacts changed; see `lgg8/docs/STATUS.md` for the
-historical hashes, results, and limitations.
+The source was initially moved from the ignored `out/` experiment directory
+with only the paths to local artifacts changed; see `lgg8/docs/STATUS.md` for
+the historical hashes, results, and limitations. Later C225 observations
+exposed host transport defects: the current source clears partial terminal
+input, waits for a fresh prompt, answers cursor-position queries, and parses
+receipt metadata only inside its complete result frame. The historical C224
+output files and their recorded hashes have not been replaced. Transient
+device-node permission or disappearance errors are retried within the original
+observation deadline, with identity checked again after opening the tty.
 
 The scripts look for locally retained files under:
 
@@ -25,9 +31,11 @@ The suite does not run device commands:
 python3 -B lgg8/experiments/c224-observer/test_c224_offline.py
 ```
 
-Two additional integration tests run the generated shell script with the
-pinned ARM64 BusyBox under `qemu-aarch64`, including an injected SHA-256
-applet failure. They skip explicitly when QEMU or the local BusyBox is absent;
+Integration tests run the generated shell script with the pinned ARM64
+BusyBox under `qemu-aarch64`, including an injected SHA-256 applet failure
+and an interactive PTY session with partial input and command echo. A PTY
+protocol test also splits a cursor-position query across two reads. These
+tests skip explicitly when QEMU or the local BusyBox is absent;
 an available BusyBox with the wrong hash fails. The tests redirect their
 temporary paths to the workspace and do not run on the phone.
 

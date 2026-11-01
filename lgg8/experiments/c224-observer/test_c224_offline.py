@@ -5,10 +5,12 @@ stays within the workspace and is automatically removed. No adb/fastboot/devices
 """
 import base64
 import copy
+import fcntl
 import hashlib
 import importlib.util
 import json
 import os
+import pty
 from pathlib import Path
 import re
 import shlex
@@ -16,6 +18,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import termios
 import threading
 import time
 import unittest
@@ -68,6 +71,9 @@ class FakeChannel:
 
     def send(self, script, deadline):
         self.sent.append(script)
+        if script == b"\x15\n":
+            self.buffer += b"lgg8# "
+            return
         if b"_READY" in script:
             token = re.search(rb"C224_[A-F0-9]{24}_READY", script)[0]
             self.buffer += b"\n" + token + b"_0\n"
@@ -393,6 +399,84 @@ class OfflineTests(unittest.TestCase):
 @unittest.skipUnless(shutil.which("qemu-aarch64") and BUSYBOX.is_file(),
                      "pinned ARM64 BusyBox or qemu-aarch64 unavailable")
 class BusyBoxScriptIntegration(unittest.TestCase):
+    def test_split_cursor_query_gets_reply_before_prompt(self):
+        with tempfile.TemporaryDirectory(prefix="offline-c224-query-", dir=TEMP_ROOT) as temp:
+            master, slave = pty.openpty()
+            channel = object.__new__(r.SerialChannel)
+            channel.fd = master
+            channel.raw = (Path(temp) / "raw.bin").open("xb")
+            channel.configure()
+            os.set_blocking(master, False)
+            os.set_blocking(slave, False)
+            try:
+                os.write(slave, b"\x1b[6")
+                def finish_query():
+                    time.sleep(0.05)
+                    os.write(slave, b"nlgg8# ")
+                writer = threading.Thread(target=finish_query)
+                writer.start()
+                channel.until(lambda data: b"lgg8# " in data, time.monotonic() + 2)
+                writer.join(timeout=1)
+                self.assertEqual(channel.cursor_replies, 1)
+                self.assertEqual(os.read(slave, 64), b"\x1b[1;7R")
+            finally:
+                channel.close()
+                os.close(slave)
+
+    def test_interactive_shell_discards_partial_input_before_first_command(self):
+        self.assertEqual(hashlib.sha256(BUSYBOX.read_bytes()).hexdigest(), BUSYBOX_SHA)
+        with tempfile.TemporaryDirectory(prefix="offline-c224-pty-", dir=TEMP_ROOT) as temp:
+            master, slave = pty.openpty()
+            guest_settings = termios.tcgetattr(slave)
+            channel = object.__new__(r.SerialChannel)
+            channel.fd = master
+            channel.raw = (Path(temp) / "raw.bin").open("xb")
+            channel.configure()
+            # The gadget tty has its own settings, independently of the host ACM tty.
+            termios.tcsetattr(slave, termios.TCSANOW, guest_settings)
+            env = os.environ.copy()
+            env.update(PS1="lgg8# ", TERM="xterm", HISTFILE="/dev/null")
+            env.pop("ENV", None)
+            def controlling_tty():
+                os.setsid()
+                fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+            process = subprocess.Popen(
+                ["qemu-aarch64", "-L", str(BUSYBOX_ROOT), str(BUSYBOX), "sh", "-i"],
+                stdin=slave, stdout=slave, stderr=slave, env=env, cwd=temp,
+                preexec_fn=controlling_tty)
+            os.close(slave)
+            os.set_blocking(master, False)
+            try:
+                deadline = time.monotonic() + 5
+                channel.until(lambda data: b"lgg8# " in data, deadline)
+                channel.send(b"stale_input_", deadline)
+                r.synchronize_shell(channel, deadline)
+                channel.send(b"if true; then printf '\\nPTY_READY_0\\n'; fi\n", deadline)
+                channel.until(lambda data: re.search(rb"\r?\nPTY_READY_0\r?\n", data), deadline)
+                wrapper = Path(temp) / "bb"
+                wrapper.write_text('#!/bin/sh\nexec qemu-aarch64 -L ' +
+                                   shlex.quote(str(BUSYBOX_ROOT)) + ' ' +
+                                   shlex.quote(str(BUSYBOX)) + ' "$@"\n')
+                wrapper.chmod(0o700)
+                script = r.capture_script(PREFIX, ["/bin/busybox", "cat", "/proc/uptime"]).decode()
+                script = script.replace("/bin/busybox", "./bb")
+                script = script.replace("/run/" + PREFIX, "./" + PREFIX)
+                channel.send(script.encode(), deadline)
+                try:
+                    receipt = channel.until(lambda data: r.parse_frame(data, PREFIX), deadline)
+                except Exception as error:
+                    self.fail(f"interactive capture ({len(script)} bytes): {error}; "
+                              f"tail={bytes(channel.buffer[-2500:])!r}")
+                self.assertEqual(receipt["exit_code"], 0)
+                self.assertTrue(receipt["payload_integrity_verified"])
+                self.assertTrue(receipt["stdout"])
+                self.assertGreater(channel.cursor_replies, 0)
+                self.assertNotIn(b"syntax error", channel.buffer)
+            finally:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=3)
+                channel.close()
+
     def run_script(self, temp, missing=False, fail_sha=False):
         self.assertEqual(hashlib.sha256(BUSYBOX.read_bytes()).hexdigest(), BUSYBOX_SHA)
         wrapper = Path(temp) / "busybox-wrapper"
@@ -430,6 +514,47 @@ class BusyBoxScriptIntegration(unittest.TestCase):
 
 
 class IntegrityAndCoverageRegressions(unittest.TestCase):
+    def test_tty_permission_race_retries_within_existing_deadline(self):
+        class Clock:
+            now = 0
+            def monotonic(self): return self.now
+            def sleep(self, seconds): self.now += seconds
+        for persistent in (False, True):
+            clock = Clock()
+            io = object.__new__(r.LiveIO)
+            io.deadline, io.boot_time, io.out = 1, 0, Path("offline")
+            io.manifest = {}
+            io.monitor, io.base, io.save = HealthyMonitor(), mock.Mock(), mock.Mock()
+            io.base.acm_parent_for_port.return_value = ("offline-tty", "offline-parent", "offline-serial")
+            channel = mock.Mock()
+            errors = PermissionError() if persistent else [PermissionError(), FileNotFoundError(), channel]
+            with mock.patch.object(r.time, "monotonic", side_effect=clock.monotonic), \
+                 mock.patch.object(r.time, "sleep", side_effect=clock.sleep), \
+                 mock.patch.object(r, "usb_snapshot", return_value={"vid": "18d1", "pid": "4ee7"}), \
+                 mock.patch.object(r, "SerialChannel", side_effect=errors) as opening, \
+                 mock.patch.object(r, "collect", return_value={"status": "COMPLETE"}) as capture:
+                result = io.observe()
+            if persistent:
+                self.assertEqual(result["status"], "NO_ACM_WITHIN_DEADLINE")
+                capture.assert_not_called()
+                self.assertLess(clock.now, 1.2)
+            else:
+                self.assertEqual(result["status"], "COMPLETE")
+                self.assertEqual(result["tty_open_retries"], 2)
+                self.assertEqual(opening.call_count, 3)
+                channel.close.assert_called_once()
+
+    def test_wrapped_command_echo_is_outside_the_result_frame(self):
+        echo = (f"{PREFIX}_OUT_META_%s_%s\\n' ...\r\n"
+                f"{PREFIX}_ERR_META_%s_%s\\n' ...\r\n"
+                f"{PREFIX}_APPLET_RC_%s_%s_%s_%s_%s_%s_%s\\n' ...\r\n"
+                f"{PREFIX}_RC_%s\\n' ...\r\n").encode()
+        self.assertTrue(r.parse_frame(echo + frame() + echo, PREFIX)["payload_integrity_verified"])
+        duplicate = frame().replace((PREFIX + "_APPLET_RC_0_0_0_0_0_0_0\n").encode(),
+                                    (PREFIX + "_APPLET_RC_0_0_0_0_0_0_0\n").encode() * 2)
+        with self.assertRaises(ValueError):
+            r.parse_frame(duplicate, PREFIX)
+
     def test_health_uses_time_since_sample_start(self):
         monitor = object.__new__(r.USBMonitor)
         monitor.drain = lambda: None

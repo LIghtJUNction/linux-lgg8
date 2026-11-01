@@ -109,8 +109,21 @@ collect a touch gesture, test suspend/resume, or validate a wakeup path; it
 only confirms registration during this normal boot. The result is recorded in
 `out/lgg8-c234-integration-20261101/run-20261101-045735-f7dc0504/result.json`.
 
-Do not treat the current recovery timer as a tested wakeup mechanism. The
-C234 configuration lacks `CONFIG_PM_DEBUG` and has the PM8xxx RTC driver as
+Do not treat the current recovery timer as a tested wakeup mechanism. A later
+read-only Android root snapshot identified `rtc0` as the PM8150 Qualcomm RTC;
+`/proc/driver/rtc` reported `alarm_IRQ: no` and `alrm_pending: no`, and
+`/sys/power/state` listed `freeze mem`. The RTC date read as 1970-01-08, not
+wall time. The snapshot is retained at
+`out/lgg8-qemu-pm-paired-20261101/observations/android-rtc-readonly.stdout`.
+It does not establish the clock's offset, wake capability, future alarm
+ownership, or that an alarm will recover a hung suspend. No alarm was set.
+Mainline `rtc-pm8xxx` probe enables the RTC; setting an alarm disables its
+existing alarm, writes alarm registers and may re-enable it. Its set-time path
+can also write an offset to persistent storage or modify the hardware clock.
+Thus adding this driver is not a passive observation, and its effects and
+wake path must be independently reviewed before a phone experiment.
+
+The C234 configuration lacks `CONFIG_PM_DEBUG` and has the PM8xxx RTC driver as
 a module not included in the initramfs. The user-space guardian can be frozen
 during system sleep, and the Qualcomm watchdog driver stops an active
 watchdog in its suspend callback. No automatic wake source or hard recovery

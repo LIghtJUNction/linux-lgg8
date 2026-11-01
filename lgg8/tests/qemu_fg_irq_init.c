@@ -95,7 +95,8 @@ static int target_event(const char *data, ssize_t len)
 {
 	bool action = false, subsystem = false, name = false, devpath = false;
 	bool voltage = false, current = false, capacity = false;
-	bool any_measurement = false;
+	unsigned int actions = 0, subsystems = 0, names = 0, devpaths = 0;
+	unsigned int presences = 0, voltages = 0, currents = 0, capacities = 0;
 	int present = -1;
 
 	for (ssize_t pos = 0; pos < len;) {
@@ -104,39 +105,60 @@ static int target_event(const char *data, ssize_t len)
 
 		if (size == remaining)
 			return -1;
-		if (!strcmp(data + pos, "ACTION=change"))
-			action = true;
-		if (!strcmp(data + pos, "SUBSYSTEM=power_supply"))
-			subsystem = true;
-		if (!strcmp(data + pos, TEST_NAME))
-			name = true;
-		if (!strcmp(data + pos, TEST_DEVPATH))
-			devpath = true;
-		if (!strcmp(data + pos, "POWER_SUPPLY_PRESENT=1"))
-			present = 1;
-		if (!strcmp(data + pos, "POWER_SUPPLY_PRESENT=0"))
-			present = 0;
-		if (!strncmp(data + pos, "POWER_SUPPLY_VOLTAGE_NOW=", 25) ||
-		    !strncmp(data + pos, "POWER_SUPPLY_CURRENT_NOW=", 25) ||
-		    !strncmp(data + pos, "POWER_SUPPLY_CAPACITY=", 22))
-			any_measurement = true;
-		if (!strcmp(data + pos, "POWER_SUPPLY_VOLTAGE_NOW=3999989"))
-			voltage = true;
-		if (!strcmp(data + pos, "POWER_SUPPLY_CURRENT_NOW=499999"))
-			current = true;
-		if (!strcmp(data + pos, "POWER_SUPPLY_CAPACITY=50"))
-			capacity = true;
+		if (!strncmp(data + pos, "ACTION=", 7)) {
+			actions++;
+			action |= !strcmp(data + pos, "ACTION=change");
+		} else if (!strncmp(data + pos, "SUBSYSTEM=", 10)) {
+			subsystems++;
+			subsystem |= !strcmp(data + pos, "SUBSYSTEM=power_supply");
+		} else if (!strncmp(data + pos, "POWER_SUPPLY_NAME=", 18)) {
+			names++;
+			name |= !strcmp(data + pos, TEST_NAME);
+		} else if (!strncmp(data + pos, "DEVPATH=", 8)) {
+			devpaths++;
+			devpath |= !strcmp(data + pos, TEST_DEVPATH);
+		} else if (!strncmp(data + pos, "POWER_SUPPLY_PRESENT=", 21)) {
+			presences++;
+			if (!strcmp(data + pos, "POWER_SUPPLY_PRESENT=1"))
+				present = 1;
+			else if (!strcmp(data + pos, "POWER_SUPPLY_PRESENT=0"))
+				present = 0;
+		} else if (!strncmp(data + pos, "POWER_SUPPLY_VOLTAGE_NOW=", 25)) {
+			voltages++;
+			voltage |= !strcmp(data + pos, "POWER_SUPPLY_VOLTAGE_NOW=3999989");
+		} else if (!strncmp(data + pos, "POWER_SUPPLY_CURRENT_NOW=", 25)) {
+			currents++;
+			current |= !strcmp(data + pos, "POWER_SUPPLY_CURRENT_NOW=499999");
+		} else if (!strncmp(data + pos, "POWER_SUPPLY_CAPACITY=", 22)) {
+			capacities++;
+			capacity |= !strcmp(data + pos, "POWER_SUPPLY_CAPACITY=50");
+		}
 		pos += (ssize_t)size + 1;
 	}
 	if (!name && !devpath)
 		return 0;
-	if (!action || !subsystem || !name || !devpath)
+	if (!action || actions != 1 || !subsystem || subsystems != 1 ||
+	    !name || names != 1 || !devpath || devpaths != 1 || presences != 1)
 		return -1;
-	if (present == 1 && voltage && current && capacity)
+	if (present == 1 && voltage && voltages == 1 && current && currents == 1 &&
+	    capacity && capacities == 1)
 		return 1;
-	if (present == 0 && !any_measurement)
+	if (present == 0 && !voltages && !currents && !capacities)
 		return 2;
 	return -1;
+}
+
+static void verify_duplicate_event_rejected(void)
+{
+	static const char duplicate[] =
+		"ACTION=change\0SUBSYSTEM=power_supply\0" TEST_NAME "\0" TEST_DEVPATH "\0"
+		"POWER_SUPPLY_PRESENT=1\0POWER_SUPPLY_VOLTAGE_NOW=3999989\0"
+		"POWER_SUPPLY_VOLTAGE_NOW=1\0POWER_SUPPLY_CURRENT_NOW=499999\0"
+		"POWER_SUPPLY_CAPACITY=50\0";
+
+	if (target_event(duplicate, sizeof(duplicate) - 1) != -1)
+		fail("duplicate event field accepted");
+	printf("LGG8_QEMU_IRQ: duplicate event rejected\n");
 }
 
 static int wait_event(int fd, int timeout_ms)
@@ -188,10 +210,12 @@ int main(void)
 	struct sockaddr_nl addr = { .nl_family = AF_NETLINK, .nl_groups = 1 };
 	char cmdline[512];
 	bool expect_reject;
+	unsigned int errors_before;
 	int module_fd, sock, fd, rc;
 	ssize_t n;
 
 	setvbuf(stdout, NULL, _IONBF, 0);
+	verify_duplicate_event_rejected();
 	mount_or_fail("proc", "/proc", "proc");
 	mount_or_fail("sysfs", "/sys", "sysfs");
 	mount_or_fail("devtmpfs", "/dev", "devtmpfs");
@@ -240,18 +264,22 @@ int main(void)
 	if (wait_event(sock, 5000) != 2)
 		fail("missing battery-absent event");
 	printf("LGG8_QEMU_IRQ: battery-absent event passed\n");
+	errors_before = read_count("io_error_count");
 	write_attr("mode", "3\n");
 	write_attr("trigger", "1\n");
 	wait_count("handler_count", 4);
-	wait_count("io_error_count", 1);
+	if (read_count("io_error_count") != errors_before + 1)
+		fail("injected read error count");
 	if (wait_event(sock, 1000) != 0)
 		fail("unexpected uevent on injected read error");
 	printf("LGG8_QEMU_IRQ: read error dropped uevent\n");
-	write_attr("mode", "1\n");
+	/* The error was consumed; do not change mode before the next trigger. */
 	write_attr("trigger", "1\n");
 	wait_count("handler_count", 5);
 	if (wait_event(sock, 5000) != 1)
 		fail("uevent did not recover after read error");
+	if (read_count("io_error_count") != errors_before + 1)
+		fail("unexpected extra read error");
 	printf("LGG8_QEMU_IRQ: recovery event passed\n");
 	close(sock);
 	if (syscall(SYS_delete_module, "lgg8_fg_irq_fixture", 0))

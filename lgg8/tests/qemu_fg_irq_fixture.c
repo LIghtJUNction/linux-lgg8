@@ -78,8 +78,9 @@ static int fixture_reg_read(void *context, unsigned int reg, unsigned int *value
 	    reg >= FIXTURE_SOC_BASE + sizeof(memory->registers))
 		return -EINVAL;
 	mutex_lock(&memory->lock);
-	/* Fail the first voltage byte; presence and the other registers still work. */
+	/* Fail one voltage read; presence and the other registers still work. */
 	if (memory->voltage_error && reg == FIXTURE_BATT_BASE + FG_VOLTAGE_OFFSET) {
+		memory->voltage_error = false;
 		atomic64_inc(&memory->io_error_count);
 		ret = -EIO;
 	} else {

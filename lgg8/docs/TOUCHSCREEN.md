@@ -472,3 +472,14 @@ but corrupted and did not establish the failure or reset cause. Records are in
 `out/lgg8-pm-test-20261101/pm-devices-20261101-104652-e780406c/`. Device-PM
 debug mode, even when it completes, does not establish actual system sleep or
 wake.
+
+A second RAM-only attempt used a detached process that writes its result to
+`/run` and tried to reconnect after USB re-enumeration. The host did not obtain
+any completed PM result: the reconnect attempts could not synchronize a shell,
+and the session ended with `USB binding or monitor lost during serial receive`.
+USB gadget re-enumeration alone does not prove that the PM callbacks completed.
+Android returned with slot and boot hashes verified, and passive monitoring
+passed. The full session is in
+`out/lgg8-pm-test-20261101/pm-devices-20261101-105758-06533efc/`. Further
+phone tests need a demonstrably reliable post-disconnect observation path; do
+not repeatedly equate a reappearing gadget with resumed user space.

@@ -47,3 +47,13 @@ freshness, actual charging stop, and fault protection remain unverified; do not
 use this experiment to enable or evaluate charging until those gaps have been
 resolved. Neither its offline tests nor recovery checks establish charging
 safety.
+
+`--reboot-after-capture` is disabled by default and requires explicit RAM-only
+execution. After a fully verified capture, it rechecks the monitor and ACM
+identity before requesting `busybox reboot -f` through the existing RAM shell.
+An intent marker is recorded separately from the unchanged Android recovery
+checks; loss of that marker does not prove the reboot failed or succeeded.
+The same transport and option were tested with C225, reducing one same-image
+session from 133.655 to 76.641 seconds. See `lgg8/docs/STATUS.md` for the
+separate device evidence. Tests mock the reboot command and never reboot the
+host or phone.

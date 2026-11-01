@@ -166,6 +166,7 @@ class OfflineTests(unittest.TestCase):
              mock.patch.object(r, "review", side_effect=AssertionError("review not reached")), \
              mock.patch("sys.stderr"):
             for args in (["--serial", "offline"], ["--execute-ram-only"],
+                         ["--reboot-after-capture"],
                          ["--execute-ram-only", "--serial", "bad serial"], ["--run"], ["boot"]):
                 with self.subTest(args=args), self.assertRaises(SystemExit):
                     r.entrypoint(args)
@@ -514,6 +515,49 @@ class BusyBoxScriptIntegration(unittest.TestCase):
 
 
 class IntegrityAndCoverageRegressions(unittest.TestCase):
+    def test_ram_reboot_request_is_not_a_recovery_receipt(self):
+        class RebootChannel(FakeChannel):
+            lost = False
+            def send(self, script, deadline):
+                if b"/bin/busybox reboot -f\n" not in script:
+                    return super().send(script, deadline)
+                self.sent.append(script)
+                if not self.lost:
+                    marker = re.search(rb"RAM_REBOOT_[A-F0-9]{24}", script)[0]
+                    self.buffer += b"\n" + marker + b"\n"
+        for lost in (False, True):
+            channel = RebootChannel()
+            channel.lost = lost
+            request = r.request_ram_reboot(channel, time.monotonic() + 1)
+            self.assertTrue(request["line_fully_sent"])
+            self.assertEqual(request["intent_marker_received"], not lost)
+            self.assertNotIn("android_return_verified", request)
+            self.assertEqual(sum(b"/bin/busybox reboot -f\n" in x for x in channel.sent), 1)
+        with self.assertRaises(ValueError):
+            r.capture_script(PREFIX, ["/bin/busybox", "reboot", "-f"])
+
+    def test_fast_reboot_requires_complete_capture_and_current_identity(self):
+        for status, changed, healthy in (("PASS", False, True), ("INCOMPLETE", False, True),
+                                          ("COMPLETE_WITH_ERRORS", False, True),
+                                          ("PASS", True, True), ("PASS", False, False)):
+            io = object.__new__(r.LiveIO)
+            io.boot_time = time.monotonic()
+            io.deadline, io.out = io.boot_time + 4, Path("offline")
+            io.reboot_after_capture, io.manifest = True, {}
+            io.monitor, io.base, io.save = mock.Mock(), mock.Mock(), mock.Mock()
+            io.monitor.healthy.side_effect = [True, healthy]
+            io.base.acm_parent_for_port.return_value = ("offline-tty", "offline-parent", "offline-serial")
+            snapshots = [{"vid": "18d1", "pid": "4ee7"}] * 3
+            if changed:
+                snapshots[-1] = {"vid": "1004", "pid": "631f"}
+            with mock.patch.object(r, "usb_snapshot", side_effect=snapshots), \
+                 mock.patch.object(r, "SerialChannel"), \
+                 mock.patch.object(r, "collect", return_value={"status": status}), \
+                 mock.patch.object(r, "request_ram_reboot", return_value={"line_fully_sent": True}) as reboot:
+                result = io.observe()
+            self.assertEqual(reboot.call_count, int(status == "PASS" and not changed and healthy))
+            self.assertEqual(result["status"], status)
+
     def test_tty_permission_race_retries_within_existing_deadline(self):
         class Clock:
             now = 0
@@ -524,6 +568,7 @@ class IntegrityAndCoverageRegressions(unittest.TestCase):
             io = object.__new__(r.LiveIO)
             io.deadline, io.boot_time, io.out = 1, 0, Path("offline")
             io.manifest = {}
+            io.reboot_after_capture = False
             io.monitor, io.base, io.save = HealthyMonitor(), mock.Mock(), mock.Mock()
             io.base.acm_parent_for_port.return_value = ("offline-tty", "offline-parent", "offline-serial")
             channel = mock.Mock()

@@ -212,7 +212,18 @@ the preceding touch candidate only by enabling `CONFIG_PM_DEBUG` and its
 and its compiled DTB matches that candidate byte for byte (SHA-256
 `90cd099ecb1666a9547c22a15fb88d441daef5d01240d672832655c76d2a9c86`).
 The build log and named artifact hashes are in that output directory. This is
-not a boot image and has not been run in QEMU or on the phone.
+not a boot image and has not been run in QEMU or on the phone. Both its
+configuration and the preceding `out/lgg8/kernel/.config` have
+`CONFIG_QCOM_WDT=y` but `CONFIG_WATCHDOG_SYSFS` disabled: the latter means the
+watchdog's optional identity/state/timeout sysfs attributes are not available.
+Do not treat a failed attribute read as evidence that the watchdog did not
+register. Opening `/dev/watchdog*` to issue an identity or timeout ioctl is
+also not a passive substitute: the watchdog core starts the timer on open.
+Its unexpected close need not stop the timer. Any such test therefore needs an
+explicit bounded arming, disarming/reboot and recovery plan, and must not be
+reported as a read-only observation. Driver presence and a device-tree node do
+not establish that this boot registered a working watchdog.
+[Watchdog core](../../drivers/watchdog/watchdog_dev.c).
 
 ## QEMU PM build-pairing blocker
 

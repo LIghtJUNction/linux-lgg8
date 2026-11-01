@@ -246,6 +246,15 @@ needs bounded deadlines, validated identity and recovery before opening the
 device, retained timing/serial evidence, and post-reset Android/slot/hash
 checks. A disconnect or reboot alone cannot establish watchdog causality.
 
+More importantly, an awake watchdog-reset test would not establish recovery
+from the full suspend sequence: `qcom_wdt_suspend()` stops an active watchdog
+in the late suspend callback and `qcom_wdt_resume()` restarts it. Recovery
+coverage therefore depends on where a hang occurs, and whether the timer and
+its clock actually run at that point; neither has been proven. Do not run the
+awake probe merely to claim a suspend hang is recoverable. A separate,
+independently validated recovery mechanism is still required before relying
+on unattended suspend testing.
+
 ## QEMU PM build-pairing blocker
 
 The draft run at

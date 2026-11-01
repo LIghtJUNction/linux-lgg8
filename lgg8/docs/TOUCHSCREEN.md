@@ -193,6 +193,10 @@ teardown. Seven existing PM cases and the non-virt rejection also passed.
 The `s2idle` entry banner identifies the requested mode, not actual entry:
 `pm_test=devices` stops before `suspend_enter()`. The saved run is
 `out/lgg8-qemu-pm-debug-20261101/runs/run-20261101-084239-81e607bd/`.
+A follow-up repeated the system PM operation twice in the same boot: each
+normal cycle again produced 2/1 stop/active writes, while both negative-control
+cycles remained 0/0. The repeat is retained at
+`out/lgg8-qemu-pm-debug-20261101/runs/run-20261101-084448-e8577319/`.
 Its private kernel, headers and symbol list came from one fresh build; the
 kernel-only `vmlinux.symvers` was copied into that private build for module
 modpost. This does not repair or prove C232 ABI compatibility and it does not

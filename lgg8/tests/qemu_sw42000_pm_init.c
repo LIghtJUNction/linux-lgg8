@@ -90,15 +90,17 @@ int main(void)
 	if (system_pm) {
 		int stop_before, active_before, stop_after, active_after;
 
-		read_bus_counts(&stop_before, &active_before);
 		write_file("/sys/power/pm_test", "devices\n");
-		write_file("/sys/power/state", "freeze\n");
-		read_bus_counts(&stop_after, &active_after);
-		printf("SW42000_QEMU_GUEST: system PM bus deltas stop=%d active=%d\n",
-		       stop_after - stop_before, active_after - active_before);
-		if (negative ? (stop_after != stop_before || active_after != active_before) :
-		    (stop_after <= stop_before || active_after <= active_before))
-			fail("system PM callback assertions");
+		for (int cycle = 0; cycle < 2; cycle++) {
+			read_bus_counts(&stop_before, &active_before);
+			write_file("/sys/power/state", "freeze\n");
+			read_bus_counts(&stop_after, &active_after);
+			printf("SW42000_QEMU_GUEST: system PM bus deltas cycle=%d stop=%d active=%d\n",
+			       cycle, stop_after - stop_before, active_after - active_before);
+			if (negative ? (stop_after != stop_before || active_after != active_before) :
+			    (stop_after <= stop_before || active_after <= active_before))
+				fail("system PM callback assertions");
+		}
 		if (syscall(SYS_delete_module, "sw42000_pm_fixture", O_NONBLOCK))
 			fail("system PM module unload");
 		finish(negative ? "system PM negative passed" : "system PM devices passed");

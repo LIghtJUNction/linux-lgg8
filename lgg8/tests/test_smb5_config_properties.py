@@ -30,6 +30,7 @@ def production_definitions(source):
                 r"^static enum power_supply_property qcom_smb5_properties\[\] = \{.*?^\};",
                 r"^static int qcom_smb5_get_property\(.*?^\}",
                 r"^static const struct power_supply_desc qcom_smb5_desc = \{.*?^\};",
+                r"^static int qcom_smb5_get_mid_chg\(.*?^\}",
                 r"^static int qcom_smb5_probe\(.*?^\}"]
     blocks = []
     for i, pattern in enumerate(patterns):
@@ -50,10 +51,21 @@ def run(compiler, sanitized):
     pmic_header = (ROOT / "include/soc/qcom/qcom-spmi-pmic.h").read_text()
     pmic_subtype = re.search(r"^#define PM8150B_SUBTYPE\s+(0x[0-9a-fA-F]+)",
                              pmic_header, re.MULTILINE).group(1)
+    adc_source = (ROOT / "drivers/iio/adc/qcom-spmi-adc5.c").read_text()
+    adc_common = (ROOT / "drivers/iio/adc/qcom-vadc-common.c").read_text()
+    fidelity = []
+    for text, pattern in ((adc_source, r"^static const struct adc5_channels adc5_chans_pmic\[.*?^\};"),
+                          (adc_common, r"^static const struct u32_fract adc5_prescale_ratios\[\] = \{.*?^\};")):
+        matches = list(re.finditer(pattern, text, re.MULTILINE | re.DOTALL))
+        if len(matches) != 1:
+            raise RuntimeError(f"Cannot extract ADC5 default data: {pattern}")
+        fidelity.append(matches[0].group())
     unit = f"#define PM8150B_SUBTYPE {pmic_subtype}\n" + template.replace(
         marker, production_definitions(SOURCE.read_text()))
+    unit = unit.replace("/* ACTUAL_ADC5_DEFAULT_DATA */", "\n".join(fidelity))
     flags = ["-pipe", "-std=gnu11", "-O2", "-Wall", "-Wextra", "-Werror",
-             "-Wconversion", "-Wsign-conversion", "-fPIC"]
+             "-Wconversion", "-Wsign-conversion", "-fPIC", "-include",
+             str(ROOT / "include/dt-bindings/iio/qcom,spmi-vadc.h")]
     if sanitized:
         runtime = subprocess.check_output(
             [compiler, "-print-file-name=libubsan.so"], text=True).strip()

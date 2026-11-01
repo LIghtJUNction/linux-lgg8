@@ -202,6 +202,21 @@ the PM8150B ADC at `0x3100` and MID_CHG channel `0x1e` with 1:6 scaling.
 See the [ADC5 conversion and channel mapping](../../drivers/iio/adc/qcom-spmi-adc5.c),
 its [voltage scaling](../../drivers/iio/adc/qcom-vadc-common.c), and an
 [IIO-to-power-supply unit conversion example](../../drivers/power/supply/axp20x_usb_power.c).
+
+Before registering its supply when MID_CHG is configured, the SMB5 observer checks
+the DT provider, its PMIC parent and base, channel number and prescaling, then
+checks the acquired IIO provider and voltage type. Invalid topology is rejected
+before this observer can initiate an ADC conversion; no-ADC configurations
+remain supported. This check does not protect other ADC consumers, detect
+runtime DT changes after ADC probe, or validate the actual voltage. The existing
+IIO channel-acquisition path has no proven protection against a concurrent
+provider unbind when firmware device links are permissive; the new checks do
+not fix that core lifetime limitation. A later provider removal can cause
+reads through the old handle to fail, rather than switch to a re-bound device.
+The actual-source local harness covers the valid and absent configurations,
+bad topology, scaling, provider errors and cleanup; the current ARM64 object
+build and the C232 DTB's targeted schema check passed. The checks have not
+been exercised on the phone.
 It does not configure charge control. Repeated USB presence checks cannot rule
 out a detach and reattach or voltage renegotiation between them. Neither this
 voltage nor the separate USBIN sample proves a negotiated contract, a physically

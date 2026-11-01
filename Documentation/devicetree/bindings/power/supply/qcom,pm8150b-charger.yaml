@@ -23,7 +23,15 @@ properties:
 
   io-channels:
     maxItems: 1
-    description: PM8150B MID_CHG voltage ADC channel.
+    description: |
+      The single ADC5_MID_CHG_DIV6 channel of a qcom,spmi-adc5 provider at
+      register base 0x3100 under the same PM8150B node as this charger. The
+      provider must have exactly one available child with that channel's reg.
+      Its qcom,pre-scaling must be <1 6>, or omitted to use ADC5's 1/6 default.
+      ADC5 reports this processed voltage in microvolts; another IIO voltage
+      provider cannot be substituted based on its channel name or type alone.
+      The consumer driver validates the referenced topology before registering
+      its power supply. These cross-node constraints are not schema-enforced.
 
   io-channel-names:
     items:

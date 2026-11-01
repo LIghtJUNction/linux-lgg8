@@ -907,3 +907,11 @@ C231 使用未启用 FG 新中断的 C230 设备树（SHA-256 `4100160e…`）�
 RAM-only 镜像 SHA-256 `175ba646b6d0c2041c0cbaac3dbf4cca11d9643abd69115f1065d8d54b264adf`。运行时设备树中断编号、名称、父控制器均已核对，`/proc/interrupts` 出现三个对应名称；两次快照均为 0，期间没有观察到中断事件。63/63 项采样通过，保留的内核日志中未匹配到 IRQ 事务或 ownership 错误；USB 1-2 被动监视覆盖和日志完整性通过，Android 返回 `_b`，boot_a 和 boot_b 哈希未变。记录 `out/lgg8-c232-fg-irq-20261101/run-20261101-025220-d84d56bd/result.json` 的 SHA-256 为 `002e40c18f83a063f70253860b43999117eedc06097ea742cf0830b5aa2de1e2`。
 
 设备树编译时新建一个控制器 phandle，使 148 个属性中的 phandle 或引用编号随之变化；逐项校验确认这些变化符合各节点的 phandle 映射，另外只有三个 FG 中断属性和控制器 phandle 四项新增。本次只证明注册和有限时间内的采样，没有真实中断投递、长期稳定性、防风暴或温度保护验收。
+
+### C234：新版触屏初始化与 SMB5 来源校验的真机启动
+
+C234 根据源码提交 `2cac5083555092d953d7ec439385a7ffd16d197f` 构建；构建收据的 tracked diff 为空，但仓库还有一个无关的未跟踪测试文件，故收据仍标记 `source_dirty=true`。相对 C232，本次内核包含触屏、SMB5 和 TCPM 等多项源码变更，不是单变量实验。独立解包确认除内核区域外，shim、initramfs、设备树及原厂 DTB 尾部均与 C232 完全一致；bootargs 和模板也一致。镜像 SHA-256 `ba0c132ed95352fdad20daec3f7382a9172aeb6bb76ce75894f5733ddfd15515`，Image SHA-256 `260bb07e8435165d6b8b3f98cf1f2322bb2974b12a152e54168819fb76d67bea`。
+
+一次 RAM-only 启动后，ACM 采集 64/64 项通过：`/proc/bus/input/devices` 中出现 `LG SW42000 Touchscreen` 和 `event2`；`/proc/interrupts` 中出现触屏对应的 GPIO 122 中断，两次快照计数均为 0。新 SMB5 驱动绑定并返回 `VOLTAGE_NOW=4741734 µV`，前后两次 MID_CHG 直接读数均为 `4735896 µV`。这些是顺序读数，不是校准或供电协议验收；本次未验证实际触摸动作或 suspend/resume。三个 FG 中断两次快照仍为 0，未观察到真实中断投递。Type-C 节点保持禁用，不能从本次推断 TCPM 修改的真机表现。
+
+采集时充电使能命令字为 `0x01`，USB suspend 命令字为 `0x00`；本次未写充电控制参数，但继承充电仍有可能，不能称为停充或已验证温控。ADC 转换、FG IRQ 和触屏初始化会写各自的硬件配置。USB 1-2 全程被动监视及完整性检查通过；采集完成后请求复位，Android 返回 `_b`、`boot_completed=1`，boot ID 轮转且 boot_a/boot_b 哈希均未变。运行结果 `out/lgg8-c234-integration-20261101/run-20261101-045735-f7dc0504/result.json` 的 SHA-256 为 `402d098597950888df02204dc952a9185999cc0034a69e332b11a68f99382f7c`。未写分区，温度新鲜度、充电保护、快充和长期稳定性均未验收。

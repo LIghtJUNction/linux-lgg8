@@ -587,8 +587,9 @@ Android 恢复到 `_b`，`boot_completed=1`，boot ID 轮转，boot_a/boot_b
 `ca1650e77b3252d58a830e0a5520dc2ceb825b5e3af40b24a983da7d8eb8b1e2`。
 
 C227 验证的是就绪位为高的满电情况；异常返回路径由本机模拟测试覆盖。
-后续源码将未就绪和影子字节持续不一致改为返回 `-ENODATA`，避免中止
-power-supply uevent；这项返回码修正尚未由 C227 镜像真机验证。
+后续源码将未就绪及电量、电压、电流影子字节持续不一致改为返回
+`-ENODATA`，避免中止 power-supply uevent；这项返回码修正尚未由 C227
+镜像真机验证。
 
 ### C226：电池电量百分比只读通路
 

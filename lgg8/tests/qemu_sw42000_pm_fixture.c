@@ -388,10 +388,20 @@ static ssize_t status_show(struct kobject *k, struct kobj_attribute *a, char *bu
 			  atomic_read(&fx.pm_starts), atomic_read(&fx.pm_ends));
 }
 
+/* Read-only observations of simulated bus writes, also usable when the
+ * real /sys/power/state path drives the PM dispatcher instead of the worker.
+ */
+static ssize_t bus_counts_show(struct kobject *k, struct kobj_attribute *a, char *buf)
+{
+	return sysfs_emit(buf, "%d %d\n", atomic_read(&fx.stop_writes),
+			  atomic_read(&fx.active_writes));
+}
+
 static struct kobj_attribute run_attribute = __ATTR_WO(run);
 static struct kobj_attribute status_attribute = __ATTR_RO(status);
+static struct kobj_attribute bus_counts_attribute = __ATTR_RO(bus_counts);
 static struct attribute *fixture_attrs[] = {
-	&run_attribute.attr, &status_attribute.attr, NULL,
+	&run_attribute.attr, &status_attribute.attr, &bus_counts_attribute.attr, NULL,
 };
 static const struct attribute_group fixture_group = { .attrs = fixture_attrs };
 static const struct i2c_device_id fixture_ids[] = { { "sw42000-pm-qemu", 0 }, { } };

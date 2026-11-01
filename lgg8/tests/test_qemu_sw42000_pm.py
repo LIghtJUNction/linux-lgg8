@@ -211,7 +211,7 @@ def verify_undefined(module, env):
     return sorted(names)
 
 
-def execute(report, generated):
+def execute(report, generated, system_pm=False):
     global RUN_RECORD
     pressure = pressure_gate()  # Before any recursive walk, mkdir or compiler.
     for p, key in ((SOURCE, "driver_sha256"), (HEADER, "protocol_sha256"),
@@ -333,6 +333,11 @@ def execute(report, generated):
                     raise RuntimeError(f"{name} guest assertions/kernel diagnostics failed")
                 if name != "guard" and b"SW42000_QEMU_PM: cleanup passed" not in log:
                     raise RuntimeError(f"{name} did not complete module teardown")
+                if name.startswith("system-pm"):
+                    for required in (b"suspend debug: Waiting for", b"PM: suspend exit",
+                                     b"SW42000_QEMU_GUEST: system PM bus deltas"):
+                        if required not in log:
+                            raise RuntimeError(f"{name}: missing real system PM evidence {required!r}")
                 if name == "normal":
                     for i in range(7):
                         if f"SW42000_QEMU_PM: scenario {i} passed".encode() not in log:
@@ -340,6 +345,10 @@ def execute(report, generated):
 
             boot("normal", "", "device PM integration passed")
             boot("negative", " sw42000.negative=1", "missing-PM negative control passed")
+            if system_pm:
+                boot("system-pm", " sw42000.system_pm=1", "system PM devices passed")
+                boot("system-pm-negative", " sw42000.system_pm=1 sw42000.negative=1",
+                     "system PM negative passed")
             dtb = work / "virt.dtb"
             run(["qemu-system-aarch64", "-machine", f"virt,gic-version=3,dumpdtb={dtb}",
                  "-cpu", "cortex-a76", "-smp", "1", "-m", "512M", "-nodefaults",
@@ -356,6 +365,7 @@ def execute(report, generated):
                           initramfs_sha256=digest(initramfs), boot_log_sha256=logs,
                           full_undefined_symbol_audit=imports, physical_phone_tested=False,
                           exact_irq_depth_proven=False, system_sleep_entry_tested=False,
+                          system_pm_devices_tested=system_pm,
                           io_pressure_before_run=pressure, space_first_readouts=space)
         finally:
             # On failures too: never silently claim the existing build stayed intact.
@@ -366,15 +376,26 @@ def execute(report, generated):
 
 
 def main():
+    global BUILD, RECEIPT, RESULTS
     p = argparse.ArgumentParser(description=__doc__)
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="read-only checks (default)")
     mode.add_argument("--run", action="store_true", help="private module build and QEMU; pressure gated")
+    p.add_argument("--system-pm", action="store_true",
+                   help="also run pm_test=devices on the dedicated PM-debug QEMU kernel")
     args = p.parse_args()
+    if args.system_pm:
+        if not args.run:
+            p.error("--system-pm requires --run")
+        BUILD = ROOT / "out/lgg8-qemu-pm-debug-20261101/kernel"
+        RECEIPT = BUILD.parent / "paired-provenance.json"
+        RESULTS = BUILD.parent / "runs"
+        if "CONFIG_PM_DEBUG=y\n" not in (BUILD / ".config").read_text():
+            raise RuntimeError("System PM test requires CONFIG_PM_DEBUG")
     report, generated = check_static()
     report["io_pressure"] = io_pressure()
     if args.run:
-        report = execute(report, generated)
+        report = execute(report, generated, args.system_pm)
         (RUN_RECORD / "result.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))
 

@@ -184,6 +184,20 @@ the PM flow locally and establish a practical recovery method. Neither this
 test nor a returned USB connection proves real sleep, wakeup, or touch input
 after resume. Do not count injected input events as physical touch acceptance.
 
+A separate diskless QEMU `virt` test now exercises this actual userspace
+`pm_test=devices` entry, using the complete SW42000 driver and simulated I2C,
+GPIO and IRQ. In the normal boot, simulated stop/active writes increased by
+2/1; with the driver's PM table deliberately removed, they increased by 0/0.
+Both boots logged the five-second PM test delay, suspend exit and clean module
+teardown. Seven existing PM cases and the non-virt rejection also passed.
+The `s2idle` entry banner identifies the requested mode, not actual entry:
+`pm_test=devices` stops before `suspend_enter()`. The saved run is
+`out/lgg8-qemu-pm-debug-20261101/runs/run-20261101-084239-81e607bd/`.
+Its private kernel, headers and symbol list came from one fresh build; the
+kernel-only `vmlinux.symvers` was copied into that private build for module
+modpost. This does not repair or prove C232 ABI compatibility and it does not
+exercise actual phone hardware, late/noirq suspend or real sleep.
+
 A private local-only diagnostic kernel was built at
 `out/lgg8-pm-test-20261101/kernel/` from tracked commit
 `9c58979846d96501a4136b17bab7226cbe625bdd`. Its effective config differs from

@@ -222,10 +222,16 @@ it only for an intentional tap. A matching event stream alone does not prove
 physical origin: combine it with a timed human tap and IRQ observation; do not
 inject events. It does not issue suspend or change charger settings.
 
-The observer has not yet been installed in an initramfs or run on the phone.
-Its synthetic self-tests are not physical input evidence. Before using it,
-review and independently verify the packaged candidate, USB observer,
-recovery deadline and before/after Android, slot and boot hashes.
+A local diagnostic initramfs was created by inserting the ARM64 observer into
+the SHA-256-pinned C198 USB-shell initramfs, without overwriting the original.
+The builder verifies every pre-existing newc entry retains its mode and bytes;
+the rest of the original archive before its trailer is copied verbatim. The
+candidate `out/lgg8-touch-candidate-20261101/touch-initramfs.cpio` has SHA-256
+`b23d48adb4d3a7aed61de18dab7dcf0bb0d54b5bab026a27563d6819785c99a8`.
+It has not been packaged into a boot image or run on the phone. Synthetic
+self-tests are not physical input evidence. Before using it, review and
+independently verify the packaged candidate, USB observer, recovery deadline
+and before/after Android, slot and boot hashes.
 
 ## Android axis comparison (C235)
 

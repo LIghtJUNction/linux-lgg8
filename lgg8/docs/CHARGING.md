@@ -1012,6 +1012,13 @@ The same capture read charge-enable command `0x01` and USB-suspend command
 proof of a safe power path. USB power and inherited charging remained possible;
 no charge current, voltage, or enable setting was changed for this test. ADC
 conversions and IRQ setup still require their own PMIC configuration writes.
+The one FG RR temperature byte read was `0x22`; the same capture read RR
+status `0x02`, thermistor configuration `0x02`, and period configuration
+`0x01`. Under the historical signed-byte encoding `0x22` would correspond to
+34 °C, but the current Gen4 getter uses a different SRAM representation and
+the byte's freshness and calibration remain unproven. A single read and the
+status/configuration bytes do not establish periodic updates or thermal
+protection.
 Android returned with both boot partitions unchanged. The full result is
 `out/lgg8-c234-integration-20261101/run-20261101-045735-f7dc0504/result.json`
 (SHA-256 `402d098597950888df02204dc952a9185999cc0034a69e332b11a68f99382f7c`).

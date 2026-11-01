@@ -866,7 +866,12 @@ observer must prioritize the latched stop and wait for an independently
 confirmed stop. If a callback hangs, the stop caller can also remain blocked.
 The experiment does not solve contract revocation, object lifetime, bounded
 hardware response, or physical stop confirmation and must not be wired to
-charging on the strength of its offline tests.
+charging on the strength of its offline tests. A further host-only GCC
+ThreadSanitizer run passed the same 1,373 scenarios without a reported data
+race (`out/lgg8-pm-reconnect-20261101/charging-tsan.stdout`). This checks only
+the exercised host interleavings: atomic accesses can be data-race-free while
+still allowing the known stop/resume ordering window, and the result does not
+prove bounded callbacks or a physical stop.
 
 The PM8150B charger watchdog is not yet established as a fail-safe. In the
 fixed LG downstream source, initialization clears the bite-disable-charging

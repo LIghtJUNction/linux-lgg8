@@ -168,11 +168,16 @@ The target Android DT identifies channel `0x1e` and 1:6 prescaling for MID_CHG.
 The board DT and status driver now provide this channel as an optional USB
 `VOLTAGE_NOW` source, with USB presence checked before and after the ADC read.
 Values below 1 V are returned as unavailable, following the downstream warning
-without borrowing its inferred adapter-voltage fallback. The new source path
-has passed offline probe/getter and binding tests; hardware validation is still
-pending. It requests ADC conversions and does not configure charge control.
-Neither this voltage nor the separate USBIN sample proves a negotiated contract,
-a physically safe input, or a confirmed shutdown.
+without borrowing its inferred adapter-voltage fallback. C230 on the phone
+reported 4,929,366 µV through the new property, between direct MID_CHG reads
+of 4,920,804 and 4,929,756 µV; Android read about 4.71 V in separate boots.
+These are not simultaneous or independent calibrated measurements. The property
+requests ADC conversions even when the power-supply core reads it while building
+a uevent, so ADC configuration writes can occur without an explicit user read.
+It does not configure charge control. Repeated USB presence checks cannot rule
+out a detach and reattach or voltage renegotiation between them. Neither this
+voltage nor the separate USBIN sample proves a negotiated contract, a physically
+safe input, or a confirmed shutdown.
 [PM8150B downstream voltage path](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L3245-L3343).
 
 C213 adds voltage-only IIO channels for the PM8150B battery thermistor at the
@@ -200,6 +205,14 @@ simultaneous or independent calibration measurements, and three adjacent
 samples do not establish longer-term freshness. Skin and cell temperature can
 differ substantially, so this is an additional observation, not an independent
 cell thermometer or a validated charging-protection input.
+
+The downstream Alpha USA virtual thermal sensor is a software combination of
+XO and skin readings, not a third independent measurement: its source defines
+`0.226 * XO + 0.633 * skin + 2.47 °C`. The saved Android XO/skin values
+34.202/33.635 °C reproduce its reported 31.490 °C within rounding. This checks
+the formula against one snapshot, not the absolute accuracy of either sensor or
+the battery temperature.
+[Downstream virtual sensor coefficients](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/thermal/qcom/qti_virtual_sensor.c#L212-L223).
 
 The ADC reads request conversions and write ADC configuration registers;
 they are not a zero-PMIC-write observation. The same run saw USB

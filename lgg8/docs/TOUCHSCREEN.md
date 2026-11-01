@@ -176,6 +176,28 @@ generated header, type layout, namespace or license flag. It is not permission
 to patch the release string or load a module. No phone boot, real suspend,
 module load or charging acceptance was performed by either audit.
 
+### Dedicated QEMU PM build (not C232)
+
+A separately built minimal ARM64 QEMU kernel from source commit
+`da9abdc8584c9dbac95ec7589f8bffcb99b22e2c` used
+`lgg8/tests/qemu_sw42000_pm.config` with `allnoconfig`, followed by `Image`
+and `modules_prepare`. Its Image, generated headers and export manifest come
+from that private build, not the uncertain C232 artifacts. The Image SHA-256
+is `0c6544cefe42da00ab063745a008362d19f09b87610d88468fbc1e21c2559d52`.
+The resulting fixture loaded and ran seven device-PM scenarios, with missing-PM
+and non-virt negative controls and teardown. The full log and build provenance
+are in `out/lgg8-qemu-pm-paired-20261101/`; the passing run is
+`out/lgg8-qemu-pm-paired-20261101/runs/run-20261101-063141-340b12f2/`.
+The initial private build lacked `scripts/module.lds`; `modules_prepare` fixed
+that. A subsequent run executed the scenarios but could not see the info-level
+teardown marker at `loglevel=6`; the passing run used `loglevel=7`.
+
+This is a real device-PM core with a simulated bus and touch controller, not
+real system sleep, retained phone power, physical IRQ or touch input. It does
+not resolve the C232 header provenance or prove C232 module ABI. The fresh
+QEMU configuration is not a phone image. The private build and receipt are
+local artifacts, not a claim that another build is byte-identical.
+
 ## Android axis comparison (C235)
 
 On the running Android device, read-only `getevent -lp` reported `touch_dev`

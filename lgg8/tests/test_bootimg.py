@@ -400,6 +400,24 @@ class BuildTests(unittest.TestCase):
             new_input.write_text("CONFIG_DRM_MSM_DPU_PSTORE_DIAG=n\n")
             second = b.build_provenance(repo, effective)
             self.assertNotEqual(first["untracked_tree_sha256"], second["untracked_tree_sha256"])
+            self.assertTrue(second["untracked_content_complete"])
+
+            # This is a separate synthetic repository, not the protected real file.
+            protected = repo / "lgg8/tests/test_c208_empty_client_runner.py"
+            protected.parent.mkdir(parents=True)
+            protected.write_text("synthetic private data\n")
+            real_open = Path.open
+            def deny_protected(path, *args, **kwargs):
+                if path == protected:
+                    raise AssertionError("protected file was opened")
+                return real_open(path, *args, **kwargs)
+            with patch.object(Path, "open", deny_protected):
+                incomplete = b.build_provenance(repo, effective)
+            self.assertTrue(incomplete["source_dirty"])
+            self.assertEqual(incomplete["untracked_file_count"], 2)
+            self.assertEqual(incomplete["untracked_content_omitted_count"], 1)
+            self.assertFalse(incomplete["untracked_content_complete"])
+            self.assertIsNone(incomplete["untracked_tree_sha256"])
 
     def test_kernel_build_receipt_binds_exact_kernel_dtb_and_config(self):
         receipt_path = self.root / "kernel-build-provenance.json"

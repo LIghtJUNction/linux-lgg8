@@ -513,9 +513,17 @@ def build_provenance(repo_root, config_path=None):
 
     untracked_hash = hashlib.sha256()
     untracked_count = 0
+    omitted_untracked = 0
+    # The owner explicitly excluded this pre-existing file from the task.
+    # Match its Git-relative path before any filesystem access, including stat.
+    protected_untracked = {b"lgg8/tests/test_c208_empty_client_runner.py"}
     if untracked is not None:
         for name in untracked.split(b"\0"):
             if not name:
+                continue
+            if name in protected_untracked:
+                omitted_untracked += 1
+                untracked_count += 1
                 continue
             path = repo_root / os.fsdecode(name)
             untracked_hash.update(name + b"\0")
@@ -568,7 +576,11 @@ def build_provenance(repo_root, config_path=None):
         "source_dirty": bool(status) if status is not None else None,
         "tracked_diff_sha256": sha(diff) if diff is not None else None,
         "untracked_file_count": untracked_count if untracked is not None else None,
-        "untracked_tree_sha256": untracked_hash.hexdigest() if untracked is not None else None,
+        # Never present a partial hash as the complete untracked tree.
+        "untracked_tree_sha256": (untracked_hash.hexdigest()
+                                  if untracked is not None and not omitted_untracked else None),
+        "untracked_content_complete": (not omitted_untracked if untracked is not None else None),
+        "untracked_content_omitted_count": omitted_untracked if untracked is not None else None,
         "effective_config": config,
         "config_symbols": symbols,
         "seed_config": seed_config,

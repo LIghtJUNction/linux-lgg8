@@ -446,3 +446,9 @@ cause, and this observation does not establish watchdog-controlled recovery or
 safety during suspend. The full run is in
 `out/lgg8-touch-candidate-20261101/watchdog-reset-20261101-102801-6a1af497/`.
 No suspend was attempted.
+
+As noted above, the driver stops an actively opened watchdog during late
+suspend, so an awake expiry cannot establish a reset deadline for a hung
+suspend. Behavior for an inherited running watchdog with no active userspace
+owner is distinct and has not been proven on this phone. Do not enter suspend
+relying on this watchdog as the sole recovery mechanism.

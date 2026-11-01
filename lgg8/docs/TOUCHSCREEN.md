@@ -57,7 +57,8 @@ later successful resume or rebind.
 
 The driver does not contain firmware upgrade, bus factory-test, gesture or
 vendor sysfs code. It does not read or write firmware files. Real-device
-suspend/resume and a runtime Linux EVIOCGABS comparison remain open.
+suspend/resume remains open. A later RAM-only run captured Linux EVIOCGABS
+ranges and a contact event, with the qualifications recorded below.
 
 ## Offline parser check
 
@@ -95,9 +96,9 @@ boot partition hashes before and after.
 
 For repeat acceptance, confirm that `LG SW42000 Touchscreen` appears in
 `/proc/bus/input/devices`, then tap and drag on the Weston desktop. Candidate
-C210 passed the user's tap/drag observation. Probe logs, runtime Linux
-EVIOCGABS-coordinate comparison, suspend/resume, and gesture support remain
-open; parser and build success do not establish those behaviors.
+C210 passed the user's tap/drag observation. Probe logs, suspend/resume, and gesture support remain open. A later
+RAM-only run captured Linux EVIOCGABS ranges; parser and build success alone do
+not establish any of these behaviors.
 
 C234 booted the newer touch driver from source revision
 `2cac5083555092d953d7ec439385a7ffd16d197f` and observed a single
@@ -279,9 +280,10 @@ source. The changed DTB address reflects the larger initramfs. See
 proof that the shim executes or resets successfully on the phone. The ARM64
 observer's synthetic self-test also passed under QEMU user mode.
 
-The image has not been run on the phone. Synthetic self-tests are not physical
-input evidence. Before using it, review and independently verify the USB
-observer, recovery deadline and before/after Android, slot and boot hashes.
+The image was subsequently run on the phone as described below. Synthetic
+self-tests are not physical input evidence. For any future use, review the USB
+observer and recovery deadline and verify Android, slot and boot hashes before
+and after.
 
 ## RAM-only coordinate candidate touch capture
 

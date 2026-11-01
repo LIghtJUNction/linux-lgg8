@@ -70,7 +70,7 @@ def elf_export_sections(elf, image):
     return checked
 
 
-def audit(build, receipt_path):
+def audit(build, receipt_path, symvers_path=None):
     receipt = json.loads(receipt_path.read_text())
     image = (build / "arch/arm64/boot/Image").read_bytes()
     config = (build / ".config").read_bytes()
@@ -82,7 +82,8 @@ def audit(build, receipt_path):
                         text=True).stdout
     binary_exports = {line.split()[0][len("__ksymtab_"):]
                       for line in nm.splitlines() if line.startswith("__ksymtab_")}
-    symvers = (build / "Module.symvers").read_bytes()
+    symvers_path = symvers_path if symvers_path is not None else build / "Module.symvers"
+    symvers = symvers_path.read_bytes()
     claimed_exports = {fields[1] for line in symvers.decode().splitlines()
                        if len(fields := line.split()) >= 4 and fields[2] == "vmlinux"}
     generated = dict(re.findall(r"^#define (CONFIG_\w+) (.+)$",
@@ -100,6 +101,7 @@ def audit(build, receipt_path):
         "checks": checks,
         "elf_export_sections_bound_to_image": sections,
         "image_sha256": sha(image), "vmlinux_sha256": sha(elf),
+        "symvers_path": str(symvers_path),
         "symvers_sha256": sha(symvers), "config_sha256": sha(config),
         "image_export_count": len(binary_exports),
         "symvers_vmlinux_export_count": len(claimed_exports),
@@ -161,11 +163,13 @@ if __name__ == "__main__":
     parser.add_argument("--build", type=Path, default=root / "out/lgg8/kernel")
     parser.add_argument("--receipt", type=Path,
                         default=root / "out/lgg8-c232-fg-irq-20261101/build-provenance.json")
+    parser.add_argument("--symvers", type=Path,
+                        help="inspect a candidate without replacing the build's Module.symvers")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         unittest.main(argv=[__file__])
     else:
-        report = audit(args.build, args.receipt)
+        report = audit(args.build, args.receipt, args.symvers)
         print(json.dumps(report, indent=2))
         raise SystemExit(0 if all(report["checks"].values()) else 1)

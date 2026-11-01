@@ -152,8 +152,29 @@ reproducible build. The audit does not prove source/header ABI compatibility,
 namespace/license metadata or runtime PM even if all its tripwires pass.
 
 The complete local audit is retained at
-`out/lgg8-pairing-audit-20261101/pairing.json`. No phone boot, real suspend,
-module load or charging acceptance was performed by this audit.
+`out/lgg8-pairing-audit-20261101/pairing.json`. A second, read-only candidate
+check can select the existing kernel-only manifest without replacing anything:
+
+```sh
+python3 -B lgg8/tests/check_qemu_build_pairing.py \
+  --symvers out/lgg8/kernel/vmlinux.symvers
+```
+
+That candidate returns `PAIRING_TRIPWIRES_PASS`, with `abi_proven=false`;
+its 12,893 built-in export names exactly match the binary. Candidate manifest
+SHA-256 is
+`42e5cbb9113e2f2ea68992c15786c6852619e9ced145fd6d5174bd286a91b0c4`.
+The result is retained at
+`out/lgg8-pairing-audit-20261101/vmlinux-symvers-candidate.json`.
+`scripts/Makefile.modpost` selects `vmlinux.symvers` for a kernel-only build,
+but an external-module build reads `Module.symvers`. This explains how a
+kernel-only rebuild can coexist with an obsolete module manifest. The extra
+names in the old manifest do not by themselves prove that this particular
+fixture imports a missing symbol; its complete imports must still be checked
+against the binary. Matching export names does not authenticate every
+generated header, type layout, namespace or license flag. It is not permission
+to patch the release string or load a module. No phone boot, real suspend,
+module load or charging acceptance was performed by either audit.
 
 ## Android axis comparison (C235)
 

@@ -67,7 +67,7 @@ static int fg_check_audit(const struct qcom_fg_dma_audit *a,
 	}
 	if (!fg_reference(a->transaction_reference) || !a->verify_live)
 		return -EINVAL;
-	if (ktime_compare(ktime_get(), a->valid_until) >= 0)
+	if (ktime_compare(ktime_get_boottime(), a->valid_until) >= 0)
 		return -ESTALE;
 	return 0;
 }
@@ -77,12 +77,12 @@ static int fg_verify_live(const struct qcom_fg_dma_audit *a,
 {
 	int rc;
 
-	if (ktime_compare(ktime_get(), a->valid_until) >= 0)
+	if (ktime_compare(ktime_get_boottime(), a->valid_until) >= 0)
 		return -ESTALE;
 	rc = a->verify_live(a->cookie, phase);
 	if (rc)
 		return rc < 0 ? rc : -EIO;
-	if (ktime_compare(ktime_get(), a->valid_until) >= 0)
+	if (ktime_compare(ktime_get_boottime(), a->valid_until) >= 0)
 		return -ESTALE;
 	return 0;
 }
@@ -131,13 +131,13 @@ static int fg_wait_grant(struct regmap *map, const struct qcom_fg_dma_audit *aud
 
 	usleep_range(40, 41);
 	for (i = 0; i < FG_GRANT_POLLS; i++) {
-		if (ktime_compare(ktime_get(), audit->valid_until) >= 0)
+		if (ktime_compare(ktime_get_boottime(), audit->valid_until) >= 0)
 			return -ESTALE;
 		rc = regmap_read_bypassed(map, FG_MEM_STATUS, &value);
 		if (rc)
 			return rc;
 		if (value & FG_MEM_GRANT)
-			return ktime_compare(ktime_get(), audit->valid_until) < 0 ?
+			return ktime_compare(ktime_get_boottime(), audit->valid_until) < 0 ?
 				0 : -ESTALE;
 		usleep_range(10000, 10001);
 	}

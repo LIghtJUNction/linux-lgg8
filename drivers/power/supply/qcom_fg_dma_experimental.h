@@ -70,7 +70,7 @@ struct qcom_fg_dma_audit {
 	enum qcom_fg_dma_variant variant;
 	const char *transaction_reference; /* Includes device and current boot ID. */
 	struct qcom_fg_dma_evidence evidence[QCOM_FG_DMA_REQUIREMENT_COUNT];
-	ktime_t valid_until; /* CLOCK_MONOTONIC; expiry is checked at every phase. */
+	ktime_t valid_until; /* CLOCK_BOOTTIME; expires during suspend too. */
 	/*
 	 * Mandatory sleepable read-only verifier, called with interface_lock held.
 	 * Return 0 ONLY while ALL requirements hold for this device/current boot,

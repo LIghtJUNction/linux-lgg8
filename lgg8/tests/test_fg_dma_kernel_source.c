@@ -9,7 +9,7 @@
 #include "../../drivers/power/supply/qcom_fg_dma_experimental.c"
 
 static unsigned int checks, cases, warnings;
-static atomic_int_fast64_t now_ns;
+static atomic_int_fast64_t now_ns, suspended_ns;
 static unsigned int sleeps;
 #define CHECK(c) do { checks++; if (!(c)) { \
     fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #c); \
@@ -17,6 +17,8 @@ static unsigned int sleeps;
 
 int test_kernel_warn(bool c) { warnings += c; return c; }
 ktime_t ktime_get(void) { return atomic_load(&now_ns); }
+ktime_t ktime_get_boottime(void)
+{ return atomic_load(&now_ns) + atomic_load(&suspended_ns); }
 int ktime_compare(ktime_t a, ktime_t b) { return (a > b) - (a < b); }
 void might_sleep(void) { }
 void usleep_range(unsigned long lo, unsigned long hi)
@@ -135,6 +137,7 @@ struct fixture {
     unsigned int live_calls[4];
     int live_rc[4];
     int expire_phase;
+    int suspend_phase;
 };
 static int verifier(void *cookie, enum qcom_fg_dma_phase phase)
 {
@@ -145,6 +148,8 @@ static int verifier(void *cookie, enum qcom_fg_dma_phase phase)
     f->live_calls[phase]++;
     if (f->expire_phase == (int)phase)
         atomic_store(&now_ns, f->audit.valid_until);
+    if (f->suspend_phase == (int)phase)
+        atomic_store(&suspended_ns, f->audit.valid_until);
     return f->live_rc[phase];
 }
 static void setup(struct fixture *f)
@@ -154,6 +159,7 @@ static void setup(struct fixture *f)
     cases++;
     memset(f, 0, sizeof(*f));
     atomic_store(&now_ns, 0);
+    atomic_store(&suspended_ns, 0);
     sleeps = 0;
     CHECK(pthread_mutex_init(&f->lock.native, NULL) == 0);
     atomic_init(&f->lock.attempts, 0);
@@ -169,6 +175,7 @@ static void setup(struct fixture *f)
     f->map.regs[0x4350] = 4;
     f->map.regs[0x4858] = 100;
     f->expire_phase = -1;
+    f->suspend_phase = -1;
     CHECK(qcom_fg_dma_experimental_init(&f->ctx, &f->map, &f->lock) == 0);
     f->audit.variant = QCOM_FG_DMA_VARIANT_PM8150B_V2;
     /* Deliberately forged test inputs. These are NOT hardware evidence. */
@@ -535,9 +542,42 @@ static void test_time_live_partial_and_drop(void)
     }
 }
 
+static void test_suspend_expiration(void)
+{
+    static const enum qcom_fg_dma_stage stages[] = {
+        QCOM_FG_DMA_LIVE_BEFORE_ACCESS, QCOM_FG_DMA_LIVE_BEFORE_REQUEST,
+        QCOM_FG_DMA_LIVE_AFTER_DATA, QCOM_FG_DMA_LIVE_BEFORE_PUBLISH,
+    };
+    struct fixture f;
+    struct qcom_fg_dma_result r;
+    unsigned int i;
+
+    setup(&f);
+    atomic_store(&suspended_ns, f.audit.valid_until);
+    CHECK(ktime_get() == 0); /* Monotonic did not advance during suspend. */
+    CHECK(qcom_fg_dma_experimental_read_draft(&f.ctx, &f.audit, &r) == -ESTALE);
+    invalid(&r, -ESTALE, QCOM_FG_DMA_AUDIT);
+    no_bus(&f);
+    teardown(&f);
+
+    for (i = 0; i < ARRAY_SIZE(stages); i++) {
+        setup(&f);
+        f.suspend_phase = i;
+        CHECK(qcom_fg_dma_experimental_read_draft(&f.ctx, &f.audit, &r) == -ESTALE);
+        invalid(&r, -ESTALE, stages[i]);
+        CHECK(ktime_get() < f.audit.valid_until);
+        if (i < 2)
+            no_requests(&f);
+        else
+            released(&f);
+        teardown(&f);
+    }
+}
+
 int main(void)
 {
     test_public_hard_block();
+    test_suspend_expiration();
     test_arguments_and_null_audit();
     test_draft_gates();
     test_preflight();

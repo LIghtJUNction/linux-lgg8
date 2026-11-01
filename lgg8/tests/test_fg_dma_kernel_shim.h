@@ -57,6 +57,7 @@ struct regmap {
 
 int test_kernel_warn(bool condition);
 ktime_t ktime_get(void);
+ktime_t ktime_get_boottime(void);
 int ktime_compare(ktime_t a, ktime_t b);
 void might_sleep(void);
 void usleep_range(unsigned long lower, unsigned long upper);

@@ -508,7 +508,13 @@ prove device identity or exclusive ownership. Cached regmap reads and
 read-modify-write operations can also misrepresent hardware state. A successful
 transaction alone would not validate sample freshness, calibration or battery
 temperature. These gaps must be resolved with device-specific evidence before
-the draft is connected to a running kernel.
+the draft is connected to a running kernel. The private draft now checks audit
+expiry using `CLOCK_BOOTTIME`, which includes suspend time, rather than
+`CLOCK_MONOTONIC`, which stops during suspend. The offline actual-source test
+simulates suspend before entry and during each verifier phase, including a
+negative control using the old clock. This expiry check does not replace the
+required awake/ownership hold, prove that the sensor converted, or authorize
+any hardware access.
 
 For the current source tree, the PM8150B observer gets its regmap from the
 parent `qcom,spmi-pmic` device. That driver's `spmi_regmap_config` does not

@@ -63,6 +63,15 @@ class RunnerTest(unittest.TestCase):
                 device.capture_touch()
             collector.assert_not_called()
 
+    def test_desktop_notification_success_and_failure_are_bounded(self):
+        with patch.object(runner.subprocess, "run", return_value=types.SimpleNamespace(returncode=0)) as run:
+            self.assertTrue(runner.notify_user("title", "message"))
+            self.assertEqual(run.call_args.kwargs["timeout"], 1)
+        with patch.object(runner.subprocess, "run", side_effect=FileNotFoundError):
+            self.assertFalse(runner.notify_user("title", "message"))
+        with patch.object(runner.subprocess, "run", side_effect=runner.subprocess.TimeoutExpired("notify-send", 1)):
+            self.assertFalse(runner.notify_user("title", "message"))
+
     def test_guard_checks_every_send_and_receive(self):
         raw = types.SimpleNamespace(send=lambda data, deadline: data,
                                     until=lambda predicate, deadline: predicate(b"data"),

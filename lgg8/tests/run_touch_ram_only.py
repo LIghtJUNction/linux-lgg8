@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import secrets
 import signal
+import subprocess
 import sys
 import time
 
@@ -43,6 +44,16 @@ def review():
     return {"candidate": candidate, "legacy_sha256": LEGACY_SHA,
             "device_execution": False, "physical_touch_verified": False,
             "suspend_verified": False, "charging_safety_verified": False}
+
+
+def notify_user(title, message):
+    """Best-effort desktop notification; never block device recovery."""
+    try:
+        return subprocess.run(["notify-send", title, message], timeout=1,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              check=False).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 class GuardedChannel:
@@ -111,10 +122,15 @@ class DeviceIO:
                                 inner.base.acm_parent_for_port() == located)
                     if not healthy():
                         raise RuntimeError("ACM identity changed while opening")
+                    notification = {"attempted": False, "sent": False}
                     def ready():
                         print("READY: 请在手机屏幕轻触并抬起，限时 20 秒。", flush=True)
+                        notification["attempted"] = True
+                        notification["sent"] = notify_user(
+                            "LG G8 触摸测试", "请现在轻触手机屏幕并抬起，限时 20 秒。")
                     guarded = GuardedChannel(channel, healthy)
                     result = collect(guarded, legacy, inner.manifest, healthy, ready, end)
+                    result["desktop_notification"] = notification
                     result["usb_binding"] = {"tty": str(node), "parent": str(parent),
                                              "gadget_serial": serial, "snapshot": fingerprint}
                     if result["status"] == "PASS" and healthy():

@@ -16,6 +16,8 @@ description: |
   The SW42000 touchscreen controller used by the LG G8 ThinQ. The controller
   uses a vendor-specific I2C register protocol and reports up to ten contacts.
   Firmware updates are intentionally outside this binding and driver.
+  Coordinates are 14-bit values. Each configured minimum must be less than
+  the corresponding touchscreen size minus one.
 
 properties:
   compatible:
@@ -41,6 +43,20 @@ properties:
       - const: default
 
   pinctrl-0: true
+
+  touchscreen-size-x:
+    minimum: 2
+    maximum: 16384
+
+  touchscreen-size-y:
+    minimum: 2
+    maximum: 16384
+
+  touchscreen-min-x:
+    maximum: 16383
+
+  touchscreen-min-y:
+    maximum: 16383
 
 unevaluatedProperties: false
 

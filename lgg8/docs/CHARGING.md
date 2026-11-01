@@ -180,7 +180,8 @@ as a C213 crash trace. C213's boot image
 SHA-256 is `c7ef8a33234ff230b43b075a3ca36990ef6bd73fe422f7c9ad53c070ec7e0c2e`;
 evidence is in `out/lgg8-c213-battery-sense-20261031/`.
 
-Neither candidate wrote charger registers or enabled charging. Before
+Neither candidate intentionally requested charger-control writes; inherited
+charging may still have continued. Before
 charge-control work, add reviewed battery-side current/temperature and fault
 telemetry, establish ownership of termination and thermal protections, then
 connect TCPM through an SMB5-owned, verified input-control interface. No
@@ -787,8 +788,8 @@ suspend sets bit 0 of `USBIN_CMD_IL_REG` (charger base + `0x340`). These are
 different operations: suspending the input also affects system power, while
 disabling battery charging does not itself prove that input current is zero.
 The status observer exposes the raw charging-enable command byte as
-`charge_enable_command` on demand; it does not modify that byte. This new
-attribute has not yet been verified on the device. A command bit reports a
+`charge_enable_command` on demand; it does not modify that byte. C228 read
+`0x01` from this attribute. A command bit reports a
 requested state, not actual battery current, the effective power path, or
 availability of temperature and fault protections.
 The observer also exposes the separate raw `charge_pause_command` byte

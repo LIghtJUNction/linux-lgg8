@@ -517,7 +517,16 @@ is not independently authenticated, and these returns alone do not prove which
 callbacks ran. Android returned on slot `_b`; both boot partition hashes
 matched the preflight values. Passive USB 1-2 monitoring covered the session.
 See `out/lgg8-pm-reconnect-20261101/pm-devices-20261101-115337-e9b0e4fc/`.
-This was device-PM debug mode, not actual system sleep, and did not capture a
+A second RAM-only `pm_test=devices` run enabled `pm_print_times` temporarily.
+Its captured kernel log shows `sw42000_suspend` called and returning 0 after
+30,851 µs, then `sw42000_resume` called and returning 0 after 50,416 µs, for
+`lge-sw42000 2-0028`. The PM state write and reset also returned 0; the
+result was read after re-enumeration. This is observational log evidence, not
+an authenticated receipt. Android returned on `_b`, both boot partition hashes
+matched preflight, and passive USB 1-2 monitoring covered the run. See
+`out/lgg8-pm-reconnect-20261101/pm-devices-20261101-121354-c897e6dd/`.
+
+These were device-PM debug mode, not actual system sleep, and did not capture a
 post-resume touch event. The shell restart cannot fix a kernel or userspace
-that did not resume; neither this run nor the QEMU test proves real sleep,
+that did not resume; neither these runs nor the QEMU test proves real sleep,
 touch recovery, or charging safety.

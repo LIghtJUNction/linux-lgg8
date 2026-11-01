@@ -14,6 +14,7 @@ import time
 import pm_devices_detached
 import run_touch_ram_only as touch
 import touch_capture_adapter
+import touch_stream_capture
 from touch_session import run_session
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,14 +45,23 @@ def check():
             'device_acceptance': 'NOT_TESTED', 'boot_authorized': False}
 
 
+def post_pm_capture(channel, event, deadline, healthy, notify_ready, capture=touch_stream_capture.capture):
+    now = time.monotonic()
+    if now + 24 >= deadline:
+        raise RuntimeError('insufficient recovery budget for post-PM touch')
+    return capture(channel, event, min(deadline - 4, now + 23), healthy, notify_ready)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute-ram-only', action='store_true')
     parser.add_argument('--serial')
+    parser.add_argument('--touch-after-pm', action='store_true',
+                        help='request a human tap after a completed device-PM test')
     args = parser.parse_args()
     if not args.execute_ram_only:
-        if args.serial is not None:
-            parser.error('serial requires --execute-ram-only')
+        if args.serial is not None or args.touch_after_pm:
+            parser.error('serial and touch capture require --execute-ram-only')
         print(json.dumps({'candidate': check(), 'device_execution': False,
                           'real_sleep_verified': False}, indent=2))
         return
@@ -68,7 +78,6 @@ def main():
     io = touch.DeviceIO(args.serial, output)
     signals = []
     def collect(channel, event, deadline, healthy, notify_ready):
-        del event, notify_ready
         legacy, inner = io.legacy, io.inner
         plan = pm_devices_detached.plan(secrets.token_hex(12).upper())
         original = legacy.usb_snapshot()
@@ -80,6 +89,7 @@ def main():
                   'real_sleep_verified': False, 'touch_after_resume_verified': False,
                   'capture_authenticated': False}
         retry = 0
+        touch_started = False
         # Give the detached process time to complete the 5 s devices test.
         time.sleep(8)
         while time.monotonic() < deadline - 8:
@@ -117,12 +127,21 @@ def main():
                     continue
                 result = found
                 result['read_after_reenumeration'] = new_channel is not None
+                if args.touch_after_pm and result['status'] == 'PASS':
+                    touch_started = True
+                    touch_result = post_pm_capture(guarded, event, deadline, bound, notify_ready)
+                    result['post_pm_touch'] = touch_result
+                    if touch_result['status'] != 'PASS':
+                        result['status'] = 'FAILED'
                 if new_channel is not None and bound():
                     result['reboot_request'] = legacy.request_ram_reboot(
                         guarded, min(deadline, time.monotonic() + 4))
                 break
             except (EOFError, TimeoutError, OSError, RuntimeError) as exc:
                 result['error'] = repr(exc)
+                result['status'] = 'FAILED'
+                if touch_started:
+                    break
                 time.sleep(0.2)
             finally:
                 if new_channel is not None:

@@ -211,6 +211,22 @@ not resolve the C232 header provenance or prove C232 module ABI. The fresh
 QEMU configuration is not a phone image. The private build and receipt are
 local artifacts, not a claim that another build is byte-identical.
 
+### Bounded evdev observer (local only)
+
+`lgg8/tests/sw42000_event_probe.c` is a diagnostic prototype for a future
+RAM-only run. It opens a selected event node read-only, requires the exact
+SW42000 device name and MT X/Y axis ioctls, then waits at most 20 seconds for
+a tracking-ID contact, in-range coordinates and release on the same slot.
+Overflow (`SYN_DROPPED`) invalidates the capture. It logs coordinates, so run
+it only for an intentional tap. A matching event stream alone does not prove
+physical origin: combine it with a timed human tap and IRQ observation; do not
+inject events. It does not issue suspend or change charger settings.
+
+The observer has not yet been installed in an initramfs or run on the phone.
+Its synthetic self-tests are not physical input evidence. Before using it,
+review and independently verify the packaged candidate, USB observer,
+recovery deadline and before/after Android, slot and boot hashes.
+
 ## Android axis comparison (C235)
 
 On the running Android device, read-only `getevent -lp` reported `touch_dev`

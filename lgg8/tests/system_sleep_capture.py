@@ -7,6 +7,7 @@ USB identity, deadlines, recovery, and post-wake input capture.
 """
 import re
 import shlex
+import time
 
 
 _NONCE = re.compile(r'[A-F0-9]{24}')
@@ -34,6 +35,32 @@ def plan(nonce):
               f"/bin/busybox setsid /bin/busybox sh -c {shlex.quote(body)} "
               f"</dev/null >{path} 2>&1 &\n")
     return {'path': path, 'prefix': marker, 'launch': launch.encode('ascii')}
+
+
+def read_record(channel, healthy, nonce, deadline, read_nonce):
+    """Read a completed /run record over an already validated channel."""
+    if (not isinstance(nonce, str) or not _NONCE.fullmatch(nonce) or
+            not isinstance(read_nonce, str) or not _NONCE.fullmatch(read_nonce)):
+        raise ValueError('invalid nonce')
+    if not healthy():
+        raise RuntimeError('USB binding or monitor lost')
+    path = plan(nonce)['path']
+    marker = ('SYSREAD_' + read_nonce).encode('ascii')
+    offset = len(channel.buffer)
+    command = (f"/bin/busybox cat {path} 2>/dev/null; "
+               f"printf '\\nSYSREAD_{read_nonce}\\n'\n").encode('ascii')
+    channel.send(command, deadline)
+
+    def receipt(data):
+        if not healthy():
+            raise RuntimeError('USB binding or monitor lost')
+        lines = data[offset:].replace(b'\r', b'').split(b'\n')[:-1]
+        if marker not in lines:
+            return None
+        return b'\n'.join(lines[:lines.index(marker)]) + b'\n'
+
+    raw = channel.until(receipt, min(deadline, time.monotonic() + 4))
+    return parse(raw, nonce)
 
 
 def parse(data, nonce):

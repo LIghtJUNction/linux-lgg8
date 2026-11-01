@@ -64,6 +64,32 @@ class SystemSleepCaptureTest(unittest.TestCase):
                     self.assertEqual(state.read_text(), 'freeze\n' if '[none]' in selection else 'freeze mem\n')
                     self.assertEqual(pm_test.read_text(), selection + '\n')
 
+    def test_read_record_checks_identity_and_complete_frames(self):
+        nonce = self.nonce
+        prefix = ('SYSFREEZE_' + nonce).encode()
+        body = b'\n'.join([prefix + b'_READY', prefix + b'_RETURN_0',
+                           prefix + b'_LOG_BEGIN', prefix + b'_LOG_END', prefix + b'_DONE']) + b'\n'
+
+        class Channel:
+            buffer = b'old\n'
+            def __init__(self, payload):
+                self.payload = payload
+            def send(self, command, deadline):
+                self.command = command
+            def until(self, predicate, deadline):
+                return predicate(self.buffer + self.command + self.payload +
+                                 b'\nSYSREAD_' + b'B' * 24 + b'\n')
+
+        result = capture.read_record(Channel(body), lambda: True, nonce, 10**9, 'B' * 24)
+        self.assertEqual(result['status'], 'PASS')
+        self.assertIsNone(capture.read_record(Channel(prefix + b'_READY\n'), lambda: True,
+                                              nonce, 10**9, 'B' * 24))
+        with self.assertRaises(RuntimeError):
+            capture.read_record(Channel(body), lambda: False, nonce, 10**9, 'B' * 24)
+        for bad in ('', 'A' * 23 + ';'):
+            with self.assertRaises(ValueError):
+                capture.read_record(Channel(body), lambda: True, nonce, 10**9, bad)
+
     def test_fail_closed_and_whole_lines(self):
         p = ('SYSFREEZE_' + self.nonce).encode()
         ready, ret, begin, end, done = [p + suffix for suffix in

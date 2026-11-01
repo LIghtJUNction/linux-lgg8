@@ -158,7 +158,12 @@ static void old_measurements_and_raw_attrs(void)
     f.map.bytes[0x41a2] = f.map.bytes[0x41a8] = 0xff;
     assert(get(&f, POWER_SUPPLY_PROP_CURRENT_NOW, &value) == 0 && value.intval == 488);
     f.map.bytes[0x41a7] = 0;
-    assert(get(&f, POWER_SUPPLY_PROP_VOLTAGE_NOW, &value) == -EAGAIN);
+    value.intval = 1234;
+    assert(get(&f, POWER_SUPPLY_PROP_VOLTAGE_NOW, &value) == -ENODATA);
+    assert(value.intval == 1234);
+    f.map.bytes[0x41a8] = 0;
+    assert(get(&f, POWER_SUPPLY_PROP_CURRENT_NOW, &value) == -ENODATA);
+    assert(value.intval == 1234);
     f.map.read_count = 0;
     for (size_t i = 0; fg_observer_attrs[i]; i++) {
         struct device_attribute *attr = (struct device_attribute *)fg_observer_attrs[i];

@@ -164,7 +164,7 @@ static int fg_observer_read_pair(struct qcom_fg_observer *fg, u32 offset,
 			return 0;
 		}
 	}
-	return -EAGAIN;
+	return -ENODATA;
 }
 
 static enum power_supply_property fg_observer_properties[] = {

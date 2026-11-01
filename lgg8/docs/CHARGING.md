@@ -238,7 +238,8 @@ C227 observed SOC status `0xc2` and capacity 100% twice in mainline, after the
 same Android boot reported 100%; both boot hashes again remained unchanged.
 The shared gauge is not an independent calibration. C227 used `-EAGAIN` for
 unavailable data; a later source change uses `-ENODATA` so unavailable capacity
-does not discard the rest of a power-supply uevent. The later error path has
+or persistently mismatched voltage/current pairs do not discard the rest of a
+power-supply uevent. The later error paths have
 offline coverage but was not exercised on C227 hardware. The driver does not yet
 send change notifications when this value changes. This full-battery check does not
 validate other charge levels, a cold boot, update freshness or safe charging;

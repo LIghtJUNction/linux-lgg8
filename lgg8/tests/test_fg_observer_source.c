@@ -17,6 +17,7 @@ static void setup(struct fixture *f, int count)
     f->map.bytes[0x4305] = 0x0d;
     f->map.bytes[0x4205] = 0x13;
     f->map.bytes[0x4005] = 0x10;
+    f->map.bytes[0x4010] = 0x02;
 }
 static void done(struct fixture *f)
 {
@@ -161,7 +162,10 @@ static void old_measurements_and_raw_attrs(void)
     f.map.read_count = 0;
     for (size_t i = 0; fg_observer_attrs[i]; i++) {
         struct device_attribute *attr = (struct device_attribute *)fg_observer_attrs[i];
-        assert(attr->show(&f.pdev.dev, attr, text) > 0);
+        if (attr == &dev_attr_soc_realtime_status)
+            assert(attr->show(&f.pdev.dev, attr, text) == -EOPNOTSUPP);
+        else
+            assert(attr->show(&f.pdev.dev, attr, text) > 0);
     }
     done(&f);
 }
@@ -172,6 +176,7 @@ static void legacy_rradc_attrs_unsupported(void)
         &dev_attr_rradc_realtime_status,
         &dev_attr_rradc_therm_config,
         &dev_attr_rradc_therm_period,
+        &dev_attr_soc_realtime_status,
     };
     struct fixture f;
     char text[4096] = "unchanged";
@@ -246,9 +251,10 @@ static void capacity_measurements(void)
         assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == 0);
         assert(value.intval >= previous && value.intval <= 100);
         if (raw > 0 && raw < 255) assert(value.intval >= 1 && value.intval <= 99);
-        assert(f.map.read_count == 4 && f.map.reads[0] == 0x4210 &&
-               f.map.reads[1] == 0x4009 && f.map.reads[2] == 0x400a &&
-               f.map.reads[3] == 0x4210);
+        assert(f.map.read_count == 6 && f.map.reads[0] == 0x4210 &&
+               f.map.reads[1] == 0x4010 && f.map.reads[2] == 0x4009 &&
+               f.map.reads[3] == 0x400a && f.map.reads[4] == 0x4010 &&
+               f.map.reads[5] == 0x4210);
         previous = value.intval;
     }
     for (size_t i = 0; i < ARRAY_SIZE(examples); i++) {
@@ -262,15 +268,15 @@ static void capacity_measurements(void)
     f.map.bytes[0x400a] = 0x45;
     value.intval = 1234;
     assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -EAGAIN);
-    assert(value.intval == 1234 && f.map.read_count == 11);
+    assert(value.intval == 1234 && f.map.read_count == 12);
     f.map.read_count = 0;
-    f.map.change_at_count = 5;
+    f.map.change_at_count = 6;
     f.map.change_reg = 0x400a;
     f.map.change_value = 0x44;
     assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == 0);
-    assert(f.map.read_count == 6);
+    assert(f.map.read_count == 8);
     f.map.change_at_count = 0;
-    for (unsigned int error_at = 1; error_at <= 4; error_at++) {
+    for (unsigned int error_at = 1; error_at <= 6; error_at++) {
         f.map.read_count = 0;
         f.map.fail_at_count = error_at;
         f.map.read_error = -ETIMEDOUT;
@@ -287,13 +293,27 @@ static void capacity_measurements(void)
     assert(value.intval == 1234 && f.map.read_count == 1);
     f.map.read_count = 0;
     f.map.bytes[0x4210] = 0;
-    f.map.change_at_count = 4;
+    f.map.change_at_count = 6;
     f.map.change_reg = 0x4210;
     f.map.change_value = 1;
     assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -ENODEV);
-    assert(value.intval == 1234 && f.map.read_count == 4);
+    assert(value.intval == 1234 && f.map.read_count == 6);
+    f.map.change_at_count = 0;
+    f.map.read_count = 0;
+    f.map.bytes[0x4210] = 0;
+    f.map.bytes[0x4010] = 0;
+    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -EAGAIN);
+    assert(value.intval == 1234 && f.map.read_count == 2);
+    f.map.read_count = 0;
+    f.map.bytes[0x4010] = 2;
+    f.map.change_at_count = 5;
+    f.map.change_reg = 0x4010;
+    f.map.change_value = 0;
+    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -EAGAIN);
+    assert(value.intval == 1234 && f.map.read_count == 5);
     done(&f);
     for (int count = 2; count <= 3; count++) {
+        char text[4096];
         setup(&f, count);
         assert(fg_observer_probe(&f.pdev) == 0);
         assert(!advertises(&f, POWER_SUPPLY_PROP_CAPACITY));
@@ -301,6 +321,10 @@ static void capacity_measurements(void)
         value.intval = 1234;
         assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -EOPNOTSUPP);
         assert(value.intval == 1234 && f.map.read_count == 0);
+        assert(dev_attr_soc_realtime_status.show(&f.pdev.dev,
+                                                &dev_attr_soc_realtime_status,
+                                                text) == -EOPNOTSUPP);
+        assert(f.map.read_count == 0);
         done(&f);
     }
 }
@@ -309,30 +333,31 @@ static void raw_attrs_propagate_read_errors(void)
     const struct {
         struct device_attribute *attr;
         unsigned int reg;
-        bool rradc;
+        int min_count;
     } attrs[] = {
-        { &dev_attr_battery_temp_status, 0x4106, false },
-        { &dev_attr_battery_presence_status, 0x4107, false },
-        { &dev_attr_battery_temp_rr_raw, 0x4288, true },
-        { &dev_attr_rradc_realtime_status, 0x4210, true },
-        { &dev_attr_rradc_therm_config, 0x4281, true },
-        { &dev_attr_rradc_therm_period, 0x4282, true },
-        { &dev_attr_algorithm_peek_config, 0x41ee, false },
-        { &dev_attr_memory_realtime_status, 0x4310, false },
-        { &dev_attr_memory_arbitration_config, 0x4340, false },
-        { &dev_attr_memory_interface_config, 0x4350, false },
-        { &dev_attr_dma_status, 0x4370, false },
-        { &dev_attr_dma_config, 0x4371, false },
+        { &dev_attr_battery_temp_status, 0x4106, 2 },
+        { &dev_attr_battery_presence_status, 0x4107, 2 },
+        { &dev_attr_battery_temp_rr_raw, 0x4288, 3 },
+        { &dev_attr_rradc_realtime_status, 0x4210, 3 },
+        { &dev_attr_rradc_therm_config, 0x4281, 3 },
+        { &dev_attr_rradc_therm_period, 0x4282, 3 },
+        { &dev_attr_soc_realtime_status, 0x4010, 4 },
+        { &dev_attr_algorithm_peek_config, 0x41ee, 2 },
+        { &dev_attr_memory_realtime_status, 0x4310, 2 },
+        { &dev_attr_memory_arbitration_config, 0x4340, 2 },
+        { &dev_attr_memory_interface_config, 0x4350, 2 },
+        { &dev_attr_dma_status, 0x4370, 2 },
+        { &dev_attr_dma_config, 0x4371, 2 },
     };
     const int errors[] = { -EIO, -ETIMEDOUT };
     char text[4096], unchanged[4096];
     memset(unchanged, 0xa5, sizeof(unchanged));
-    for (int count = 2; count <= 3; count++) {
+    for (int count = 2; count <= 4; count++) {
         struct fixture f;
         setup(&f, count);
         assert(fg_observer_probe(&f.pdev) == 0);
         for (size_t i = 0; i < ARRAY_SIZE(attrs); i++) {
-            if (count == 2 && attrs[i].rradc) continue;
+            if (count < attrs[i].min_count) continue;
             for (size_t j = 0; j < ARRAY_SIZE(errors); j++) {
                 f.map.fail_reg = attrs[i].reg;
                 f.map.read_error = errors[j];

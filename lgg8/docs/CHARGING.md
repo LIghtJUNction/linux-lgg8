@@ -196,7 +196,8 @@ attempts fail. A new implementation must explicitly track a matching pair and
 return an error when no match is obtained. Neither the sign convention nor
 current accuracy has yet been validated on this mainline boot.
 
-The experimental observer exposes only voltage and current getters. The
+The experimental observer exposes voltage, current, battery presence and an
+optional gauge-capacity getter. The
 power-supply core can call those getters while creating or publishing uevents,
 so registration may itself cause register reads; it is not an on-demand-only
 interface. Each getter performs the bounded main/shadow comparison separately,
@@ -214,8 +215,11 @@ driver reads its monotonic SOC and shadow as two adjacent bytes at offsets
 with interior values rounded to 1–99%. The observer can now expose this
 scaled gauge value as `CAPACITY` when its optional fourth `reg` entry supplies
 that peripheral; older two- and three-address nodes retain their properties.
-It checks battery presence before and after the pair and returns read errors
-or `-EAGAIN` on persistent mismatch. It does not initialize the fuel gauge,
+It checks battery presence and the downstream-defined SOC-ready status bit
+before and after the pair, and returns read errors or `-EAGAIN` for an
+unasserted ready bit or persistent mismatch. A high ready bit is a necessary
+check here, not proof that the profile is initialized or the sample is fresh.
+It does not initialize the fuel gauge,
 load or verify a battery profile, or reproduce LG's UI smoothing/full overrides.
 The reported gauge value may be inherited or stale and must not be used as a
 temperature or charging-safety signal.
@@ -228,6 +232,12 @@ at one full-battery point, not low-SOC or cold-boot validation. Reading BMS
 temperature can use the vendor driver's SRAM arbitration. The capture is
 `out/lgg8-c226-soc-probe-20261101/android-registers.txt`.
 [Downstream direct SOC reader and scaling](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-util.c#L876-L926).
+C226, which preceded the SOC-ready gate, then reported 100% twice on mainline
+in a RAM-only boot and returned to Android with both boot hashes unchanged.
+The new SOC-ready check still requires hardware validation. The driver does not yet send change
+notifications when this value changes. This single full-battery check does not
+validate other charge levels, a cold boot, update freshness or safe charging;
+see [STATUS.md](STATUS.md) for image and capture identities.
 
 With the user's permission, a later Android observation on 2026-10-31
 21:23:37–21:23:54 UTC read five sequential samples about four seconds apart.
@@ -581,6 +591,16 @@ exported `TEMP` may additionally apply current-dependent and table-based
 corrections, filters, or a 25 °C startup fallback, so it is not an independent
 raw calibration reference. Neither the SRAM getter nor an SRAM grant supplies
 an observation timestamp or proves that a conversion just completed.
+
+As an offline consistency check, the retained Android sample `8b 00` decodes
+to 34.7 °C. For the alpha profile's 31–37 °C table segment, the downstream
+integer interpolation gives a +0.4 °C bias. Assuming zero current compensation
+and no filter, the resulting 35.1 °C matches that sample's exported Android
+temperature. The reads were not simultaneous and the runtime binary has not
+been matched byte-for-byte to the reference source. This is consistent with
+the same processing chain, not an independent calibration of the sensor.
+[LG temperature compensation](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/lge/extension-fg-gen4.c#L312-L404),
+[alpha compensation table](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/arch/arm64/boot/dts/lge/sm8150-alpha/sm8150-alpha_common/sm8150-alpha_common-pm.dtsi#L236-L266).
 
 The downstream `fg_sram_read()` returns success without filling its buffer
 when `battery_missing` is set, while its temperature caller declares the

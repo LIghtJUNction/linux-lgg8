@@ -11,7 +11,7 @@ import signal
 import sys
 import time
 
-import pm_devices_capture
+import pm_devices_detached
 import run_touch_ram_only as touch
 import touch_capture_adapter
 from touch_session import run_session
@@ -69,15 +69,68 @@ def main():
     signals = []
     def collect(channel, event, deadline, healthy, notify_ready):
         del event, notify_ready
-        try:
-            result = pm_devices_capture.capture(channel, healthy, deadline - 5, secrets.token_hex(12).upper())
-        except Exception as exc:
-            result = {'status': 'FAILED', 'error': repr(exc), 'real_sleep_verified': False,
-                      'touch_after_resume_verified': False, 'capture_authenticated': False}
+        legacy, inner = io.legacy, io.inner
+        plan = pm_devices_detached.plan(secrets.token_hex(12).upper())
+        original = legacy.usb_snapshot()
+        located_before = inner.base.acm_parent_for_port()
+        if not healthy() or not located_before:
+            raise RuntimeError('initial USB binding invalid')
+        channel.send(plan['launch'], min(deadline, time.monotonic() + 4))
+        result = {'status': 'FAILED', 'error': 'PM result unavailable',
+                  'real_sleep_verified': False, 'touch_after_resume_verified': False,
+                  'capture_authenticated': False}
+        retry = 0
+        # Give the detached process time to complete the 5 s devices test.
+        time.sleep(8)
+        while time.monotonic() < deadline - 8:
+            if not inner.monitor.healthy():
+                result['error'] = 'USB monitor stopped'
+                break
+            snapshot = legacy.usb_snapshot()
+            located = inner.base.acm_parent_for_port()
+            if not pm_devices_detached.valid_snapshot(original, snapshot) or not located:
+                time.sleep(0.2)
+                continue
+            # Re-enumeration changes devnum/tty but must retain physical parent
+            # and gadget serial, in addition to the port/VID/PID fingerprint.
+            if located[1:] != located_before[1:]:
+                result['error'] = 'ACM parent or gadget serial changed'
+                break
+            new_channel = None
+            try:
+                if healthy():
+                    guarded, bound = channel, healthy
+                else:
+                    retry += 1
+                    subdir = output / ('acm-reconnect-' + str(retry))
+                    subdir.mkdir(mode=0o700)
+                    new_channel = legacy.SerialChannel(located[0], subdir)
+                    def bound():
+                        return (inner.monitor.healthy() and snapshot == legacy.usb_snapshot() and
+                                inner.base.acm_parent_for_port() == located)
+                    guarded = touch.GuardedChannel(new_channel, bound)
+                legacy.synchronize_shell(guarded, min(deadline - 5, time.monotonic() + 4))
+                found = pm_devices_detached.read_record(
+                    guarded, bound, plan, deadline - 5, secrets.token_hex(12).upper())
+                if found is None:
+                    time.sleep(0.5)
+                    continue
+                result = found
+                result['read_after_reenumeration'] = new_channel is not None
+                if new_channel is not None and bound():
+                    result['reboot_request'] = legacy.request_ram_reboot(
+                        guarded, min(deadline, time.monotonic() + 4))
+                break
+            except (EOFError, TimeoutError, OSError, RuntimeError) as exc:
+                result['error'] = repr(exc)
+                time.sleep(0.2)
+            finally:
+                if new_channel is not None:
+                    new_channel.close()
         if result['status'] != 'PASS':
             try:
                 if healthy():
-                    result['fallback_reboot'] = io.legacy.request_ram_reboot(
+                    result['fallback_reboot'] = legacy.request_ram_reboot(
                         channel, min(deadline, time.monotonic() + 4))
             except Exception as reboot_error:
                 result['fallback_reboot_error'] = repr(reboot_error)

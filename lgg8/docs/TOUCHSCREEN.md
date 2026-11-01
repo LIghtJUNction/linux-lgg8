@@ -31,6 +31,12 @@ snapshot, so probe-log confirmation remains unavailable.
 - Rejects a zero contact count, matching the downstream driver's invalid-frame
   rule. An UP-only packet releases the prior slot; a palm packet clears active
   contacts.
+- Applies the common device-tree axis inversion and swap properties when
+  reporting positions. Raw coordinates are bounded to their configured
+  pre-transform minima and maxima before inversion. Invalid or unrepresentable
+  axis ranges are rejected before powering on the controller. The current LG
+  G8 device tree does not request inversion or swapping; these options have
+  local behavioral coverage but have not been exercised on the phone.
 
 The 132-byte report format and register sequence were checked against
 LineageOS `android_kernel_lge_sm8150` commit
@@ -58,6 +64,7 @@ suspend/resume and a runtime Linux EVIOCGABS comparison remain open.
 ```sh
 python3 -m unittest lgg8.tests.test_sw42000_parser -v
 python3 -B lgg8/tests/test_sw42000_pm.py
+python3 -B lgg8/tests/test_sw42000_coordinates.py
 ```
 
 The parser fixture uses an isolated work directory under `out/lgg8/validation/`
@@ -65,7 +72,11 @@ and removes it after the test. It covers field decoding, two contacts, UP
 release, zero and oversized counts, truncated reports, duplicate IDs,
 non-touch interrupts, and palm cancellation. The PM test compiles production
 functions against simulated I²C, input and IRQ APIs; it exercises 73 normal,
-fault and in-flight IRQ sequences. Neither test exercises real hardware.
+fault and in-flight IRQ sequences. The coordinate test compiles the production
+range validation and reporting functions with the kernel's real touchscreen
+property parser and transform helper. A fake input device covers each
+inversion/swap combination, boundary clamping and invalid ranges.
+These tests do not exercise real hardware.
 
 ## Build and device acceptance
 

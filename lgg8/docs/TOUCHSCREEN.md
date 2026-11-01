@@ -109,7 +109,17 @@ collect a touch gesture, test suspend/resume, or validate a wakeup path; it
 only confirms registration during this normal boot. The result is recorded in
 `out/lgg8-c234-integration-20261101/run-20261101-045735-f7dc0504/result.json`.
 
-Do not treat the current recovery timer as a tested wakeup mechanism. A later
+Do not treat the current recovery timer as a tested wakeup mechanism. The
+C234 kernel configuration includes `CONFIG_QCOM_WDT=y`, but the mainline
+`qcom-wdt` driver's late system-sleep callback calls `qcom_wdt_stop()` when
+`watchdog_active()` is true and restarts it on resume. Thus an active watchdog
+cannot be assumed to reset the phone after a hang later in suspend; clock and
+reset behavior are also unverified on this device. The callback is conditional,
+so this source finding does not establish whether a watchdog was active or
+stopped in any particular boot. This is a separate device from the SMB5 charger
+watchdog. See [qcom-wdt](../../drivers/watchdog/qcom-wdt.c).
+
+A later
 read-only Android root snapshot identified `rtc0` as the PM8150 Qualcomm RTC;
 `/proc/driver/rtc` reported `alarm_IRQ: no` and `alrm_pending: no`, and
 `/sys/power/state` listed `freeze mem`. The RTC date read as 1970-01-08, not

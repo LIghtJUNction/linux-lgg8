@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/pm.h>
+#include <linux/property.h>
 
 #include "lge_sw42000_protocol.h"
 
@@ -36,6 +37,7 @@
 #define SW42000_MAX_Y			3119
 #define SW42000_MAX_WIDTH		3119
 #define SW42000_MAX_PRESSURE		255
+#define SW42000_COORD_MAX		0x3fffU
 
 struct sw42000_ts {
 	struct i2c_client *client;
@@ -44,9 +46,47 @@ struct sw42000_ts {
 	struct gpio_desc *vdd_gpio;
 	struct gpio_desc *vcl_gpio;
 	struct touchscreen_properties prop;
+	u32 raw_min_x, raw_min_y;
 	/* PM and unbind are serialized by the device core; the IRQ uses no lock. */
 	bool irq_enabled;
 };
+
+/* Raw coordinates are 14-bit unsigned values in the controller report. */
+static int sw42000_axis_limits(struct device *dev, const char *size_name,
+			       const char *min_name, u32 default_size,
+			       u32 *raw_min, u32 *raw_max)
+{
+	u32 size = default_size, min = 0;
+	int ret;
+
+	if (device_property_present(dev, size_name)) {
+		ret = device_property_read_u32(dev, size_name, &size);
+		if (ret)
+			return ret;
+	}
+	if (device_property_present(dev, min_name)) {
+		ret = device_property_read_u32(dev, min_name, &min);
+		if (ret)
+			return ret;
+	}
+	/* Require at least two representable positions on each axis. */
+	if (size < 2 || size > SW42000_COORD_MAX + 1 || min >= size - 1)
+		return -EINVAL;
+
+	*raw_min = min;
+	*raw_max = size - 1;
+	return 0;
+}
+
+static bool sw42000_axis_matches(struct input_dev *input, unsigned int axis,
+				u32 raw_min, u32 raw_max, bool inverted)
+{
+	int expected_min = inverted ? 0 : (int)raw_min;
+	int expected_max = inverted ? (int)(raw_max - raw_min) : (int)raw_max;
+
+	return input_abs_get_min(input, axis) == expected_min &&
+	       input_abs_get_max(input, axis) == expected_max;
+}
 
 /* Vendor QCT transport sends the two-byte address separately from the read. */
 static int sw42000_read_reg(struct sw42000_ts *ts, u16 addr,
@@ -281,8 +321,6 @@ static void sw42000_report_frame(struct sw42000_ts *ts,
 				 const struct sw42000_frame *frame)
 {
 	struct input_dev *input = ts->input;
-	int max_x = input_abs_get_max(input, ABS_MT_POSITION_X);
-	int max_y = input_abs_get_max(input, ABS_MT_POSITION_Y);
 	unsigned int i;
 
 	for (i = 0; i < frame->count; i++) {
@@ -290,10 +328,13 @@ static void sw42000_report_frame(struct sw42000_ts *ts,
 
 		input_mt_slot(input, contact->id);
 		input_mt_report_slot_state(input, MT_TOOL_FINGER, true);
-		input_report_abs(input, ABS_MT_POSITION_X,
-				 min_t(int, contact->x, max_x));
-		input_report_abs(input, ABS_MT_POSITION_Y,
-				 min_t(int, contact->y, max_y));
+		/* Clamp in controller coordinates before any inversion or swap. */
+		touchscreen_report_pos(input, &ts->prop,
+				       clamp_t(unsigned int, contact->x,
+					       ts->raw_min_x, ts->prop.max_x),
+				       clamp_t(unsigned int, contact->y,
+					       ts->raw_min_y, ts->prop.max_y),
+				       true);
 		input_report_abs(input, ABS_MT_PRESSURE, contact->pressure);
 		input_report_abs(input, ABS_MT_TOUCH_MAJOR,
 				 min_t(int, contact->major, SW42000_MAX_WIDTH));
@@ -341,6 +382,8 @@ static int sw42000_probe(struct i2c_client *client)
 	struct device *dev = &client->dev;
 	struct sw42000_ts *ts;
 	struct input_dev *input;
+	u32 raw_max_x, raw_max_y;
+	unsigned int x_axis, y_axis;
 	int ret;
 
 	if (client->irq < 0)
@@ -354,6 +397,14 @@ static int sw42000_probe(struct i2c_client *client)
 	if (!ts)
 		return -ENOMEM;
 	ts->client = client;
+	ret = sw42000_axis_limits(dev, "touchscreen-size-x", "touchscreen-min-x",
+				  SW42000_MAX_X + 1, &ts->raw_min_x, &raw_max_x);
+	if (ret)
+		return dev_err_probe(dev, ret, "invalid touchscreen X range\n");
+	ret = sw42000_axis_limits(dev, "touchscreen-size-y", "touchscreen-min-y",
+				  SW42000_MAX_Y + 1, &ts->raw_min_y, &raw_max_y);
+	if (ret)
+		return dev_err_probe(dev, ret, "invalid touchscreen Y range\n");
 
 	ts->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(ts->reset_gpio))
@@ -396,19 +447,26 @@ static int sw42000_probe(struct i2c_client *client)
 	input_set_abs_params(input, ABS_MT_TOUCH_MINOR, 0,
 			     SW42000_MAX_WIDTH, 0, 0);
 
+	touchscreen_parse_properties(input, true, &ts->prop);
+	/* Core snapshots raw maxima before swapping its advertised axes. */
+	x_axis = ts->prop.swap_x_y ? ABS_MT_POSITION_Y : ABS_MT_POSITION_X;
+	y_axis = ts->prop.swap_x_y ? ABS_MT_POSITION_X : ABS_MT_POSITION_Y;
+	if (ts->prop.max_x != raw_max_x || ts->prop.max_y != raw_max_y ||
+	    !sw42000_axis_matches(input, x_axis, ts->raw_min_x, raw_max_x,
+				  ts->prop.invert_x) ||
+	    !sw42000_axis_matches(input, y_axis, ts->raw_min_y, raw_max_y,
+				  ts->prop.invert_y)) {
+		sw42000_power_off(ts);
+		return dev_err_probe(dev, -EINVAL,
+				     "touchscreen axis properties changed or invalid\n");
+	}
+
+	/* The MT helper copies the already-transformed axes to legacy ABS_X/Y. */
 	ret = input_mt_init_slots(input, SW42000_REPORT_CONTACTS,
 			 INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
 	if (ret) {
 		sw42000_power_off(ts);
 		return ret;
-	}
-
-	touchscreen_parse_properties(input, true, &ts->prop);
-	if (!input_abs_get_max(input, ABS_MT_POSITION_X) ||
-	    !input_abs_get_max(input, ABS_MT_POSITION_Y)) {
-		sw42000_power_off(ts);
-		return dev_err_probe(dev, -EINVAL,
-				     "missing touchscreen dimensions\n");
 	}
 
 	ret = input_register_device(input);

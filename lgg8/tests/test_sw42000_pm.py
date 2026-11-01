@@ -59,6 +59,7 @@ typedef int irqreturn_t;
 #define ABS_MT_TOUCH_MAJOR 5
 #define ABS_MT_TOUCH_MINOR 6
 #define min_t(type, a, b) ((type)(a) < (type)(b) ? (type)(a) : (type)(b))
+#define clamp_t(type, v, lo, hi) ((type)(v) < (type)(lo) ? (type)(lo) : min_t(type, v, hi))
 #define dev_err(...) ((void)0)
 #define dev_dbg_ratelimited(...) ((void)0)
 #define dev_warn_ratelimited(...) ((void)0)
@@ -67,7 +68,7 @@ struct device { struct i2c_client *client; };
 struct i2c_client { struct device dev; int irq; void *data; };
 struct input_dev { bool slots[10], touch; unsigned slot, syncs; };
 struct gpio_desc { int unused; };
-struct touchscreen_properties { int unused; };
+struct touchscreen_properties { unsigned int max_x, max_y; };
 static int depth, disables, enables, transfers, writes, gpios, sleeps;
 static int fail_at, fail_second, short_io, after_effect, invalid_fw;
 static u16 address;
@@ -84,8 +85,6 @@ static void wait_changed(void)
 }
 static struct i2c_client *to_i2c_client(struct device *dev) { return dev->client; }
 static void *i2c_get_clientdata(struct i2c_client *c) { return c->data; }
-static int input_abs_get_max(struct input_dev *i, int axis)
-{ (void)i; (void)axis; return 3119; }
 static void input_mt_slot(struct input_dev *i, unsigned slot) { i->slot = slot; }
 static void input_mt_report_slot_state(struct input_dev *i, int tool, bool active)
 { (void)tool; i->slots[i->slot] = active; }
@@ -94,6 +93,14 @@ static void input_report_key(struct input_dev *i, int code, bool value)
 { assert(code == BTN_TOUCH); i->touch = value; }
 static void input_report_abs(struct input_dev *i, int code, int value)
 { (void)i; (void)code; (void)value; }
+static void touchscreen_report_pos(struct input_dev *i,
+                                   const struct touchscreen_properties *p,
+                                   unsigned int x, unsigned int y, bool multitouch)
+{
+    assert(multitouch && x <= p->max_x && y <= p->max_y);
+    input_report_abs(i, ABS_MT_POSITION_X, (int)x);
+    input_report_abs(i, ABS_MT_POSITION_Y, (int)y);
+}
 static void input_sync(struct input_dev *i) { i->syncs++; }
 static void disable_irq(int irq)
 {
@@ -168,6 +175,7 @@ static void setup(bool running)
     memset(&client, 0, sizeof(client)); memset(&input, 0, sizeof(input));
     memset(&ts, 0, sizeof(ts)); client.dev.client = &client; client.data = &ts;
     ts.client = &client; ts.input = &input; ts.irq_enabled = running;
+    ts.prop.max_x = 1439; ts.prop.max_y = 3119;
     for (int i = 0; i < 10; i++) input.slots[i] = true;
     input.touch = true; depth = running ? 0 : 1;
     disables = enables = transfers = writes = gpios = sleeps = 0;

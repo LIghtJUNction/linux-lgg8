@@ -70,17 +70,18 @@ def main():
     def collect(channel, event, deadline, healthy, notify_ready):
         del event, notify_ready
         try:
-            return pm_devices_capture.capture(channel, healthy, deadline - 5, secrets.token_hex(12).upper())
+            result = pm_devices_capture.capture(channel, healthy, deadline - 5, secrets.token_hex(12).upper())
         except Exception as exc:
             result = {'status': 'FAILED', 'error': repr(exc), 'real_sleep_verified': False,
                       'touch_after_resume_verified': False, 'capture_authenticated': False}
+        if result['status'] != 'PASS':
             try:
                 if healthy():
                     result['fallback_reboot'] = io.legacy.request_ram_reboot(
                         channel, min(deadline, time.monotonic() + 4))
             except Exception as reboot_error:
                 result['fallback_reboot_error'] = repr(reboot_error)
-            return result
+        return result
     touch_capture_adapter.capture = collect
     def interrupted(signum, frame):
         del frame
@@ -90,7 +91,7 @@ def main():
     previous = {s: signal.signal(s, interrupted) for s in (signal.SIGINT, signal.SIGTERM)}
     try:
         result = run_session(io)
-        result.update(success_scope='device PM debug cycle and Android recovery only',
+        result.update(success_scope='pm_test selection and state write returned zero with Android recovery; callback execution not proven',
                       real_sleep_verified=False, touch_after_resume_verified=False,
                       charging_safety_verified=False)
         io.inner.save('pm-devices-signals', signals)

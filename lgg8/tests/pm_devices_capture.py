@@ -30,7 +30,12 @@ def parse(data, prefix):
     reset = [x for x in lines if re.fullmatch(re.escape(prefix.encode()) + rb"_RESET_[0-9]+", x)]
     if not reset:
         return None
-    success = selected and not select_failed and ret == [(prefix + "_RETURN_0").encode()] and reset == [(prefix + "_RESET_0").encode()]
+    selected_line = (prefix + "_SELECTED").encode()
+    return_line = (prefix + "_RETURN_0").encode()
+    reset_line = (prefix + "_RESET_0").encode()
+    success = (lines.count(selected_line) == 1 and not select_failed and
+               ret == [return_line] and reset == [reset_line] and
+               lines.index(selected_line) < lines.index(return_line) < lines.index(reset_line))
     begin, end = (prefix + "_LOG_BEGIN").encode(), (prefix + "_LOG_END").encode()
     log = []
     if lines.count(begin) == lines.count(end) == 1:

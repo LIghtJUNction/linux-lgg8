@@ -17,7 +17,10 @@ class DevicesTest(unittest.TestCase):
         for data in (self.line('SELECT_FAILED') + self.line('RESET_0'),
                      self.line('SELECTED') + self.line('RETURN_1') + self.line('RESET_0'),
                      self.line('SELECTED') + self.line('RETURN_0') + self.line('RESET_1'),
-                     self.line('SELECTED') + self.line('RETURN_0') + self.line('RETURN_0') + self.line('RESET_0')):
+                     self.line('SELECTED') + self.line('RETURN_0') + self.line('RETURN_0') + self.line('RESET_0'),
+                     self.line('SELECTED') + self.line('SELECTED') + self.line('RETURN_0') + self.line('RESET_0'),
+                     self.line('RETURN_0') + self.line('SELECTED') + self.line('RESET_0'),
+                     self.line('SELECTED') + self.line('RESET_0') + self.line('RETURN_0')):
             self.assertEqual(parse(data, self.prefix)['status'], 'FAILED')
     def test_path_and_nonce_are_fixed(self):
         self.assertIn(b'/sys/power/pm_test', self.cmd)

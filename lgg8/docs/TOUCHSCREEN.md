@@ -225,6 +225,16 @@ reported as a read-only observation. Driver presence and a device-tree node do
 not establish that this boot registered a working watchdog.
 [Watchdog core](../../drivers/watchdog/watchdog_dev.c).
 
+A subsequent RAM-only boot of the known touch candidate observed `/proc/misc`
+listing minor 130 `watchdog`; `/sys/class/watchdog/watchdog0/device` resolved
+to `/sys/devices/platform/soc@0/17c10000.watchdog`, whose driver link resolved
+to `/sys/bus/platform/drivers/qcom_wdt`. This is read-only registration and
+binding evidence for that boot, not proof the timer was active or can reset
+hardware. No watchdog device was opened and no suspend was attempted. The
+session verified USB port 1-2 monitoring and Android/slot/boot-hash recovery;
+its unauthenticated USB capture and complete receipts are retained at
+`out/lgg8-touch-candidate-20261101/watchdog-registration-20261101-095242-306b1a80/`.
+
 ## QEMU PM build-pairing blocker
 
 The draft run at

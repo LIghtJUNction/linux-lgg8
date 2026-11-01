@@ -235,6 +235,17 @@ session verified USB port 1-2 monitoring and Android/slot/boot-hash recovery;
 its unauthenticated USB capture and complete receipts are retained at
 `out/lgg8-touch-candidate-20261101/watchdog-registration-20261101-095242-306b1a80/`.
 
+`lgg8/tests/qcom_watchdog_probe.c` is an offline-tested preparation for an
+explicit arming/reset experiment, **not yet integrated into a guarded phone
+runner and not approved for direct execution**. It starts a watchdog on open,
+checks identity and capabilities, requests 10 seconds, and tries magic close on
+all ordinary exit paths. That close can fail or be disallowed by nowayout; a
+killed or hung process may leave the timer running. Ten fake-backend scenarios
+test sequencing and failure paths, not hardware. A future supervised experiment
+needs bounded deadlines, validated identity and recovery before opening the
+device, retained timing/serial evidence, and post-reset Android/slot/hash
+checks. A disconnect or reboot alone cannot establish watchdog causality.
+
 ## QEMU PM build-pairing blocker
 
 The draft run at

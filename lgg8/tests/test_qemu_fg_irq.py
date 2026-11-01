@@ -190,7 +190,8 @@ def main():
             (result_dir / "qemu.log").write_bytes(error.stdout or b"")
             raise RuntimeError("QEMU test timed out") from error
         (result_dir / "qemu.log").write_bytes(result.stdout)
-        required = (b"LGG8_QEMU_IRQ: negative control passed",
+        required = (b"LGG8_QEMU_IRQ: duplicate event rejected",
+                    b"LGG8_QEMU_IRQ: negative control passed",
                     b"LGG8_QEMU_IRQ: IRQ -> FG callback -> power_supply uevent passed",
                     b"LGG8_QEMU_IRQ: battery-absent event passed",
                     b"LGG8_QEMU_IRQ: read error dropped uevent",

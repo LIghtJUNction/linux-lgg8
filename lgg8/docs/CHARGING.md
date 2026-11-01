@@ -939,10 +939,12 @@ charging-safety conclusion follows from this registration test.
 
 Using the C232 kernel, the production FG getters and a RAM-backed regmap, a
 simulated battery-absent event reached userspace with `PRESENT=0` and no
-measurement values. When the voltage read returned an injected `-EIO`, the
+measurement values. When one voltage read returned an injected `-EIO`, the
 fault was observed but no target netlink uevent arrived within one second;
-after removing the fault, the next event arrived. The power-supply core calls
-its kernel notifier before serializing the uevent, so this does not establish
+the injected error was consumed, and the next simulated IRQ produced an event
+without changing modes. Source inspection shows the uevent construction aborts
+on this error. The power-supply core calls its kernel notifier before
+serializing the uevent, so this does not establish
 that kernel notifications were dropped. The virtual test does not establish
 that a physical PMIC experienced the fault. Future charge supervision must
 handle read errors and stale data rather than assume every change generates a

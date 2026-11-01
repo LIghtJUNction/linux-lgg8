@@ -17,8 +17,11 @@ description: |
   The battery-information and memory-interface peripheral subtypes are checked
   before registration. If the optional ADC_RR peripheral is supplied, its subtype
   is also checked and its battery-missing status provides the power-supply PRESENT
-  property. Two-address nodes do not expose PRESENT. Read errors are propagated;
-  presence does not establish valid temperature, calibration or charging safety.
+  property. A fourth optional battery-SOC peripheral exposes the raw gauge's
+  scaled CAPACITY property after verifying the SOC subtype. Two-address nodes
+  do not expose PRESENT; nodes without the fourth address do not expose CAPACITY.
+  Read errors are propagated; presence and capacity do not establish valid
+  temperature, calibration or charging safety.
 
 properties:
   compatible:
@@ -32,6 +35,7 @@ properties:
       - description: |
           Optional fuel-gauge ADC_RR peripheral base for battery presence and
           experimental raw reads
+      - description: Optional fuel-gauge battery-SOC peripheral base
 
   status: true
 
@@ -57,7 +61,7 @@ examples:
 
         battery-info@4100 {
           compatible = "qcom,pm8150b-fg-observer";
-          reg = <0x4100>, <0x4300>, <0x4200>;
+          reg = <0x4100>, <0x4300>, <0x4200>, <0x4000>;
           status = "disabled";
         };
       };

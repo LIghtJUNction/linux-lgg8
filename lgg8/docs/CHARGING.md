@@ -208,6 +208,27 @@ measurement freshness remain unverified; earlier C214–C218 observations used
 the old, opposite sign and must not be reinterpreted as direct measurements
 from this revised binary.
 
+The PM8150B battery-SOC peripheral has subtype `0x10`. The fixed downstream
+driver reads its monotonic SOC and shadow as two adjacent bytes at offsets
+`0x09` and `0x0a`, retries unequal pairs, and maps 0 and 255 to 0% and 100%,
+with interior values rounded to 1–99%. The observer can now expose this
+scaled gauge value as `CAPACITY` when its optional fourth `reg` entry supplies
+that peripheral; older two- and three-address nodes retain their properties.
+It checks battery presence before and after the pair and returns read errors
+or `-EAGAIN` on persistent mismatch. It does not initialize the fuel gauge,
+load or verify a battery profile, or reproduce LG's UI smoothing/full overrides.
+The reported gauge value may be inherited or stale and must not be used as a
+temperature or charging-safety signal.
+
+On 2026-11-01, Android on this phone read subtype `0x4005=0x10` and
+`0x4009/0x400a=0xff/0xff`, while its BMS `real_capacity` reported 100%.
+The two snapshots around the BMS property reads agreed; address/count selectors
+were restored and Android kept the same boot ID. These are sequential readings
+at one full-battery point, not low-SOC or cold-boot validation. Reading BMS
+temperature can use the vendor driver's SRAM arbitration. The capture is
+`out/lgg8-c226-soc-probe-20261101/android-registers.txt`.
+[Downstream direct SOC reader and scaling](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-util.c#L876-L926).
+
 With the user's permission, a later Android observation on 2026-10-31
 21:23:37–21:23:54 UTC read five sequential samples about four seconds apart.
 Battery and BMS temperature properties both returned 310 deci-°C; battery

@@ -12,10 +12,11 @@ static void setup(struct fixture *f, int count)
     f->parent.map = &f->map;
     f->pdev.dev.pmic.subtype = PM8150B_SUBTYPE;
     f->pdev.dev.node = (struct fwnode_handle) { .count = count,
-        .bases = {0x4100, 0x4300, 0x4200, 0x4400} };
+        .bases = {0x4100, 0x4300, 0x4200, 0x4000} };
     f->map.bytes[0x4105] = 0x11;
     f->map.bytes[0x4305] = 0x0d;
     f->map.bytes[0x4205] = 0x13;
+    f->map.bytes[0x4005] = 0x10;
 }
 static void done(struct fixture *f)
 {
@@ -96,8 +97,8 @@ static void legacy_and_independent_nodes(void)
 }
 static void identities_and_faults(void)
 {
-    const unsigned int regs[] = {0x4105, 0x4305, 0x4205};
-    for (int count = 2; count <= 3; count++) {
+    const unsigned int regs[] = {0x4105, 0x4305, 0x4205, 0x4005};
+    for (int count = 2; count <= 4; count++) {
         for (unsigned int i = 0; i < (unsigned int)count; i++) {
             for (unsigned int failure = 0; failure < 3; failure++) {
                 struct fixture f;
@@ -114,9 +115,9 @@ static void identities_and_faults(void)
             }
         }
     }
-    for (int count = 0; count <= 4; count++) {
+    for (int count = 0; count <= 5; count++) {
         struct fixture f;
-        if (count == 2 || count == 3) continue;
+        if (count >= 2 && count <= 4) continue;
         setup(&f, count);
         assert(fg_observer_probe(&f.pdev) == -EINVAL);
         assert(!f.map.read_count && !f.pdev.dev.psy);
@@ -223,6 +224,86 @@ static void measurements_check_presence(void)
         done(&old);
     }
 }
+static void capacity_measurements(void)
+{
+    const struct { u8 raw; int percent; } examples[] = {
+        { 0, 0 }, { 1, 1 }, { 2, 1 }, { 63, 25 }, { 127, 50 },
+        { 128, 50 }, { 129, 51 }, { 192, 75 }, { 254, 99 }, { 255, 100 },
+    };
+    struct fixture f;
+    union power_supply_propval value;
+    int previous = -1;
+
+    setup(&f, 4);
+    assert(fg_observer_probe(&f.pdev) == 0);
+    assert(advertises(&f, POWER_SUPPLY_PROP_PRESENT));
+    assert(advertises(&f, POWER_SUPPLY_PROP_CAPACITY));
+    assert(f.map.read_count == 4 && f.map.reads[3] == 0x4005);
+    for (unsigned int raw = 0; raw < 256; raw++) {
+        f.map.read_count = 0;
+        f.map.bytes[0x4009] = f.map.bytes[0x400a] = raw;
+        value.intval = -999;
+        assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == 0);
+        assert(value.intval >= previous && value.intval <= 100);
+        if (raw > 0 && raw < 255) assert(value.intval >= 1 && value.intval <= 99);
+        assert(f.map.read_count == 4 && f.map.reads[0] == 0x4210 &&
+               f.map.reads[1] == 0x4009 && f.map.reads[2] == 0x400a &&
+               f.map.reads[3] == 0x4210);
+        previous = value.intval;
+    }
+    for (size_t i = 0; i < ARRAY_SIZE(examples); i++) {
+        f.map.read_count = 0;
+        f.map.bytes[0x4009] = f.map.bytes[0x400a] = examples[i].raw;
+        assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == 0);
+        assert(value.intval == examples[i].percent);
+    }
+    f.map.read_count = 0;
+    f.map.bytes[0x4009] = 0x44;
+    f.map.bytes[0x400a] = 0x45;
+    value.intval = 1234;
+    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -EAGAIN);
+    assert(value.intval == 1234 && f.map.read_count == 11);
+    f.map.read_count = 0;
+    f.map.change_at_count = 5;
+    f.map.change_reg = 0x400a;
+    f.map.change_value = 0x44;
+    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == 0);
+    assert(f.map.read_count == 6);
+    f.map.change_at_count = 0;
+    for (unsigned int error_at = 1; error_at <= 4; error_at++) {
+        f.map.read_count = 0;
+        f.map.fail_at_count = error_at;
+        f.map.read_error = -ETIMEDOUT;
+        value.intval = 1234;
+        assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -ETIMEDOUT);
+        assert(value.intval == 1234 && f.map.read_count == error_at);
+    }
+    f.map.read_error = 0;
+    f.map.fail_at_count = 0;
+    f.map.read_count = 0;
+    f.map.bytes[0x4210] = 1;
+    value.intval = 1234;
+    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -ENODEV);
+    assert(value.intval == 1234 && f.map.read_count == 1);
+    f.map.read_count = 0;
+    f.map.bytes[0x4210] = 0;
+    f.map.change_at_count = 4;
+    f.map.change_reg = 0x4210;
+    f.map.change_value = 1;
+    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -ENODEV);
+    assert(value.intval == 1234 && f.map.read_count == 4);
+    done(&f);
+    for (int count = 2; count <= 3; count++) {
+        setup(&f, count);
+        assert(fg_observer_probe(&f.pdev) == 0);
+        assert(!advertises(&f, POWER_SUPPLY_PROP_CAPACITY));
+        f.map.read_count = 0;
+        value.intval = 1234;
+        assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -EOPNOTSUPP);
+        assert(value.intval == 1234 && f.map.read_count == 0);
+        done(&f);
+    }
+}
 static void raw_attrs_propagate_read_errors(void)
 {
     const struct {
@@ -273,7 +354,8 @@ int main(void)
     old_measurements_and_raw_attrs();
     legacy_rradc_attrs_unsupported();
     measurements_check_presence();
+    capacity_measurements();
     raw_attrs_propagate_read_errors();
-    printf("observer actual-source: %u fixtures + all 256 presence bytes passed; zero writes\n", cases);
+    printf("observer actual-source: %u fixtures, all 256 presence and capacity bytes passed; zero writes\n", cases);
     return 0;
 }

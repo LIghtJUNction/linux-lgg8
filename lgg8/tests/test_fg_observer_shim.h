@@ -22,6 +22,7 @@ typedef uint32_t u32;
 typedef int64_t s64;
 #define BIT(n) (1U << (n))
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#define DIV_ROUND_CLOSEST(x, y) (((x) + (y) / 2) / (y))
 #define GFP_KERNEL 0
 #define ERR_PTR(e) ((void *)(intptr_t)(e))
 #define IS_ERR(p) ((uintptr_t)(p) >= (uintptr_t)-4095)
@@ -69,7 +70,7 @@ struct attribute_group { struct attribute **attrs; };
     static const struct attribute_group *n##_groups[] = { &n##_group, NULL }
 enum power_supply_property {
     POWER_SUPPLY_PROP_VOLTAGE_NOW, POWER_SUPPLY_PROP_CURRENT_NOW,
-    POWER_SUPPLY_PROP_PRESENT,
+    POWER_SUPPLY_PROP_PRESENT, POWER_SUPPLY_PROP_CAPACITY,
 };
 #define POWER_SUPPLY_TYPE_BATTERY 1
 union power_supply_propval { int intval; };

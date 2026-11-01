@@ -23,6 +23,15 @@
 #define SMB5_P_PATH_USE_USBIN_BIT	BIT(4)
 #define SMB5_P_PATH_VALID_INPUT_BIT	BIT(0)
 
+/* PM8150B parameters from LG downstream d4f335e13d73, qpnp-smb5.c. */
+#define SMB5_FCC_CFG			0x0061
+#define SMB5_FCC_STEP_UA			50000
+#define SMB5_FCC_MAX_RAW			160
+#define SMB5_FV_CFG			0x0070
+#define SMB5_FV_MIN_UV			3600000
+#define SMB5_FV_STEP_UV			10000
+#define SMB5_FV_MAX_RAW			119
+
 struct qcom_smb5 {
 	struct regmap *regmap;
 	u32 base;
@@ -56,8 +65,8 @@ SMB5_RAW_STATUS_ATTR(usb_aicl_options, 0x380);
 SMB5_RAW_STATUS_ATTR(icl_max_status, 0x106);
 SMB5_RAW_STATUS_ATTR(aicl_icl_status, 0x108);
 SMB5_RAW_STATUS_ATTR(aicl_status, 0x10a);
-SMB5_RAW_STATUS_ATTR(fcc_config, 0x061);
-SMB5_RAW_STATUS_ATTR(fv_config, 0x070);
+SMB5_RAW_STATUS_ATTR(fcc_config, SMB5_FCC_CFG);
+SMB5_RAW_STATUS_ATTR(fv_config, SMB5_FV_CFG);
 SMB5_RAW_STATUS_ATTR(usb_icl_config, 0x370);
 SMB5_RAW_STATUS_ATTR(jeita_config, 0x090);
 /* Raw, independently read bytes; not a coherent snapshot or temperatures. */
@@ -128,6 +137,8 @@ ATTRIBUTE_GROUPS(qcom_smb5_status);
 static enum power_supply_property qcom_smb5_properties[] = {
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
+	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
 };
 
 static int qcom_smb5_get_property(struct power_supply *psy,
@@ -156,6 +167,29 @@ static int qcom_smb5_get_property(struct power_supply *psy,
 
 		val->intval = (status & SMB5_P_PATH_USE_USBIN_BIT) &&
 			      (status & SMB5_P_PATH_VALID_INPUT_BIT);
+		return 0;
+	/*
+	 * Programmed base settings, including when offline. These are not
+	 * measured IBAT/VBAT, post-JEITA effective limits, or proof of charging.
+	 * Zero FCC is a valid setting, not confirmation of physical shutdown.
+	 */
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
+		ret = regmap_read(smb5->regmap, smb5->base + SMB5_FCC_CFG, &status);
+		if (ret)
+			return ret;
+		if (status > SMB5_FCC_MAX_RAW)
+			return -ENODATA;
+
+		val->intval = (int)status * SMB5_FCC_STEP_UA;
+		return 0;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
+		ret = regmap_read(smb5->regmap, smb5->base + SMB5_FV_CFG, &status);
+		if (ret)
+			return ret;
+		if (status > SMB5_FV_MAX_RAW)
+			return -ENODATA;
+
+		val->intval = SMB5_FV_MIN_UV + (int)status * SMB5_FV_STEP_UV;
 		return 0;
 	default:
 		return -EINVAL;

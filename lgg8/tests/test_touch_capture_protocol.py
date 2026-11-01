@@ -19,6 +19,20 @@ class ProtocolTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             p.line(EVENT)
 
+    def test_stream_chunks_and_bounds(self):
+        p = TouchCapture(NONCE)
+        stream = ("\r\n" + "\r\n".join((BEGIN, DEVICE, READY, EVENT, END + "0")) + "\r\nlgg8# ").encode()
+        for byte in stream:
+            p.feed_bytes(bytes([byte]))
+        self.assertEqual(p.state, "DONE")
+        self.assertEqual(p.event, (40, 100))
+        p = TouchCapture(NONCE)
+        with self.assertRaisesRegex(ValueError, "64 KiB"):
+            p.feed_bytes(b"x" * 65537)
+        p = TouchCapture(NONCE)
+        with self.assertRaises(UnicodeDecodeError):
+            p.feed_bytes(b"\xff\n")
+
     def test_incomplete_or_failed_are_not_success(self):
         for lines in ((BEGIN, DEVICE, READY, END + "0"),
                       (BEGIN, DEVICE, EVENT, END + "0"),

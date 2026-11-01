@@ -16,6 +16,22 @@ class TouchCapture:
         self.event = None
         self.bounds = None
         self.returncode = None
+        self.pending_bytes = bytearray()
+        self.total_bytes = 0
+
+    def feed_bytes(self, chunk):
+        """Process complete ASCII lines from arbitrary bounded serial chunks."""
+        self.total_bytes += len(chunk)
+        if self.total_bytes > 65536:
+            raise ValueError("serial capture exceeds 64 KiB")
+        self.pending_bytes.extend(chunk)
+        while b"\n" in self.pending_bytes:
+            line, _, rest = self.pending_bytes.partition(b"\n")
+            self.pending_bytes = bytearray(rest)
+            # Once complete, trailing shell prompts are not part of the frame.
+            if self.state in ("DONE", "FAILED"):
+                break
+            self.line(line.removesuffix(b"\r").decode("ascii", errors="strict"))
 
     def line(self, line):
         # Inputs are complete decoded serial lines; shell echoes are not frames.

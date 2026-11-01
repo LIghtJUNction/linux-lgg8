@@ -126,7 +126,15 @@ its kernel configuration enables `CONFIG_SUSPEND`, `CONFIG_PM_SLEEP`,
 `CONFIG_KEYBOARD_GPIO` and `CONFIG_INPUT_PM8941_PWRKEY`. The power-key driver
 defaults this compatible to wake-enabled and arms IRQ wake when allowed.
 These are candidate inputs, not evidence that either physical key can wake this
-phone or recover a hung PM callback. Manual wake cooperation does not replace
+phone or recover a hung PM callback. On 2026-11-01, with the phone running Android and the user operating the
+power and volume-down keys, a manual restart was observed: USB disconnected,
+Android returned with a new boot ID, slot `_b` and unchanged boot partition
+hashes; passive USB 1-2 monitor coverage and integrity passed. The record is
+`out/lgg8-touch-candidate-20261101/manual-restart-20261101-080825-b14b230a/`.
+Android was responsive before this test, so this does not establish whether the
+key path can reset a hung Linux kernel or wake it from suspend. Normal Android
+reboots should be initiated through ADB rather than asking the user to press
+buttons. Manual wake cooperation does not replace
 an independently verified hang-recovery path. A real experiment still needs
 bounded capture, explicit stop conditions and before/after Android/slot/boot
 verification; do not equate screen-off with completed system suspend.

@@ -170,12 +170,31 @@ during system sleep, and the Qualcomm watchdog driver stops an active
 watchdog in its suspend callback. No automatic wake source or hard recovery
 deadline has been verified on this phone.
 
-A future diagnostic kernel can enable `CONFIG_PM_DEBUG` and select `devices`
+A diagnostic kernel can enable `CONFIG_PM_DEBUG` and select `devices`
 in `/sys/power/pm_test` to exercise device suspend/resume without entering
-platform sleep. First validate the PM flow locally and establish a practical
-recovery method: another driver's callback can still hang, and neither this
+platform sleep. The PM core calls `dpm_suspend_start()` (prepare and normal
+suspend callbacks), then tests `TEST_DEVICES` before `suspend_enter()`; it does
+not reach late/noirq device suspend in that successful test path. Its default
+five-second test delay runs only after normal callbacks return, and an already
+pending wakeup can shorten it. The qcom watchdog stop callback is a *late*
+suspend callback, so it is not reached on this successful `devices` test
+path. Neither fact proves a watchdog is active, will fire, or can recover an
+earlier hung callback; user-space helpers can also be frozen. First validate
+the PM flow locally and establish a practical recovery method. Neither this
 test nor a returned USB connection proves real sleep, wakeup, or touch input
 after resume. Do not count injected input events as physical touch acceptance.
+
+A private local-only diagnostic kernel was built at
+`out/lgg8-pm-test-20261101/kernel/` from tracked commit
+`9c58979846d96501a4136b17bab7226cbe625bdd`. Its effective config differs from
+the preceding touch candidate only by enabling `CONFIG_PM_DEBUG` and its
+`CONFIG_PM_SLEEP_DEBUG` dependency; `CONFIG_PM_ADVANCED_DEBUG` and
+`CONFIG_PM_TEST_SUSPEND` remain disabled. The resulting Image SHA-256 is
+`1d600d62f6c6c88204d32f0414fc87d0e453f316bf9d13f5404a7c8c86cb2b7d`,
+and its compiled DTB matches that candidate byte for byte (SHA-256
+`90cd099ecb1666a9547c22a15fb88d441daef5d01240d672832655c76d2a9c86`).
+The build log and named artifact hashes are in that output directory. This is
+not a boot image and has not been run in QEMU or on the phone.
 
 ## QEMU PM build-pairing blocker
 

@@ -215,8 +215,8 @@ not fix that core lifetime limitation. A later provider removal can cause
 reads through the old handle to fail, rather than switch to a re-bound device.
 The actual-source local harness covers the valid and absent configurations,
 bad topology, scaling, provider errors and cleanup; the current ARM64 object
-build and the C232 DTB's targeted schema check passed. The checks have not
-been exercised on the phone.
+build and the C232 DTB's targeted schema check passed. C234 subsequently
+exercised the valid provider on the phone; rejection paths remain simulated.
 It does not configure charge control. Repeated USB presence checks cannot rule
 out a detach and reattach or voltage renegotiation between them. Neither this
 voltage nor the separate USBIN sample proves a negotiated contract, a physically
@@ -912,7 +912,7 @@ restored and ADB returned to shell mode.
 For a future input-limit comparison, the status observer also exposes raw
 USB ICL override command, load configuration, ICL options, AICL options,
 ICL-maximum status, AICL current-limit status, and AICL status bytes on
-demand. These are read-only and not yet verified on the device. The values
+demand. These are read-only; C223 below subsequently read them on the device. The values
 must be interpreted together with the negotiated source, USB mode and input
 path; no single byte establishes an enforced limit or a safe charge rate.
 [Vendor SMB5 registers](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h).

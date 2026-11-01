@@ -833,6 +833,19 @@ generation and revocation and handle events even while a transaction is busy.
 Neither a software lockout nor a requested stop proves the power path stopped.
 These requirements have not been verified against PM8150B hardware.
 
+A further read-only Android observation on 2026-11-01 sampled `bms/temp`
+and `battery/temp` 12 times over roughly 27 seconds; both reported `307`
+(30.7 °C) throughout, while Android `battery/status` reported `Full`.
+The sequential `bms/voltage_now` values ranged from 4,416,004 to 4,417,469 µV.
+The values are vendor sysfs reports, not independent or simultaneous
+measurements: unchanged temperatures cannot distinguish a stable battery from
+a stale sample, and the status is not proof of hardware stop. Before and after,
+Android identity, boot ID, slot and both boot partition hashes matched; passive
+USB 1-2 coverage and integrity checks passed. Records and individual command
+results are in
+`out/lgg8-touch-candidate-20261101/android-thermal-20261101-080423-81a8fe8e/`.
+No charging controls were changed.
+
 An unwired transaction experiment now latches stop requests before waiting
 for the transaction mutex and exercises interleavings with host threads. The
 public entry points intentionally have no hardware backend and return

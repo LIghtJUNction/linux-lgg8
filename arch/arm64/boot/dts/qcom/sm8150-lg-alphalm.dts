@@ -557,7 +557,17 @@
 	};
 };
 
+&pm8150b_adc {
+	channel@1e {
+		reg = <ADC5_MID_CHG_DIV6>;
+		qcom,pre-scaling = <1 6>;
+		label = "mid_chg_uv";
+	};
+};
+
 &pm8150b_charger {
+	io-channels = <&pm8150b_adc ADC5_MID_CHG_DIV6>;
+	io-channel-names = "mid-chg";
 	status = "okay";
 };
 

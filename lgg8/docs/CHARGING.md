@@ -216,7 +216,7 @@ with interior values rounded to 1–99%. The observer can now expose this
 scaled gauge value as `CAPACITY` when its optional fourth `reg` entry supplies
 that peripheral; older two- and three-address nodes retain their properties.
 It checks battery presence and the downstream-defined SOC-ready status bit
-before and after the pair, and returns read errors or `-EAGAIN` for an
+before and after the pair, and returns read errors or `-ENODATA` for an
 unasserted ready bit or persistent mismatch. A high ready bit is a necessary
 check here, not proof that the profile is initialized or the sample is fresh.
 It does not initialize the fuel gauge,
@@ -234,8 +234,13 @@ temperature can use the vendor driver's SRAM arbitration. The capture is
 [Downstream direct SOC reader and scaling](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/fg-util.c#L876-L926).
 C226, which preceded the SOC-ready gate, then reported 100% twice on mainline
 in a RAM-only boot and returned to Android with both boot hashes unchanged.
-The new SOC-ready check still requires hardware validation. The driver does not yet send change
-notifications when this value changes. This single full-battery check does not
+C227 observed SOC status `0xc2` and capacity 100% twice in mainline, after the
+same Android boot reported 100%; both boot hashes again remained unchanged.
+The shared gauge is not an independent calibration. C227 used `-EAGAIN` for
+unavailable data; a later source change uses `-ENODATA` so unavailable capacity
+does not discard the rest of a power-supply uevent. The later error path has
+offline coverage but was not exercised on C227 hardware. The driver does not yet
+send change notifications when this value changes. This full-battery check does not
 validate other charge levels, a cold boot, update freshness or safe charging;
 see [STATUS.md](STATUS.md) for image and capture identities.
 

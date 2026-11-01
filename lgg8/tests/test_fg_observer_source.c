@@ -267,7 +267,7 @@ static void capacity_measurements(void)
     f.map.bytes[0x4009] = 0x44;
     f.map.bytes[0x400a] = 0x45;
     value.intval = 1234;
-    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -EAGAIN);
+    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -ENODATA);
     assert(value.intval == 1234 && f.map.read_count == 12);
     f.map.read_count = 0;
     f.map.change_at_count = 6;
@@ -302,14 +302,14 @@ static void capacity_measurements(void)
     f.map.read_count = 0;
     f.map.bytes[0x4210] = 0;
     f.map.bytes[0x4010] = 0;
-    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -EAGAIN);
+    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -ENODATA);
     assert(value.intval == 1234 && f.map.read_count == 2);
     f.map.read_count = 0;
     f.map.bytes[0x4010] = 2;
     f.map.change_at_count = 5;
     f.map.change_reg = 0x4010;
     f.map.change_value = 0;
-    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -EAGAIN);
+    assert(get(&f, POWER_SUPPLY_PROP_CAPACITY, &value) == -ENODATA);
     assert(value.intval == 1234 && f.map.read_count == 5);
     done(&f);
     for (int count = 2; count <= 3; count++) {

@@ -220,7 +220,7 @@ static int fg_observer_read_capacity(struct qcom_fg_observer *fg, int *capacity)
 	if (ret)
 		return ret;
 	if (!(status & FG_SOC_READY))
-		return -EAGAIN;
+		return -ENODATA;
 
 	/* The second byte is the shadow of the first, not a 16-bit value. */
 	for (i = 0; i < FG_READ_ATTEMPTS; i++) {
@@ -232,12 +232,12 @@ static int fg_observer_read_capacity(struct qcom_fg_observer *fg, int *capacity)
 			break;
 	}
 	if (i == FG_READ_ATTEMPTS)
-		return -EAGAIN;
+		return -ENODATA;
 	ret = regmap_read_bypassed(fg->regmap, fg->soc_base + FG_SOC_RT_STATUS_OFFSET, &status);
 	if (ret)
 		return ret;
 	if (!(status & FG_SOC_READY))
-		return -EAGAIN;
+		return -ENODATA;
 	ret = fg_observer_check_present(fg);
 	if (ret)
 		return ret;

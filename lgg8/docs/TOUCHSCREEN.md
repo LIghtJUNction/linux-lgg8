@@ -491,6 +491,16 @@ been established as the cause in either phone run. The source now retries an
 exited shell, with one-second backoff and a 90-attempt cap; the independent
 PID 1 recovery deadline is unchanged. A host stub exercises retries, the cap,
 interrupted waits and fork failure, and the supervisor compiles for AArch64.
-This source change has not been built into a phone image or tested against a
-real gadget disconnect. It cannot fix a kernel or userspace that did not
-resume, and is not evidence that device PM, touch recovery or charging works.
+In a local x86 QEMU dummy_hcd run, configfs UDC unbind caused the old shell to
+receive SIGHUP; the restarted shell completed a second command roundtrip after
+UDC rebind. The parent-commit negative control reached the same rebind but its
+second roundtrip timed out. Results are in
+`out/lgg8-qemu-pm-paired-20261101/observations/qemu-shell-reconnect-v2.stdout`
+and `out/lgg8-qemu-pm-paired-20261101/observations/qemu-shell-reconnect-negative.stdout`.
+The initial test version matched command echo, and the stricter version first
+failed due to terminal echo; the successful version clears the input line and
+requires a separate output line. This test disconnects a virtual gadget; it is
+not a suspend or a phone test. The source change has not been built into a
+phone image or tested against real gadget disconnect. It cannot fix a kernel
+or userspace that did not resume, and is not evidence that device PM, touch
+recovery or charging works.

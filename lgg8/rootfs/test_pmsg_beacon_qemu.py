@@ -25,7 +25,8 @@ def command(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(args, check=True, **kwargs)
 
 
-def make_case(root: Path, module_root: Path, cc: str, mode: str) -> Path:
+def make_case(root: Path, module_root: Path, cc: str, mode: str,
+              supervisor_source: Path = SOURCE) -> Path:
     for directory in ("bin", "sbin", "modules", "usr/local/bin"):
         (root / directory).mkdir(parents=True, exist_ok=True)
     shutil.copy2("/usr/bin/busybox", root / "bin/busybox")
@@ -48,20 +49,21 @@ def make_case(root: Path, module_root: Path, cc: str, mode: str) -> Path:
         "write-error": ["-DLGG8_PMSG_PATH=\"/dev/full\""],
         "short-write": ["-DLGG8_PMSG_PATH=\"/dev/null\"", "-DLGG8_PMSG_TEST_SHORT_WRITE"],
         "shell": [],
+        "shell-reconnect": [],
     }[mode]
     command([cc, "-static", "-O2", "-Wall", "-Wextra", "-Werror", *extra,
-             str(SOURCE), "-o", str(root / "sbin/supervisor")],
+             str(supervisor_source), "-o", str(root / "sbin/supervisor")],
             capture_output=True, text=True)
     desktop = root / "usr/local/bin/desktop-start"
     desktop.write_text("#!/bin/sh\nexit 0\n")
     desktop.chmod(0o755)
     probe = ""
-    if mode == "shell":
+    if mode in ("shell", "shell-reconnect"):
         command([cc, "-static", "-O2", "-Wall", "-Wextra", "-Werror",
                  str(SOURCE.with_name("test_usb_shell_probe.c")),
                  "-o", str(root / "usr/local/bin/host-shell-probe")],
                 capture_output=True, text=True)
-        probe = "/usr/local/bin/host-shell-probe &"
+        probe = "/usr/local/bin/host-shell-probe" + (" --reconnect" if mode == "shell-reconnect" else "") + " &"
 
     init = f"""#!/bin/sh
 mkdir -p /proc /sys /dev /run
@@ -97,12 +99,18 @@ exec /sbin/supervisor
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("disabled", "open-error", "hang-open", "hang-write",
-                                            "write-ok", "write-error", "short-write", "shell"),
+                                            "write-ok", "write-error", "short-write", "shell", "shell-reconnect"),
                         default="open-error")
     parser.add_argument("--timeout", type=int, default=24,
                         help="host-side QEMU run time in seconds")
     parser.add_argument("--memory-mib", type=int, default=512)
+    parser.add_argument("--supervisor-source", type=Path, default=SOURCE,
+                        help="test-only source override for negative controls")
+    parser.add_argument("--expect-reconnect-failure", action="store_true",
+                        help="negative control: require first roundtrip and rebind but no second roundtrip")
     args = parser.parse_args()
+    if args.expect_reconnect_failure and args.mode != "shell-reconnect":
+        parser.error("--expect-reconnect-failure requires --mode shell-reconnect")
     if args.timeout < 12:
         parser.error("timeout must be at least 12 seconds for module startup and USB enumeration")
     available_kib = int(next(line.split()[1] for line in Path("/proc/meminfo").read_text().splitlines()
@@ -129,10 +137,12 @@ def main() -> int:
         "write-error": serial_base + "O=OK;W=ERR-28",
         "short-write": serial_base + "O=OK;W=SHORT-",
         "shell": serial_base + "O=ERR-2;W=NA",
+        "shell-reconnect": serial_base + "O=ERR-2;W=NA",
     }[args.mode]
     with tempfile.TemporaryDirectory(prefix="lgg8-pmsg-qemu-") as temporary:
         base = Path(temporary)
-        root = make_case(base / "root", module_root, shutil.which("cc"), args.mode)
+        root = make_case(base / "root", module_root, shutil.which("cc"), args.mode,
+                         args.supervisor_source)
         cpio_path = base / "initrd.cpio"
         with cpio_path.open("wb") as output:
             command(["bash", "-lc", 'cd "$1" && find . -print0 | cpio --null -o -H newc 2>/dev/null',
@@ -144,7 +154,7 @@ def main() -> int:
         print(f"mode={args.mode} initrd_bytes={initrd.stat().st_size}", flush=True)
         cmdline = "console=ttyS0,115200 rdinit=/init loglevel=7 panic=0 " \
                   "lgg8.desktop_backend=headless lgg8.usb_beacon=1"
-        if args.mode == "shell":
+        if args.mode in ("shell", "shell-reconnect"):
             cmdline += " lgg8.usb_shell=1"
         if args.mode != "disabled":
             cmdline += " lgg8.pmsg_probe=1 lgg8.pmsg_tag=C196"
@@ -170,11 +180,21 @@ def main() -> int:
         if "LGG8_BEACON bound" not in output or "HOST_ENUM" not in output:
             print("\n".join(output.splitlines()[-80:]))
             raise SystemExit("Gadget did not bind and enumerate on the guest USB host")
-        if args.mode == "shell" and (
+        if args.mode in ("shell", "shell-reconnect") and (
                 "LGG8_USB_SHELL started" not in output or
                 "HOST_SHELL_PROBE PASS byte_roundtrip=1" not in output):
             print("\n".join(output.splitlines()[-100:]))
             raise SystemExit("Gadget shell did not complete a host-to-shell byte roundtrip")
+        if args.mode == "shell-reconnect":
+            reconnected = "HOST_SHELL_PROBE PASS reconnect_roundtrip=1" in output
+            if args.expect_reconnect_failure:
+                if ("HOST_SHELL_PROBE REBOUND second_roundtrip_start=1" not in output or
+                        reconnected or "HOST_SHELL_PROBE timeout received=" not in output):
+                    raise SystemExit("Negative control did not reach and fail the second roundtrip")
+                print("PASS: negative control reached rebind but could not complete second roundtrip")
+            elif not reconnected:
+                print("\n".join(output.splitlines()[-100:]))
+                raise SystemExit("Gadget shell did not complete its post-reconnect roundtrip")
         print(f"PASS: PID1 survived; dummy_hcd host read frozen serial {expected}")
     return 0
 

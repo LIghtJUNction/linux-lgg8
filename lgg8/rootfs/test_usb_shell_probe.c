@@ -16,7 +16,7 @@ static long long monotonic_ms(void)
     return (long long)now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
 
-int main(void)
+static int roundtrip(const char *command, const char *expected)
 {
     int fd = -1;
     for (unsigned i = 0; i < 180; ++i) {
@@ -47,10 +47,9 @@ int main(void)
     }
     (void)tcflush(fd, TCIOFLUSH);
 
-    static const char command[] = "echo LGG8_SHELL_ROUNDTRIP\n";
-    size_t sent = 0;
-    while (sent < sizeof(command) - 1) {
-        ssize_t n = write(fd, command + sent, sizeof(command) - 1 - sent);
+    size_t sent = 0, length = strlen(command);
+    while (sent < length) {
+        ssize_t n = write(fd, command + sent, length - sent);
         if (n > 0) { sent += (size_t)n; continue; }
         if (n < 0 && errno == EINTR) continue;
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -77,7 +76,7 @@ int main(void)
         if (n > 0) {
             used += (size_t)n;
             received[used] = 0;
-            if (strstr(received, "LGG8_SHELL_ROUNDTRIP")) {
+            if (strstr(received, expected)) {
                 puts("HOST_SHELL_PROBE PASS byte_roundtrip=1");
                 close(fd);
                 return 0;
@@ -90,4 +89,39 @@ int main(void)
     printf("HOST_SHELL_PROBE timeout received=%s\n", received);
     close(fd);
     return 1;
+}
+
+static int write_udc(const char *value)
+{
+    int fd = open("/sys/kernel/config/usb_gadget/lgg8-beacon/UDC", O_WRONLY);
+    if (fd < 0) return -1;
+    size_t len = strlen(value);
+    ssize_t n = write(fd, value, len);
+    int result = n == (ssize_t)len ? 0 : -1;
+    if (close(fd)) result = -1;
+    return result;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 1 && (argc != 2 || strcmp(argv[1], "--reconnect"))) return 2;
+    if (roundtrip("\025\nprintf '\\nLGG8_SHELL_FIRST\\n'\n", "\nLGG8_SHELL_FIRST\r\n")) return 1;
+    if (argc == 1) return 0;
+
+    /* This is QEMU dummy_hcd only: deliberately disconnect and reconnect its
+     * configfs gadget, not a simulation of system sleep. */
+    int fd = open("/sys/kernel/config/usb_gadget/lgg8-beacon/UDC", O_RDONLY);
+    char udc[128];
+    if (fd < 0) return 1;
+    ssize_t n = read(fd, udc, sizeof(udc) - 1);
+    close(fd);
+    if (n <= 0 || n >= (ssize_t)sizeof(udc) - 1) return 1;
+    udc[n] = 0;
+    if (write_udc("\n")) { puts("HOST_SHELL_PROBE unbind_failed"); return 1; }
+    usleep(1200000);
+    if (write_udc(udc)) { puts("HOST_SHELL_PROBE rebind_failed"); return 1; }
+    puts("HOST_SHELL_PROBE REBOUND second_roundtrip_start=1");
+    if (roundtrip("\025\nprintf '\\nLGG8_SHELL_SECOND\\n'\n", "\nLGG8_SHELL_SECOND\r\n")) return 1;
+    puts("HOST_SHELL_PROBE PASS reconnect_roundtrip=1");
+    return 0;
 }

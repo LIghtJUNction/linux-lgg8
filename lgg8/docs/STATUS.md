@@ -32,6 +32,7 @@
 | SMB5 充电配置只读 | **C228 RAM-only 真机交叉核对通过** | FCC 基准配置 2.6 A、浮充电压配置 4.43 V；非实际充电电流或生效后的限值，尚无 Linux 充电控制 |
 | FG 原始温度字节 | **C225 RAM-only 真机读到 `0x1f`** | 本轮还读到 therm config `0x02`、period `0x01`；尚未验证 Linux 下持续更新或可用于温度保护 |
 | 电池侧 ADC 遥测 | **C225 三轮真机读回，包含 EOC 检查修复** | VBAT 三轮均为 4.420782 V；30k/100k/400k 热敏上拉电压均读回，名义参数下约 48.55–50.02 kΩ；仍未接温度保护或充电控制 |
+| 机身温度 ADC | **C229 RAM-only 真机三次读回 34.166°C** | PM8150 的机身通道；Android 启动前 33.569°C、返回后 36.362°C，非独立电芯温度校验 |
 | 电量百分比 | **C227 RAM-only 真机就绪状态有效，两次读回 100%** | 与启动前同一次 Android 的 `bms/real_capacity=100` 一致；低电量、冷启动和变化通知未验证，当前驱动未接变化中断 |
 | ramoops/pstore 真机证据 | **C192 首次导出 console-ramoops；内容损坏，pmsg 未确认** | 早期与回收后同一 32878 字节记录；C191 为空；C192 用户态标记及 DPU pmsg 仍未观察到 |
 | 显示与触控 | **C210 RAM-only 真机：桌面触控有效（用户确认）；显示花屏状态另行追踪** | C210 X/Y 轴注册修复；自动回 Android，boot_a/boot_b 哈希不变；ACM 内核日志因主机 tty 权限未取到 |
@@ -569,6 +570,30 @@ RAM-only `fastboot boot` 首次成功在物理 USB 1-2 枚举 Linux ACM `18d1:4e
 C208 修正了 C207 的无效对照：本次有效配置启用 `CONFIG_DRM_CLIENT_LOG=y`，保持默认 client 为 `fbdev`，仅用 `drm_client_lib.active=log` 选择 log client。RAM-only 启动镜像 SHA-256 为 `3ead08159f1f99d7582ad21dd3af45b69bd05fe4e1ea8a9d99ab6d4b9c767176`；kernel SHA-256 为 `2a9d1be7f2725cd2756a99a33248a9cd6beebbbcb40949abe3d8f358765c9dcc`。ACM shell 探针通过，读取 519 行、39,716 字节；启动参数含 `active=log`，没有 `Unknown DRM client log`，并记录到 DPU framebuffer 准备活动。Android 自动回收，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a/boot_b 哈希均与启动前一致。屏幕未获可靠观察，因此此结果证明有效 log-client 配置下 Linux/ACM 路径可用，不证明可见桌面正常。证据保存在 `out/lgg8-c208-drm-log-enabled/run-02/`。
 
 当前有效 Linux 版本标识为 `7.3.0-lgg8+`。C208-R3 已通过用户观察和同次 ACM 验收蓝底桌面；C210 用户确认触控有效。C212 已读到 SMB5 状态和 PM8150B USB ADC；尚未实现 Linux 充电控制或快充。
+
+### C229：机身温度通道
+
+从运行中的 Android 设备树核对 `skin-therm` 指向 PM8150（SID 0）
+ADC 通道 `0x4d`，使用比率标定、200 µs settle 和 1:1 预分压；该通道与
+PM8150B 电池温度来源不同。主线板级设备树增加对应 ADC 节点，并未接入
+充电或温度保护。C229 相对 C228 的内核 Image 哈希相同，独立 FDT 差异
+仅增加 `/soc@0/spmi@c440000/pmic@0/adc@3100/channel@4d`；ADC schema
+正向检查通过，故意构造非法预分压的反例被拒绝。
+
+`run-20261101-014713-bd6489dd` 内存启动镜像 SHA-256 为
+`71c0a234af6754fdd04a50df88c5eb6076e7f895bbf7a3588ffed0a0d1803b5d`。
+Linux 先核对 PM8150 ADC 驱动、设备树节点和通道 `0x4d`，然后三次读到
+34,166 m°C。相邻 Android 启动前为 33,569 m°C，返回后为 36,362 m°C；
+这些不是同时测量，温度变化和不同系统的换算都可能影响差值。51 项回执
+全部通过，约 76.4 秒后 Android 返回 `_b` 且 `boot_completed=1`，boot ID
+轮转，boot_a/boot_b 哈希不变；USB 1-2 监视覆盖和日志完整性检查通过。
+`result.json` SHA-256 为
+`eb4468f4299ffe9d2f16480b17ff4de5e29638cf2a349781c8774161dfdc8879`，
+原始记录在 `out/lgg8-c229-skin-therm-20261101/`。
+
+三次连续读数一致不证明样本在较长时间内持续更新，也不证明精度。机身
+和电芯可能存在明显温差；该通道不是独立电芯测温，不能单独用于快充或
+温度保护。
 
 ### C228：充电器基准配置只读接口
 

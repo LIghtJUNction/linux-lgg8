@@ -228,10 +228,20 @@ The builder verifies every pre-existing newc entry retains its mode and bytes;
 the rest of the original archive before its trailer is copied verbatim. The
 candidate `out/lgg8-touch-candidate-20261101/touch-initramfs.cpio` has SHA-256
 `b23d48adb4d3a7aed61de18dab7dcf0bb0d54b5bab026a27563d6819785c99a8`.
-It has not been packaged into a boot image or run on the phone. Synthetic
-self-tests are not physical input evidence. Before using it, review and
-independently verify the packaged candidate, USB observer, recovery deadline
-and before/after Android, slot and boot hashes.
+The local candidate `out/lgg8-touch-candidate-20261101/boot/boot.img` has
+SHA-256 `d9ef349136a2440287757f1121e351bead48d545898f7a45fb9a655b78bf3431`;
+its container was independently compared with C234. The shim's instruction
+bytes are identical to C234 after excluding only the image-size header and the
+DTB-address and payload-length constants. Their values were independently
+checked against both manifests; label offsets were checked using the assembled
+source. The changed DTB address reflects the larger initramfs. See
+`out/lgg8-touch-candidate-20261101/shim-independent-verify.json`. This is not
+proof that the shim executes or resets successfully on the phone. The ARM64
+observer's synthetic self-test also passed under QEMU user mode.
+
+The image has not been run on the phone. Synthetic self-tests are not physical
+input evidence. Before using it, review and independently verify the USB
+observer, recovery deadline and before/after Android, slot and boot hashes.
 
 ## Android axis comparison (C235)
 

@@ -52,50 +52,58 @@ static void write_attr(const char *name, const char *value)
 		fail("attribute close");
 }
 
-static unsigned int read_count(void)
+static unsigned int read_count(const char *attribute)
 {
+	char path[256];
 	char value[32];
 	unsigned long count;
 	char *end;
-	int fd = open(BASE "handler_count", O_RDONLY | O_CLOEXEC);
+	int fd;
 	ssize_t n;
 
+	if (snprintf(path, sizeof(path), BASE "%s", attribute) >= (int)sizeof(path))
+		fail("counter path too long");
+	fd = open(path, O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
-		fail("handler count open");
+		fail("counter open");
 	n = read(fd, value, sizeof(value) - 1);
 	if (n <= 0)
-		fail("handler count read");
+		fail("counter read");
 	value[n] = '\0';
 	errno = 0;
 	count = strtoul(value, &end, 10);
 	if (errno || end == value || (*end != '\n' && *end != '\0') ||
 	    count > UINT_MAX || close(fd))
-		fail("handler count parse");
+		fail("counter parse");
 	return (unsigned int)count;
 }
 
-static void wait_count(unsigned int expected)
+static void wait_count(const char *attribute, unsigned int expected)
 {
 	struct timespec pause = { .tv_nsec = 10000000 };
 
 	for (int i = 0; i < 300; i++) {
-		if (read_count() >= expected)
+		if (read_count(attribute) >= expected)
 			return;
 		nanosleep(&pause, NULL);
 	}
-	fail("IRQ handler not invoked");
+	fail("counter did not advance");
 }
 
-static bool target_event(const char *data, ssize_t len)
+/* 0: unrelated; 1: present with measurements; 2: absent; -1: malformed. */
+static int target_event(const char *data, ssize_t len)
 {
 	bool action = false, subsystem = false, name = false, devpath = false;
+	bool voltage = false, current = false, capacity = false;
+	bool any_measurement = false;
+	int present = -1;
 
 	for (ssize_t pos = 0; pos < len;) {
 		size_t remaining = (size_t)(len - pos);
 		size_t size = strnlen(data + pos, remaining);
 
 		if (size == remaining)
-			return false;
+			return -1;
 		if (!strcmp(data + pos, "ACTION=change"))
 			action = true;
 		if (!strcmp(data + pos, "SUBSYSTEM=power_supply"))
@@ -104,12 +112,34 @@ static bool target_event(const char *data, ssize_t len)
 			name = true;
 		if (!strcmp(data + pos, TEST_DEVPATH))
 			devpath = true;
+		if (!strcmp(data + pos, "POWER_SUPPLY_PRESENT=1"))
+			present = 1;
+		if (!strcmp(data + pos, "POWER_SUPPLY_PRESENT=0"))
+			present = 0;
+		if (!strncmp(data + pos, "POWER_SUPPLY_VOLTAGE_NOW=", 25) ||
+		    !strncmp(data + pos, "POWER_SUPPLY_CURRENT_NOW=", 25) ||
+		    !strncmp(data + pos, "POWER_SUPPLY_CAPACITY=", 22))
+			any_measurement = true;
+		if (!strcmp(data + pos, "POWER_SUPPLY_VOLTAGE_NOW=3999989"))
+			voltage = true;
+		if (!strcmp(data + pos, "POWER_SUPPLY_CURRENT_NOW=499999"))
+			current = true;
+		if (!strcmp(data + pos, "POWER_SUPPLY_CAPACITY=50"))
+			capacity = true;
 		pos += (ssize_t)size + 1;
 	}
-	return action && subsystem && name && devpath;
+	if (!name && !devpath)
+		return 0;
+	if (!action || !subsystem || !name || !devpath)
+		return -1;
+	if (present == 1 && voltage && current && capacity)
+		return 1;
+	if (present == 0 && !any_measurement)
+		return 2;
+	return -1;
 }
 
-static bool wait_event(int fd, int timeout_ms)
+static int wait_event(int fd, int timeout_ms)
 {
 	struct timespec start, now;
 	char data[8192];
@@ -126,7 +156,7 @@ static bool wait_event(int fd, int timeout_ms)
 		elapsed = (now.tv_sec - start.tv_sec) * 1000 +
 			  (now.tv_nsec - start.tv_nsec) / 1000000;
 		if (elapsed >= timeout_ms)
-			return false;
+			return 0;
 		ret = poll(&pfd, 1, timeout_ms - (int)elapsed);
 		if (ret < 0 && errno == EINTR)
 			continue;
@@ -146,8 +176,9 @@ static bool wait_event(int fd, int timeout_ms)
 			if ((msg.msg_flags & MSG_TRUNC) || msg.msg_namelen != sizeof(sender) ||
 			    sender.nl_family != AF_NETLINK || sender.nl_pid != 0)
 				fail("uevent sender or truncation");
-			if (target_event(data, n))
-				return true;
+			ret = target_event(data, n);
+			if (ret)
+				return ret;
 		}
 	}
 }
@@ -193,16 +224,35 @@ int main(void)
 		fail("uevent socket");
 	write_attr("mode", "0\n");
 	write_attr("trigger", "1\n");
-	wait_count(1);
-	if (wait_event(sock, 1000))
+	wait_count("handler_count", 1);
+	if (wait_event(sock, 1000) != 0)
 		fail("negative control emitted a power-supply event");
 	printf("LGG8_QEMU_IRQ: negative control passed\n");
 	write_attr("mode", "1\n");
 	write_attr("trigger", "1\n");
-	wait_count(2);
-	if (!wait_event(sock, 5000))
+	wait_count("handler_count", 2);
+	if (wait_event(sock, 5000) != 1)
 		fail("missing power-supply change uevent");
 	printf("LGG8_QEMU_IRQ: IRQ -> FG callback -> power_supply uevent passed\n");
+	write_attr("mode", "2\n");
+	write_attr("trigger", "1\n");
+	wait_count("handler_count", 3);
+	if (wait_event(sock, 5000) != 2)
+		fail("missing battery-absent event");
+	printf("LGG8_QEMU_IRQ: battery-absent event passed\n");
+	write_attr("mode", "3\n");
+	write_attr("trigger", "1\n");
+	wait_count("handler_count", 4);
+	wait_count("io_error_count", 1);
+	if (wait_event(sock, 1000) != 0)
+		fail("unexpected uevent on injected read error");
+	printf("LGG8_QEMU_IRQ: read error dropped uevent\n");
+	write_attr("mode", "1\n");
+	write_attr("trigger", "1\n");
+	wait_count("handler_count", 5);
+	if (wait_event(sock, 5000) != 1)
+		fail("uevent did not recover after read error");
+	printf("LGG8_QEMU_IRQ: recovery event passed\n");
 	close(sock);
 	if (syscall(SYS_delete_module, "lgg8_fg_irq_fixture", 0))
 		fail("module unload");

@@ -303,8 +303,9 @@ The shared gauge is not an independent calibration. C227 used `-EAGAIN` for
 unavailable data; a later source change uses `-ENODATA` so unavailable capacity
 or persistently mismatched voltage/current pairs do not discard the rest of a
 power-supply uevent. The later error paths have
-offline coverage but was not exercised on C227 hardware. The driver does not yet
-send change notifications when this value changes. This full-battery check does not
+offline coverage but was not exercised on C227 hardware. The driver now requests
+SOC-related IRQs and calls the power-supply notification path; C232 verified
+registration but observed no real IRQ delivery. This full-battery check does not
 validate other charge levels, a cold boot, update freshness or safe charging;
 see [STATUS.md](STATUS.md) for image and capture identities.
 
@@ -933,3 +934,18 @@ and userspace notification remain unverified. Local actual-source tests exercise
 the callback and unwind paths only with simulated kernel APIs; they cannot
 validate hardware ACKs or prevent an IRQ storm. No charge-control change or
 charging-safety conclusion follows from this registration test.
+
+## Faults while publishing an FG event (local QEMU)
+
+Using the C232 kernel, the production FG getters and a RAM-backed regmap, a
+simulated battery-absent event reached userspace with `PRESENT=0` and no
+measurement values. When the voltage read returned an injected `-EIO`, the
+fault was observed but no target netlink uevent arrived within one second;
+after removing the fault, the next event arrived. The power-supply core calls
+its kernel notifier before serializing the uevent, so this does not establish
+that kernel notifications were dropped. The virtual test does not establish
+that a physical PMIC experienced the fault. Future charge supervision must
+handle read errors and stale data rather than assume every change generates a
+userspace event. This finding is not a validated charging or protection path.
+See [LOCAL-VALIDATION.md](LOCAL-VALIDATION.md) for the reproducible test and
+record.

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-only
-"""Exercise the real FG IRQ callback and power-supply uevent in QEMU only.
+"""Exercise the real FG callback/getters and power-supply uevent in QEMU only.
 
-The IRQ source and battery are fixtures. This does not test the phone, PMIC,
+The IRQ source and regmap are fixtures. This does not test the phone, PMIC,
 physical IRQ delivery, calibration, or charging safety. The fixture module
 also refuses to load unless the machine identifies as QEMU's dummy virt.
 """
@@ -56,16 +56,24 @@ def has_kernel_error(log):
 
 
 def source_definitions(source):
-    patterns = (r"^struct qcom_fg_observer \{.*?^\};",
+    patterns = (r"^#define FG_[A-Z0-9_]+\s+[^\n]+$",
+                r"^struct qcom_fg_observer \{.*?^\};",
+                r"^static int fg_observer_read_pair\(.*?^\}",
+                r"^static enum power_supply_property fg_observer_properties\[\] = \{.*?^\};",
+                r"^static int fg_observer_check_present\(.*?^\}",
+                r"^static int fg_observer_read_measurement\(.*?^\}",
+                r"^static int fg_observer_read_capacity\(.*?^\}",
+                r"^static int fg_observer_get_property\(.*?^\}",
+                r"^static const struct power_supply_desc fg_observer_desc = \{.*?^\};",
                 r"^static irqreturn_t fg_observer_irq\(.*?^\}")
     result = []
-    for pattern in patterns:
+    for index, pattern in enumerate(patterns):
         matches = list(re.finditer(pattern, source, re.MULTILINE | re.DOTALL))
-        if len(matches) != 1:
+        if not matches or (index and len(matches) != 1):
             raise RuntimeError("Cannot uniquely identify FG callback definition")
-        match = matches[0]
-        line = source.count("\n", 0, match.start()) + 1
-        result.append(f"#line {line} {json.dumps(str(SOURCE))}\n{match.group()}\n")
+        for match in matches:
+            line = source.count("\n", 0, match.start()) + 1
+            result.append(f"#line {line} {json.dumps(str(SOURCE))}\n{match.group()}\n")
     return "\n".join(result)
 
 
@@ -184,6 +192,9 @@ def main():
         (result_dir / "qemu.log").write_bytes(result.stdout)
         required = (b"LGG8_QEMU_IRQ: negative control passed",
                     b"LGG8_QEMU_IRQ: IRQ -> FG callback -> power_supply uevent passed",
+                    b"LGG8_QEMU_IRQ: battery-absent event passed",
+                    b"LGG8_QEMU_IRQ: read error dropped uevent",
+                    b"LGG8_QEMU_IRQ: recovery event passed",
                     b"LGG8_QEMU_IRQ: cleanup passed")
         if (result.returncode or any(marker not in result.stdout for marker in required)
                 or b"LGG8_QEMU_IRQ: FAIL" in result.stdout or has_kernel_error(result.stdout)):
@@ -217,6 +228,8 @@ def main():
                   "test_module_sha256": digest(module), "initramfs_sha256": digest(initramfs),
                   "physical_phone_tested": False, "physical_irq_delivery_proven": False,
                   "non_virt_module_rejection": "PASS",
+                  "missing_battery_event": "PASS", "injected_io_error_event": "DROPPED",
+                  "post_error_event_recovery": "PASS",
                   "record_dir": str(result_dir)}
         (result_dir / "result.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps(report, indent=2))

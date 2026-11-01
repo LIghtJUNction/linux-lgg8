@@ -18,13 +18,22 @@ def plan(nonce):
     # No caller-controlled shell fragments. A separate session and redirected
     # stdio let the test continue if the ACM gadget disconnects. Marker lines
     # report sysfs results; they do not prove actual callback execution.
-    body = ("if printf 'devices\\n' > /sys/power/pm_test && "
+    body = ("old=$(/bin/busybox cat /sys/power/pm_print_times 2>/dev/null); "
+            "case $old in 0|1) printf '1\\n' > /sys/power/pm_print_times && "
+            f"printf '{marker}_TIMING_ENABLED\\n';; "
+            f"*) printf '{marker}_TIMING_UNAVAILABLE\\n';; esac; "
+            "if printf 'devices\\n' > /sys/power/pm_test && "
             "/bin/busybox grep -q '\\[devices\\]' /sys/power/pm_test; then "
             f"printf '{marker}_SELECTED\\n'; "
             "printf 'freeze\\n' > /sys/power/state; r=$?; "
             f"printf '{marker}_RETURN_%s\\n' \"$r\"; "
             f"else printf '{marker}_SELECT_FAILED\\n'; fi; "
             "printf 'none\\n' > /sys/power/pm_test; r=$?; "
+            "case $old in 0|1) printf '%s\\n' \"$old\" > /sys/power/pm_print_times;; esac; "
+            f"printf '{marker}_LOG_BEGIN\\n'; "
+            "/bin/busybox dmesg | /bin/busybox grep -E '2-0028|sw42000' | "
+            "/bin/busybox tail -n 80; "
+            f"printf '{marker}_LOG_END\\n'; "
             f"printf '{marker}_RESET_%s\\n' \"$r\"")
     launch = (f"umask 077; test ! -e {path} && "
               f"/bin/busybox setsid /bin/busybox sh -c {shlex.quote(body)} "

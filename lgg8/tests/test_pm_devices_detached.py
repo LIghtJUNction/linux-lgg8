@@ -10,6 +10,8 @@ class DetachedTest(unittest.TestCase):
         self.assertIn(b'busybox setsid', p['launch'])
         self.assertIn(b"/sys/power/pm_test", p['launch'])
         self.assertIn(b"/sys/power/state", p['launch'])
+        self.assertIn(b"/sys/power/pm_print_times", p['launch'])
+        self.assertIn(b"busybox dmesg", p['launch'])
         subprocess.run(['/bin/busybox', 'sh', '-n'], input=p['launch'], check=True)
         with self.assertRaises(ValueError):
             plan('A' * 23 + ';')
@@ -24,9 +26,14 @@ class DetachedTest(unittest.TestCase):
                 token = b'PMREAD_' + b'B' * 24
                 return predicate(self.buffer + self.command + self.body + b'\n' + token + b'\n')
         pfx = p['prefix'].encode()
-        body = pfx + b'_SELECTED\n' + pfx + b'_RETURN_0\n' + pfx + b'_RESET_0\n'
+        body = (pfx + b'_TIMING_ENABLED\n' + pfx + b'_SELECTED\n' +
+                pfx + b'_RETURN_0\n' + pfx + b'_LOG_BEGIN\n' +
+                b'2-0028: sw42000_suspend returned 0\n' + pfx + b'_LOG_END\n' +
+                pfx + b'_RESET_0\n')
         found = read_record(Channel(body), lambda: True, p, 1000000000, 'B' * 24)
         self.assertEqual(found['status'], 'PASS')
+        self.assertTrue(found['timing_enabled'])
+        self.assertEqual(found['touch_pm_log'], ['2-0028: sw42000_suspend returned 0'])
         self.assertIsNone(read_record(Channel(pfx + b'_SELECTED\n'), lambda: True, p, 1000000000, 'B' * 24))
         with self.assertRaises(RuntimeError):
             read_record(Channel(body), lambda: False, p, 1000000000, 'B' * 24)

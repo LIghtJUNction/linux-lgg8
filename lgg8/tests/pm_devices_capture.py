@@ -31,8 +31,16 @@ def parse(data, prefix):
     if not reset:
         return None
     success = selected and not select_failed and ret == [(prefix + "_RETURN_0").encode()] and reset == [(prefix + "_RESET_0").encode()]
+    begin, end = (prefix + "_LOG_BEGIN").encode(), (prefix + "_LOG_END").encode()
+    log = []
+    if lines.count(begin) == lines.count(end) == 1:
+        start, stop = lines.index(begin), lines.index(end)
+        if start < stop and stop - start <= 81:
+            log = [line[:512].decode('utf-8', errors='replace') for line in lines[start + 1:stop]]
     return {"status": "PASS" if success else "FAILED", "selected": selected,
             "state_returns": [x.decode() for x in ret], "reset_returns": [x.decode() for x in reset],
+            "timing_enabled": (prefix + "_TIMING_ENABLED").encode() in lines,
+            "touch_pm_log": log,
             "real_sleep_verified": False, "touch_after_resume_verified": False,
             "capture_authenticated": False}
 

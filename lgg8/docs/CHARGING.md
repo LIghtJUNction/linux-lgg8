@@ -119,10 +119,19 @@ shutdown on failure, contract reduction, and detach. The target DTS's
 termination or overvoltage protection.
 
 The first PM8150B-specific slice is a separate read-only status driver. It
-validates the PMIC subtype and exposes only USB presence and USB input-path
+validates the PMIC subtype and exposes USB presence and USB input-path
 selection from SMB5 status registers. It has no register writes, charger IRQs,
 APSD work, or writable power-supply properties. C211 compiled and booted it
 RAM-only; on physical USB 1-2 Linux ACM reported `present=1` and `online=1`.
+
+The current source additionally exposes the programmed base FCC and float
+voltage via read-only `constant_charge_current` and `constant_charge_voltage`.
+The [fixed PM8150B downstream parameter table](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/qpnp-smb5.c#L123-L148)
+defines 50,000 µA and 10,000 µV steps, with a 3,600,000 µV FV offset.
+Unsupported raw codes return `-ENODATA`. These base settings are not measured
+battery current or voltage, effective post-JEITA limits, or proof that charging
+is enabled or stopped. They can remain readable while USB is offline. This
+addition is covered offline and has not yet been tested on a device.
 
 C212 adds the PM8150B `ADC5_USB_IN_I` and `ADC5_USB_IN_V_16` IIO channels using
 the prescaling from LG's alpha-family device tree. The RAM-only ACM readback

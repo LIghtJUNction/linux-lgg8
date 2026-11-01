@@ -118,6 +118,24 @@ shutdown on failure, contract reduction, and detach. The target DTS's
 `simple-battery` 4.43 V field is static metadata, not active charge
 termination or overvoltage protection.
 
+The PMIC Type-C status getter now preserves register-read errors, including
+while its source regulator is enabled. A VBUS IRQ is forwarded for resampling
+even if its preliminary status read fails. TCPM rejects a negative VBUS read
+instead of treating it as present or as vSafe0V. This does not yet provide
+automatic resampling or a safe input-stop mechanism: after a read failure,
+the prior TCPM state can remain stale until a later event. The PM8150B Type-C
+node stays disabled on this board and the change has only local fault tests,
+not a phone test.
+
+The existing Qualcomm Type-C source-VBUS path has another unresolved failure:
+after a successful regulator request, `qcom_pmic_typec_port_vbus_toggle()`
+logs a failed vSafe0V/vSafe5V status poll but returns success. Simply returning
+the poll error would leave the driver's cached regulator-reference state out of
+sync. Regulator disable can also return an error after its consumer reference
+was dropped, so retrying a disable or reading physical enable status alone
+cannot recover ownership. This path remains unverified and is separate from
+the SMB5 sink input; it does not prove battery charging is stopped.
+
 The first PM8150B-specific slice is a separate read-only status driver. It
 validates the PMIC subtype and exposes USB presence and USB input-path
 selection from SMB5 status registers. It has no register writes, charger IRQs,
@@ -174,6 +192,16 @@ of 4,920,804 and 4,929,756 µV; Android read about 4.71 V in separate boots.
 These are not simultaneous or independent calibrated measurements. The property
 requests ADC conversions even when the power-supply core reads it while building
 a uevent, so ADC configuration writes can occur without an explicit user read.
+The current ADC5 voltage scaling returns microvolts; generic IIO voltage
+consumers commonly expect millivolts. The status driver's MID_CHG consumer
+therefore relies on this specific provider, channel and scaling rather than a
+generic voltage source. A wrong ADC register base is more serious than a bad
+measurement: an ADC conversion writes its configuration and request registers,
+which could address a different PMIC peripheral. The current board DTS uses
+the PM8150B ADC at `0x3100` and MID_CHG channel `0x1e` with 1:6 scaling.
+See the [ADC5 conversion and channel mapping](../../drivers/iio/adc/qcom-spmi-adc5.c),
+its [voltage scaling](../../drivers/iio/adc/qcom-vadc-common.c), and an
+[IIO-to-power-supply unit conversion example](../../drivers/power/supply/axp20x_usb_power.c).
 It does not configure charge control. Repeated USB presence checks cannot rule
 out a detach and reattach or voltage renegotiation between them. Neither this
 voltage nor the separate USBIN sample proves a negotiated contract, a physically

@@ -247,7 +247,8 @@ static irqreturn_t pmic_typec_port_isr(int irq, void *dev_id)
 	ret = regmap_read(pmic_typec_port->regmap,
 			  pmic_typec_port->base + TYPEC_MISC_STATUS_REG,
 			  &misc_stat);
-	if (ret)
+	/* Let TCPM resample a VBUS IRQ even when this preliminary read failed. */
+	if (ret && irq_data->virq != PMIC_TYPEC_VBUS_IRQ)
 		goto done;
 
 	switch (irq_data->virq) {
@@ -283,7 +284,7 @@ static int qcom_pmic_typec_port_vbus_detect(struct pmic_typec_port *pmic_typec_p
 			  pmic_typec_port->base + TYPEC_MISC_STATUS_REG,
 			  &misc);
 	if (ret)
-		misc = 0;
+		return ret;
 
 	dev_dbg(dev, "get_vbus: 0x%08x detect %d\n", misc, !!(misc & TYPEC_VBUS_DETECT));
 
@@ -328,7 +329,9 @@ static int qcom_pmic_typec_port_get_vbus(struct tcpc_dev *tcpc)
 	int ret;
 
 	mutex_lock(&pmic_typec_port->vbus_lock);
-	ret = pmic_typec_port->vbus_enabled || qcom_pmic_typec_port_vbus_detect(pmic_typec_port);
+	ret = qcom_pmic_typec_port_vbus_detect(pmic_typec_port);
+	if (ret >= 0 && pmic_typec_port->vbus_enabled)
+		ret = 1;
 	mutex_unlock(&pmic_typec_port->vbus_lock);
 
 	return ret;

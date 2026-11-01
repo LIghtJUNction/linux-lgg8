@@ -7234,10 +7234,13 @@ static void tcpm_pd_event_handler(struct kthread_work *work)
 		if (events & TCPM_RESET_EVENT)
 			_tcpm_pd_hard_reset(port);
 		if (events & TCPM_VBUS_EVENT) {
-			bool vbus;
+			int vbus;
 
 			vbus = port->tcpc->get_vbus(port->tcpc);
-			if (vbus) {
+			if (vbus < 0) {
+				/* A failed read establishes neither presence nor vSafe0V. */
+				tcpm_log_force(port, "Failed to read VBUS status: %d", vbus);
+			} else if (vbus) {
 				_tcpm_pd_vbus_on(port);
 			} else {
 				_tcpm_pd_vbus_off(port);

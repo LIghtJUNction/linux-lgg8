@@ -30,6 +30,7 @@
 | Linux USB 枚举和 shell | **RAM-only 路径通过** | C206 空 client 与 C208 有效 log client 均通过 `18d1:4ee7` ACM shell；C207 的 log client 未编译，C203 默认 fbdev 未到达 ACM |
 | SMB5 充电状态与 USB ADC | **C212 RAM-only 真机读取成功** | `present=1`、`online=1`；USB 输入 4.876 V，电流检测 ADC 64.489 mV（按 PM8150B buck 标定约 322 mA USB 输入）；不是电池充电电流，也不能证明当前是否充电 |
 | SMB5 充电配置只读 | **C228 RAM-only 真机交叉核对通过** | FCC 基准配置 2.6 A、浮充电压配置 4.43 V；非实际充电电流或生效后的限值，尚无 Linux 充电控制 |
+| SMB5 输入电压 | **C230 RAM-only 真机通过** | 电源接口读出 MID_CHG 4.929366 V，与同次直接 ADC 前后读数相近；不证明 PD 合约或安全停电 |
 | FG 原始温度字节 | **C225 RAM-only 真机读到 `0x1f`** | 本轮还读到 therm config `0x02`、period `0x01`；尚未验证 Linux 下持续更新或可用于温度保护 |
 | 电池侧 ADC 遥测 | **C225 三轮真机读回，包含 EOC 检查修复** | VBAT 三轮均为 4.420782 V；30k/100k/400k 热敏上拉电压均读回，名义参数下约 48.55–50.02 kΩ；仍未接温度保护或充电控制 |
 | 机身温度 ADC | **C229 RAM-only 真机三次读回 34.166°C** | PM8150 的机身通道；Android 启动前 33.569°C、返回后 36.362°C，非独立电芯温度校验 |
@@ -570,6 +571,34 @@ RAM-only `fastboot boot` 首次成功在物理 USB 1-2 枚举 Linux ACM `18d1:4e
 C208 修正了 C207 的无效对照：本次有效配置启用 `CONFIG_DRM_CLIENT_LOG=y`，保持默认 client 为 `fbdev`，仅用 `drm_client_lib.active=log` 选择 log client。RAM-only 启动镜像 SHA-256 为 `3ead08159f1f99d7582ad21dd3af45b69bd05fe4e1ea8a9d99ab6d4b9c767176`；kernel SHA-256 为 `2a9d1be7f2725cd2756a99a33248a9cd6beebbbcb40949abe3d8f358765c9dcc`。ACM shell 探针通过，读取 519 行、39,716 字节；启动参数含 `active=log`，没有 `Unknown DRM client log`，并记录到 DPU framebuffer 准备活动。Android 自动回收，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a/boot_b 哈希均与启动前一致。屏幕未获可靠观察，因此此结果证明有效 log-client 配置下 Linux/ACM 路径可用，不证明可见桌面正常。证据保存在 `out/lgg8-c208-drm-log-enabled/run-02/`。
 
 当前有效 Linux 版本标识为 `7.3.0-lgg8+`。C208-R3 已通过用户观察和同次 ACM 验收蓝底桌面；C210 用户确认触控有效。C212 已读到 SMB5 状态和 PM8150B USB ADC；尚未实现 Linux 充电控制或快充。
+
+### C230：SMB5 MID_CHG 输入电压
+
+固定下游 PM8150B SMB5 源码指出，USBIN 电压 ADC 在高电压可能产生异常，
+USB 插入时使用 MID_CHG。运行中的 Android 设备树确认对应通道 `0x1e`、
+预分压 1:6；本轮接入该 ADC 通道，并为实际 SMB5 电源驱动增加只读
+`VOLTAGE_NOW`。读取前后检查 USB 插入，MID_CHG 小于 1 V 或读取失败时
+不返回电压。旧设备树缺少可选 ADC 时保留原有属性，消费者仍可正常注册。
+前后插入位相同不能排除期间断连重连或协商变化，不能用它证明安全停电。
+
+`run-20261101-021000-702f7a3a` 的内存启动镜像 SHA-256 为
+`74439225fddeb4c34b47e66a352bf2d9e44b5ca79937f26703238aa33b416b9d`。
+Linux 运行时核对 ADC 通道、charger 的 IIO 引用和原有设备身份，直接
+MID_CHG ADC 前后分别为 4,920,804 / 4,929,756 µV，电源接口中间读数为
+4,929,366 µV；另一路 USBIN ADC 为 4,902,768 µV。读取并不同时，数值不是
+外部仪表校准。Android 启动前后同一路 MID_CHG 约为 4.71 V，不同启动阶段
+的负载与电压可能不同。56 项回执通过，约 77.3 秒后 Android 回到 `_b`、
+`boot_completed=1`，boot ID 轮转，boot_a/boot_b 哈希不变；USB 1-2 被动
+监视覆盖和日志完整性检查通过。`result.json` SHA-256 为
+`b1d79fcc8b0b55475b3a4682dcf27eb7b99c15021a5fa54f066a65c4de8735be`；
+记录位于 `out/lgg8-c230-midchg-voltage-20261101/`。
+
+实际驱动 probe/getter 的 1,083 个测试覆盖原有属性、ADC 缺失及延迟绑定、
+断连、读取错误和 1 V 边界；严格编译及 UBSan 通过。绑定旧节点和新节点
+均通过，并用错误通道名、缺失配对属性及非法预分压反例检查 schema。
+电源 uevent 也可能读取 `VOLTAGE_NOW` 并触发 ADC 配置/转换寄存器写入；
+这不是零 PMIC 写入或充电控制验收。ADC 的完成位检查仍不单独证明所有
+迟到中断或旧完成状态均已排除，也未独立校验 ADC 精度。
 
 ### C229：机身温度通道
 

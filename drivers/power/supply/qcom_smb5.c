@@ -9,6 +9,7 @@
 
 #include <linux/bits.h>
 #include <linux/iio/consumer.h>
+#include <linux/iio/iio.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -17,6 +18,8 @@
 #include <linux/regmap.h>
 #include <linux/slab.h>
 #include <soc/qcom/qcom-spmi-pmic.h>
+
+#include <dt-bindings/iio/qcom,spmi-vadc.h>
 
 #define SMB5_USBIN_INT_RT_STS		0x0310
 #define SMB5_USBIN_PLUGIN_RT_STS_BIT	BIT(4)
@@ -34,6 +37,7 @@
 #define SMB5_FV_STEP_UV			10000
 #define SMB5_FV_MAX_RAW			119
 #define SMB5_MID_CHG_MIN_UV		1000000
+#define SMB5_ADC5_BASE			0x3100
 
 struct qcom_smb5 {
 	struct regmap *regmap;
@@ -232,6 +236,97 @@ static const struct power_supply_desc qcom_smb5_desc = {
 	.get_property		= qcom_smb5_get_property,
 };
 
+/*
+ * ADC5 processed voltages are in uV. A generic IIO voltage channel may use mV;
+ * establish the source before registering a supply whose uevents can read it.
+ * These checks only inspect DT and IIO metadata, never perform a conversion.
+ */
+static int qcom_smb5_get_mid_chg(struct device *dev, struct qcom_smb5 *smb5)
+{
+	struct device_node *np = dev->of_node;
+	struct device_node *parent, *charger_parent, *child;
+	struct of_phandle_args args;
+	struct iio_channel *channel;
+	enum iio_chan_type type;
+	u32 reg, prescale[2];
+	unsigned int matches = 0;
+	int ret;
+
+	if (!np ||
+	    of_property_count_strings(np, "io-channel-names") != 1 ||
+	    of_property_match_string(np, "io-channel-names", "mid-chg") != 0 ||
+	    of_count_phandle_with_args(np, "io-channels", "#io-channel-cells") != 1)
+		return -EINVAL;
+
+	ret = of_parse_phandle_with_args(np, "io-channels", "#io-channel-cells",
+					 0, &args);
+	if (ret)
+		return ret;
+
+	ret = -EINVAL;
+	if (args.args_count != 1 || args.args[0] != ADC5_MID_CHG_DIV6 ||
+	    of_property_count_strings(args.np, "compatible") != 1 ||
+	    !of_device_is_compatible(args.np, "qcom,spmi-adc5") ||
+	    !of_device_is_available(args.np) ||
+	    of_property_count_u32_elems(args.np, "reg") != 1 ||
+	    of_property_read_u32(args.np, "reg", &reg) || reg != SMB5_ADC5_BASE)
+		goto put_provider;
+
+	parent = of_get_parent(args.np);
+	charger_parent = of_get_parent(np);
+	if (!parent || parent != charger_parent || !dev->parent ||
+	    parent != dev->parent->of_node) {
+		of_node_put(charger_parent);
+		of_node_put(parent);
+		goto put_provider;
+	}
+	of_node_put(charger_parent);
+	of_node_put(parent);
+
+	/* Match ADC5's fwnode iterator: disabled channel nodes are not parsed. */
+	for_each_available_child_of_node(args.np, child) {
+		if (of_property_count_u32_elems(child, "reg") != 1 ||
+		    of_property_read_u32(child, "reg", &reg))
+			goto put_child;
+		if (reg != ADC5_MID_CHG_DIV6)
+			continue;
+		if (++matches != 1)
+			goto put_child;
+
+		/* Omitted: ADC5 MID_CHG defaults to ratio index 3, i.e. 1/6. */
+		if (of_property_present(child, "qcom,pre-scaling") &&
+		    (of_property_count_u32_elems(child, "qcom,pre-scaling") != 2 ||
+		     of_property_read_u32_array(child, "qcom,pre-scaling", prescale, 2) ||
+		     prescale[0] != 1 || prescale[1] != 6))
+			goto put_child;
+	}
+	if (matches != 1)
+		goto put_provider;
+
+	channel = devm_iio_channel_get(dev, "mid-chg");
+	if (IS_ERR(channel)) {
+		ret = PTR_ERR(channel);
+		goto put_provider;
+	}
+	ret = iio_get_channel_type(channel, &type);
+	if (ret)
+		goto put_provider;
+	if (type != IIO_VOLTAGE ||
+	    dev_fwnode(&channel->indio_dev->dev) != of_fwnode_handle(args.np)) {
+		ret = -EINVAL;
+		goto put_provider;
+	}
+
+	smb5->mid_chg = channel;
+	ret = 0;
+put_provider:
+	of_node_put(args.np);
+	return ret;
+put_child:
+	of_node_put(child);
+	goto put_provider;
+}
+
 static int qcom_smb5_probe(struct platform_device *pdev)
 {
 	struct power_supply_config psy_cfg = {};
@@ -263,10 +358,10 @@ static int qcom_smb5_probe(struct platform_device *pdev)
 				     "failed to read charger register base\n");
 
 	if (device_property_present(&pdev->dev, "io-channels")) {
-		smb5->mid_chg = devm_iio_channel_get(&pdev->dev, "mid-chg");
-		if (IS_ERR(smb5->mid_chg))
-			return dev_err_probe(&pdev->dev, PTR_ERR(smb5->mid_chg),
-					     "failed to get MID_CHG ADC channel\n");
+		ret = qcom_smb5_get_mid_chg(&pdev->dev, smb5);
+		if (ret)
+			return dev_err_probe(&pdev->dev, ret,
+					     "invalid or unavailable MID_CHG ADC source\n");
 	}
 
 	smb5->desc = qcom_smb5_desc;

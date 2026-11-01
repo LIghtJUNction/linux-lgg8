@@ -45,6 +45,27 @@ def review():
             "suspend_verified": False, "charging_safety_verified": False}
 
 
+class GuardedChannel:
+    """Recheck physical binding and monitor before sends and while receiving."""
+    def __init__(self, channel, healthy):
+        self.channel, self.healthy = channel, healthy
+
+    def __getattr__(self, name):
+        return getattr(self.channel, name)
+
+    def send(self, data, deadline):
+        if not self.healthy():
+            raise RuntimeError("USB binding or monitor lost before serial send")
+        return self.channel.send(data, deadline)
+
+    def until(self, predicate, deadline):
+        def guarded(buffer):
+            if not self.healthy():
+                raise RuntimeError("USB binding or monitor lost during serial receive")
+            return predicate(buffer)
+        return self.channel.until(guarded, deadline)
+
+
 class DeviceIO:
     def __init__(self, serial, output):
         legacy = pinned_legacy()
@@ -92,12 +113,13 @@ class DeviceIO:
                         raise RuntimeError("ACM identity changed while opening")
                     def ready():
                         print("READY: 请在手机屏幕轻触并抬起，限时 20 秒。", flush=True)
-                    result = collect(channel, legacy, inner.manifest, healthy, ready, end)
+                    guarded = GuardedChannel(channel, healthy)
+                    result = collect(guarded, legacy, inner.manifest, healthy, ready, end)
                     result["usb_binding"] = {"tty": str(node), "parent": str(parent),
                                              "gadget_serial": serial, "snapshot": fingerprint}
                     if result["status"] == "PASS" and healthy():
                         result["reboot_request"] = legacy.request_ram_reboot(
-                            channel, min(inner.deadline, time.monotonic() + 4))
+                            guarded, min(inner.deadline, time.monotonic() + 4))
                     inner.save("touch-capture", result)
                     return result["status"]
                 finally:

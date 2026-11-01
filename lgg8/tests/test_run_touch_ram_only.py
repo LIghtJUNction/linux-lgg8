@@ -63,6 +63,20 @@ class RunnerTest(unittest.TestCase):
                 device.capture_touch()
             collector.assert_not_called()
 
+    def test_guard_checks_every_send_and_receive(self):
+        raw = types.SimpleNamespace(send=lambda data, deadline: data,
+                                    until=lambda predicate, deadline: predicate(b"data"),
+                                    buffer=bytearray(b"sample"))
+        guard = runner.GuardedChannel(raw, lambda: True)
+        self.assertEqual(guard.send(b"x", 1), b"x")
+        self.assertEqual(guard.until(lambda value: value, 1), b"data")
+        self.assertEqual(guard.buffer, b"sample")
+        guard = runner.GuardedChannel(raw, lambda: False)
+        with self.assertRaisesRegex(RuntimeError, "before serial send"):
+            guard.send(b"x", 1)
+        with self.assertRaisesRegex(RuntimeError, "during serial receive"):
+            guard.until(lambda value: value, 1)
+
     def test_reference_hash_and_real_default_review(self):
         self.assertFalse(runner.review()["device_execution"])
         module = runner.pinned_legacy()

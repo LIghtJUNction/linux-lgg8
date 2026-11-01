@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Read-only PM8150B battery-info measurements; no FG initialization. */
+/* PM8150B measurements and change notifications; no FG initialization. */
+#include <linux/interrupt.h>
 #include <linux/math64.h>
 #include <linux/module.h>
+#include <linux/of_irq.h>
 #include <linux/platform_device.h>
+#include <linux/pm.h>
 #include <linux/power_supply.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
@@ -27,6 +30,7 @@
 
 struct qcom_fg_observer {
 	struct regmap *regmap;
+	struct power_supply *psy;
 	struct power_supply_desc desc;
 	u32 base;
 	u32 mem_base;
@@ -314,14 +318,74 @@ static int fg_observer_check_subtype(struct qcom_fg_observer *fg, u32 base,
 	return subtype == expected ? 0 : -ENODEV;
 }
 
+static const char * const fg_observer_irq_names[] = {
+	"msoc-delta", "soc-ready", "batt-missing",
+};
+
+/* Legacy DTs omit the entire IRQ group. Declared groups must be complete. */
+static int fg_observer_get_irqs(struct platform_device *pdev,
+				struct qcom_fg_observer *fg, int *irqs)
+{
+	struct device *dev = &pdev->dev;
+	bool normal = device_property_present(dev, "interrupts");
+	bool extended = device_property_present(dev, "interrupts-extended");
+	bool names = device_property_present(dev, "interrupt-names");
+	const int count = ARRAY_SIZE(fg_observer_irq_names);
+	int i, j;
+
+	if (!normal && !extended && !names)
+		return 0;
+	if (normal == extended || !names || !fg->has_soc)
+		return -EINVAL;
+	if (device_property_string_array_count(dev, "interrupt-names") !=
+	    count || of_irq_count(dev->of_node) != count)
+		return -EINVAL;
+
+	for (i = 0; i < count; i++) {
+		if (device_property_match_string(dev, "interrupt-names",
+						fg_observer_irq_names[i]) != i)
+			return -EINVAL;
+		irqs[i] = platform_get_irq_byname(pdev, fg_observer_irq_names[i]);
+		if (irqs[i] <= 0)
+			return irqs[i] ?: -EINVAL;
+		for (j = 0; j < i; j++)
+			if (irqs[j] == irqs[i])
+				return -EINVAL;
+	}
+	return count;
+}
+
+/*
+ * The irqchip configures/masks IRQs and clears PMIC latches. This leaf only
+ * notifies; IRQF_ONESHOT does not guarantee protection against IRQ storms.
+ */
+static irqreturn_t fg_observer_irq(int irq, void *data)
+{
+	struct qcom_fg_observer *fg = data;
+
+	power_supply_changed(fg->psy);
+	return IRQ_HANDLED;
+}
+
+static int fg_observer_resume(struct device *dev)
+{
+	struct qcom_fg_observer *fg = dev_get_drvdata(dev);
+
+	/* Refresh state that may have changed while non-wakeup IRQs were masked. */
+	power_supply_changed(fg->psy);
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(fg_observer_pm_ops, NULL, fg_observer_resume);
+
 static int fg_observer_probe(struct platform_device *pdev)
 {
 	struct power_supply_config cfg = {};
 	const struct qcom_spmi_pmic *pmic;
 	struct qcom_fg_observer *fg;
-	struct power_supply *psy;
 	u32 bases[4];
-	int ret, num_bases;
+	int irqs[ARRAY_SIZE(fg_observer_irq_names)];
+	int ret, num_bases, num_irqs, i;
 
 	pmic = qcom_pmic_get(&pdev->dev);
 	if (IS_ERR(pmic))
@@ -366,6 +430,9 @@ static int fg_observer_probe(struct platform_device *pdev)
 		if (ret)
 			return ret;
 	}
+	num_irqs = fg_observer_get_irqs(pdev, fg, irqs);
+	if (num_irqs < 0)
+		return dev_err_probe(&pdev->dev, num_irqs, "FG IRQ resources\n");
 	fg->desc = fg_observer_desc;
 	if (!fg->has_soc)
 		fg->desc.num_properties--;
@@ -373,10 +440,19 @@ static int fg_observer_probe(struct platform_device *pdev)
 		fg->desc.num_properties--;
 	cfg.drv_data = fg;
 	cfg.fwnode = dev_fwnode(&pdev->dev);
-	psy = devm_power_supply_register(&pdev->dev, &fg->desc, &cfg);
-	if (IS_ERR(psy))
-		return PTR_ERR(psy);
+	fg->psy = devm_power_supply_register(&pdev->dev, &fg->desc, &cfg);
+	if (IS_ERR(fg->psy))
+		return PTR_ERR(fg->psy);
 	platform_set_drvdata(pdev, fg);
+	/* Reverse devres order frees/synchronizes IRQs before unregistering psy. */
+	for (i = 0; i < num_irqs; i++) {
+		ret = devm_request_threaded_irq(&pdev->dev, irqs[i], NULL,
+					       fg_observer_irq, IRQF_ONESHOT,
+					       fg_observer_irq_names[i], fg);
+		if (ret)
+			return dev_err_probe(&pdev->dev, ret, "FG IRQ %s\n",
+					     fg_observer_irq_names[i]);
+	}
 	return 0;
 }
 
@@ -392,6 +468,7 @@ static struct platform_driver fg_observer_driver = {
 		.name = "qcom-pm8150b-fg-observer",
 		.of_match_table = fg_observer_of_match,
 		.dev_groups = fg_observer_groups,
+		.pm = pm_sleep_ptr(&fg_observer_pm_ops),
 	},
 };
 module_platform_driver(fg_observer_driver);

@@ -179,10 +179,13 @@ settling and a 1:1 prescale. This is a separate board-skin channel from the
 PM8150B battery temperature source. An Android snapshot reported 33.842 °C
 skin and 32.6 °C battery; the source and sample record are in
 `out/lgg8-c229-skin-therm-20261101/android-before.txt`. The board-specific
-mainline DT now exposes the skin ADC channel; the new DT has not yet been
-verified on the phone. Skin and cell temperature can differ substantially, so
-this is an additional observation, not an independent cell thermometer or a
-validated charging-protection input.
+mainline DT now exposes the skin ADC channel. C229 verified the matching ADC
+identity and channel on the phone and read 34.166 °C three times; Android
+reported 33.569 °C before and 36.362 °C after that boot. These are not
+simultaneous or independent calibration measurements, and three adjacent
+samples do not establish longer-term freshness. Skin and cell temperature can
+differ substantially, so this is an additional observation, not an independent
+cell thermometer or a validated charging-protection input.
 
 The ADC reads request conversions and write ADC configuration registers;
 they are not a zero-PMIC-write observation. The same run saw USB

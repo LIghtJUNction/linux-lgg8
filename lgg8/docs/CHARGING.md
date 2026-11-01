@@ -922,3 +922,14 @@ fault tests do not model PMIC IRQ register writes or real IRQ delivery. The
 void ack/mask/unmask callbacks still cannot propagate write failures, and the
 test does not establish storm protection, a fresh battery temperature, or a
 safe charge-control policy.
+
+## FG notification IRQ registration (C232)
+
+The board now supplies the three FG interrupt specifiers confirmed in the
+running Android device tree. On one RAM-only boot Linux registered all three,
+and the retained log contained no matching IRQ transaction or ownership error.
+Their counters remained zero during the observation, so real event delivery
+and userspace notification remain unverified. Local actual-source tests exercise
+the callback and unwind paths only with simulated kernel APIs; they cannot
+validate hardware ACKs or prevent an IRQ storm. No charge-control change or
+charging-safety conclusion follows from this registration test.

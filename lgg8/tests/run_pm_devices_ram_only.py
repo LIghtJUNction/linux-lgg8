@@ -17,9 +17,9 @@ import touch_capture_adapter
 from touch_session import run_session
 
 ROOT = Path(__file__).resolve().parents[2]
-CANDIDATE = ROOT / 'out/lgg8-pm-test-20261101/boot'
-IMAGE_SHA = '23164971072af58164312e6e4796f4e20f7d6c6c13a04a2319edffc200650426'
-MANIFEST_SHA = '85870f71b735ac9cdee15edff6fdde89e5b13cca4989e04f291d9806b674f373'
+CANDIDATE = ROOT / 'out/lgg8-pm-reconnect-20261101/boot'
+IMAGE_SHA = '97bd999393bc8e034c3dffaf4acbbffbb49b285f63fb4330388fb79e2d1fc9ee'
+MANIFEST_SHA = '450844d2c71800fc590a7cf5bf900c6c391677378bffb6ba16d3f0571476a51f'
 
 
 def digest(path):

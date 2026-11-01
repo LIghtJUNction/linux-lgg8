@@ -505,7 +505,11 @@ the first reconnect-only records are `qemu-shell-reconnect-v2.stdout` and
 The initial test version matched command echo, and the stricter version first
 failed due to terminal echo; the successful version clears the input line and
 requires a separate output line. This test disconnects a virtual gadget; it is
-not a suspend or a phone test. The source change has not been built into a
-phone image or tested against real gadget disconnect. It cannot fix a kernel
-or userspace that did not resume, and is not evidence that device PM, touch
-recovery or charging works.
+not a suspend or a phone test. A new RAM-only phone candidate was assembled with this supervisor as `/init`;
+all other initramfs entry bytes and modes were checked unchanged. Image
+`out/lgg8-pm-reconnect-20261101/boot/boot.img` SHA-256 is
+`97bd999393bc8e034c3dffaf4acbbffbb49b285f63fb4330388fb79e2d1fc9ee`;
+manifest verification passed and device acceptance remains `NOT_TESTED`.
+It has not yet been tested against real gadget disconnect. The restart cannot
+fix a kernel or userspace that did not resume, and is not evidence that device
+PM, touch recovery or charging works.

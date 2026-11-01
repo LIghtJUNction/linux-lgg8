@@ -483,3 +483,14 @@ passed. The full session is in
 `out/lgg8-pm-test-20261101/pm-devices-20261101-105758-06533efc/`. Further
 phone tests need a demonstrably reliable post-disconnect observation path; do
 not repeatedly equate a reappearing gadget with resumed user space.
+
+The current `lgg8/rootfs/supervisor.c` source only started one interactive USB
+shell and returned when it exited; no respawn was arranged. A tty hangup is
+therefore one possible cause of a missing post-reconnect shell, but it has not
+been established as the cause in either phone run. The source now retries an
+exited shell, with one-second backoff and a 90-attempt cap; the independent
+PID 1 recovery deadline is unchanged. A host stub exercises retries, the cap,
+interrupted waits and fork failure, and the supervisor compiles for AArch64.
+This source change has not been built into a phone image or tested against a
+real gadget disconnect. It cannot fix a kernel or userspace that did not
+resume, and is not evidence that device PM, touch recovery or charging works.

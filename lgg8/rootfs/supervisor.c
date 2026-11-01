@@ -364,15 +364,12 @@ static int reached(struct timespec now, struct timespec start, int seconds)
     return now.tv_sec > start.tv_sec + seconds ||
         (now.tv_sec == start.tv_sec + seconds && now.tv_nsec >= start.tv_nsec);
 }
-static void usb_shell_session(void)
+static int usb_shell_once(void)
 {
-    /* A successful USB bind removes the short setup alarm. The independent
-     * PID 1 guardian still owns the hard 90-second recovery deadline. */
-    alarm(0);
     pid_t shell = fork();
     if (shell < 0) {
         message("LGG8_USB_SHELL fork errno=%d", errno);
-        return;
+        return -1;
     }
     if (!shell) {
         (void)setsid();
@@ -410,12 +407,27 @@ static void usb_shell_session(void)
     while (waitpid(shell, &status, 0) < 0) {
         if (errno == EINTR) continue;
         message("LGG8_USB_SHELL wait errno=%d", errno);
-        return;
+        return -1;
     }
     if (WIFEXITED(status))
         message("LGG8_USB_SHELL exit status=%d", WEXITSTATUS(status));
     else if (WIFSIGNALED(status))
         message("LGG8_USB_SHELL signal=%d", WTERMSIG(status));
+    return 0;
+}
+
+static void usb_shell_session(void)
+{
+    /* Reopen after a shell exits, including a tty hangup on USB disconnect.
+     * Back off and cap retries; PID 1 still owns the independent recovery
+     * deadline. This does not prove that userspace survived a PM transition. */
+    alarm(0);
+    for (unsigned attempt = 0; attempt < 90; ++attempt) {
+        if (usb_shell_once()) return;
+        struct timespec delay = { .tv_sec = 1 };
+        while (nanosleep(&delay, &delay) && errno == EINTR) { }
+    }
+    message("LGG8_USB_SHELL restart_limit");
 }
 
 static void usb_beacon(const char *serial, int shell_enabled)

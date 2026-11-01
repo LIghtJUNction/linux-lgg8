@@ -452,3 +452,14 @@ suspend, so an awake expiry cannot establish a reset deadline for a hung
 suspend. Behavior for an inherited running watchdog with no active userspace
 owner is distinct and has not been proven on this phone. Do not enter suspend
 relying on this watchdog as the sole recovery mechanism.
+
+The separately built `CONFIG_PM_DEBUG=y` diagnostic kernel has now been packed
+with the existing touch-probe initramfs and verified as an Android boot image.
+Its RAM-only candidate is `out/lgg8-pm-test-20261101/boot/boot.img`, SHA-256
+`23164971072af58164312e6e4796f4e20f7d6c6c13a04a2319edffc200650426`;
+manifest SHA-256
+`85870f71b735ac9cdee15edff6fdde89e5b13cca4989e04f291d9806b674f373`.
+Packaging used the existing kernel build receipt and did not recalculate a
+workspace-wide provenance digest. Verification is local only; this candidate
+has not been booted or tested on the phone. A `pm_test=devices` run would test
+device callbacks but would not establish actual system sleep or wake.

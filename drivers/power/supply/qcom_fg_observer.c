@@ -21,6 +21,8 @@
 #define FG_VOLTAGE_SHADOW_OFFSET 0xa6
 #define FG_CURRENT_SHADOW_OFFSET 0xa8
 #define FG_MONOTONIC_SOC_OFFSET 0x09
+#define FG_SOC_RT_STATUS_OFFSET 0x10
+#define FG_SOC_READY BIT(1)
 #define FG_READ_ATTEMPTS 5
 
 struct qcom_fg_observer {
@@ -72,6 +74,22 @@ FG_RR_STATUS_ATTR(rradc_realtime_status, 0x10);
 FG_RR_STATUS_ATTR(rradc_therm_config, 0x81);
 FG_RR_STATUS_ATTR(rradc_therm_period, 0x82);
 
+static ssize_t soc_realtime_status_show(struct device *dev,
+					struct device_attribute *attr, char *buf)
+{
+	struct qcom_fg_observer *fg = dev_get_drvdata(dev);
+	unsigned int value;
+	int ret;
+
+	if (!fg->has_soc)
+		return -EOPNOTSUPP;
+	ret = regmap_read_bypassed(fg->regmap, fg->soc_base + FG_SOC_RT_STATUS_OFFSET, &value);
+	if (ret)
+		return ret;
+	return sysfs_emit(buf, "0x%02x\n", value);
+}
+static DEVICE_ATTR_RO(soc_realtime_status);
+
 /* Raw status is evidence only; it does not prove temperature freshness. */
 #define FG_RAW_STATUS_ATTR(_name, _offset)                                  \
 static ssize_t _name##_show(struct device *dev,                              \
@@ -116,6 +134,7 @@ static struct attribute *fg_observer_attrs[] = {
 	&dev_attr_rradc_realtime_status.attr,
 	&dev_attr_rradc_therm_config.attr,
 	&dev_attr_rradc_therm_period.attr,
+	&dev_attr_soc_realtime_status.attr,
 	&dev_attr_algorithm_peek_config.attr,
 	&dev_attr_memory_realtime_status.attr,
 	&dev_attr_memory_arbitration_config.attr,
@@ -188,6 +207,7 @@ static int fg_observer_read_measurement(struct qcom_fg_observer *fg, u32 offset,
 
 static int fg_observer_read_capacity(struct qcom_fg_observer *fg, int *capacity)
 {
+	unsigned int status;
 	u8 data[2];
 	int ret, i;
 
@@ -196,6 +216,11 @@ static int fg_observer_read_capacity(struct qcom_fg_observer *fg, int *capacity)
 	ret = fg_observer_check_present(fg);
 	if (ret)
 		return ret;
+	ret = regmap_read_bypassed(fg->regmap, fg->soc_base + FG_SOC_RT_STATUS_OFFSET, &status);
+	if (ret)
+		return ret;
+	if (!(status & FG_SOC_READY))
+		return -ENODATA;
 
 	/* The second byte is the shadow of the first, not a 16-bit value. */
 	for (i = 0; i < FG_READ_ATTEMPTS; i++) {
@@ -207,7 +232,12 @@ static int fg_observer_read_capacity(struct qcom_fg_observer *fg, int *capacity)
 			break;
 	}
 	if (i == FG_READ_ATTEMPTS)
-		return -EAGAIN;
+		return -ENODATA;
+	ret = regmap_read_bypassed(fg->regmap, fg->soc_base + FG_SOC_RT_STATUS_OFFSET, &status);
+	if (ret)
+		return ret;
+	if (!(status & FG_SOC_READY))
+		return -ENODATA;
 	ret = fg_observer_check_present(fg);
 	if (ret)
 		return ret;

@@ -18,7 +18,9 @@ description: |
   before registration. If the optional ADC_RR peripheral is supplied, its subtype
   is also checked and its battery-missing status provides the power-supply PRESENT
   property. A fourth optional battery-SOC peripheral exposes the raw gauge's
-  scaled CAPACITY property after verifying the SOC subtype. Two-address nodes
+  scaled CAPACITY property after verifying the SOC subtype. The SOC-ready line
+  is checked before and after the reading; this alone does not verify profile
+  initialization or sample freshness. Two-address nodes
   do not expose PRESENT; nodes without the fourth address do not expose CAPACITY.
   Read errors are propagated; presence and capacity do not establish valid
   temperature, calibration or charging safety.

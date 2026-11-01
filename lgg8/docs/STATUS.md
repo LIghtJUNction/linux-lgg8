@@ -31,6 +31,7 @@
 | SMB5 充电状态与 USB ADC | **C212 RAM-only 真机读取成功** | `present=1`、`online=1`；USB 输入 4.876 V，电流检测 ADC 64.489 mV（按 PM8150B buck 标定约 322 mA USB 输入）；不是电池充电电流，也未启用充电 |
 | FG 原始温度字节 | **C225 RAM-only 真机读到 `0x1f`** | 本轮还读到 therm config `0x02`、period `0x01`；尚未验证 Linux 下持续更新或可用于温度保护 |
 | 电池侧 ADC 遥测 | **C225 三轮真机读回，包含 EOC 检查修复** | VBAT 三轮均为 4.420782 V；30k/100k/400k 热敏上拉电压均读回，名义参数下约 48.55–50.02 kΩ；仍未接温度保护或充电控制 |
+| 电量百分比 | **C227 RAM-only 真机就绪状态有效，两次读回 100%** | 与启动前同一次 Android 的 `bms/real_capacity=100` 一致；低电量、冷启动和变化通知未验证，当前驱动未接变化中断 |
 | ramoops/pstore 真机证据 | **C192 首次导出 console-ramoops；内容损坏，pmsg 未确认** | 早期与回收后同一 32878 字节记录；C191 为空；C192 用户态标记及 DPU pmsg 仍未观察到 |
 | 显示与触控 | **C210 RAM-only 真机：桌面触控有效（用户确认）；显示花屏状态另行追踪** | C210 X/Y 轴注册修复；自动回 Android，boot_a/boot_b 哈希不变；ACM 内核日志因主机 tty 权限未取到 |
 | Weston RAM 桌面 | **同次显示＋ACM 通过** | C208-R3；见下方记录与独立审查文档 |
@@ -567,6 +568,58 @@ RAM-only `fastboot boot` 首次成功在物理 USB 1-2 枚举 Linux ACM `18d1:4e
 C208 修正了 C207 的无效对照：本次有效配置启用 `CONFIG_DRM_CLIENT_LOG=y`，保持默认 client 为 `fbdev`，仅用 `drm_client_lib.active=log` 选择 log client。RAM-only 启动镜像 SHA-256 为 `3ead08159f1f99d7582ad21dd3af45b69bd05fe4e1ea8a9d99ab6d4b9c767176`；kernel SHA-256 为 `2a9d1be7f2725cd2756a99a33248a9cd6beebbbcb40949abe3d8f358765c9dcc`。ACM shell 探针通过，读取 519 行、39,716 字节；启动参数含 `active=log`，没有 `Unknown DRM client log`，并记录到 DPU framebuffer 准备活动。Android 自动回收，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a/boot_b 哈希均与启动前一致。屏幕未获可靠观察，因此此结果证明有效 log-client 配置下 Linux/ACM 路径可用，不证明可见桌面正常。证据保存在 `out/lgg8-c208-drm-log-enabled/run-02/`。
 
 当前有效 Linux 版本标识为 `7.3.0-lgg8+`。C208-R3 已通过用户观察和同次 ACM 验收蓝底桌面；C210 用户确认触控有效。C212 已读到 SMB5 状态和 PM8150B USB ADC；尚未实现 Linux 充电控制或快充。
+
+### C227：电量计就绪状态和百分比
+
+在 C226 后，读取电量时增加 battery-SOC 原厂定义的实时状态位检查：
+读取 SOC 前后均需观察到 `0x4010` 的 bit 1 为 1。此位仅为必要检查，
+不证明电池 profile 初始化完成或数据新鲜。通过只读属性
+`soc_realtime_status` 暴露原始状态，供验证使用。
+
+`run-20261101-011708-cbf64511` 使用内存启动镜像
+`59105ed6513610d31eac9d5de61c3683af186ebd3463eaee33ef62acfc08707c`。
+启动前 Android `bms/capacity`、`bms/real_capacity` 均为 100；Linux 早晚
+两次读到 SOC 状态 `0xc2`、电量 100%。39 项回执均通过，约 76.5 秒后
+Android 恢复到 `_b`，`boot_completed=1`，boot ID 轮转，boot_a/boot_b
+哈希不变。物理 USB 1-2 监视覆盖和日志完整性检查通过。原始记录位于
+`out/lgg8-c227-soc-ready-20261101/run-20261101-011708-cbf64511/`；
+其中 `result.json` SHA-256 为
+`ca1650e77b3252d58a830e0a5520dc2ceb825b5e3af40b24a983da7d8eb8b1e2`。
+
+C227 验证的是就绪位为高的满电情况；异常返回路径由本机模拟测试覆盖。
+后续源码将未就绪和影子字节持续不一致改为返回 `-ENODATA`，避免中止
+power-supply uevent；这项返回码修正尚未由 C227 镜像真机验证。
+
+### C226：电池电量百分比只读通路
+
+新增 FG 电量百分比读取：可选第四个 DT 地址对应 PM8150B 的 battery-SOC
+外设，探测时检查 subtype `0x10`；对原始 SOC 和 shadow 两字节进行一致性
+检查，并采用原厂 0–100% 映射。两、三个地址的旧节点不新增 CAPACITY 属性。
+读失败、持久不一致和电池缺失均返回错误，不以旧数值或零值代替。
+
+同一 Android 启动中，实测 `0x4005=0x10`、`0x4009/0x400a=ff/ff`、
+BMS `real_capacity=100`；debugfs 地址/count 恢复，boot ID 未变。
+C226 镜像 SHA-256 为
+`c534770a9c0e3a32011deb8c0b7202e0832a12429a8933cee562ee7a5626366e`。
+独立解析确认，与 C225 的 DTB 相比仅 `battery-info@4100/reg` 增加 `0x4000`；
+其余 DT 节点、模板、initramfs、原厂 DTB 和命令行一致。内核包含新读取代码。
+
+`run-20261101-010908-15ac1ac4` 使用 RAM-only 快速返回路径，在 Linux 中读取到
+运行时 `reg = <0x4100 0x4300 0x4200 0x4000>`，两次 CAPACITY 均为 100%；
+37 个回执和独立 USB 监视覆盖检查通过。手机返回 Android，boot ID 轮转，
+`boot_completed=1`、slot `_b`，boot_a/boot_b 哈希未变。总耗时 75.676 秒。
+31 项运行器离线测试、全部 256 个 SOC 编码及影子/电池/总线故障测试通过，
+ARM64 驱动编译、schema 检查和特意构造的非法五地址反例均通过。
+
+本次使用的是未检查 SOC-ready 的早期版本；独立复核发现两字节相同不能证明
+电量计已就绪。后续源码已加入前后检查 SOC-ready 的必要门禁，C227 已真机验证高位情况，
+该位也不能单独证明 profile 已初始化或样本新鲜。
+这是继承的电量计估计值，仅真机核对了满电点。尚未验证冷启动时 profile、
+低电量准确性和数值更新，当前驱动也未接电量变化中断/主动通知；不能用它
+作为温度或充电安全信号。没有请求写分区或充电控制，ADC IIO 读取会请求转换。
+本轮证据位于 `out/lgg8-c226-soc-probe-20261101/`；`result.json` SHA-256 为
+`72793b1266a9e45ac9727aa03233ce4ba20a924d70db59c085b14d27c7f09e9c`，
+`capture.json` 为 `d6d45c8ce0217be2a8e8d016e5a50ccb4744d4d63b05694a5c20ec4ffb2ec8f9`。
 
 ### C225：ADC5 完成检查及电池观测已真机通过
 

@@ -75,6 +75,12 @@ def perform(channel, io, healthy, deadline, binary):
         # probe's magic close stopped a watchdog. /run is volatile.
         try:
             if healthy():
+                # The interactive shell can be left inside an unterminated
+                # command after a truncated transfer. Ctrl-U only clears the
+                # current line; attempt an interrupt before resyncing. Signal
+                # delivery is not guaranteed; Android verification remains
+                # the only evidence of successful recovery.
+                channel.send(b"\x03\n", min(deadline, time.monotonic() + 1))
                 capture["fallback_reboot"] = legacy.request_ram_reboot(
                     channel, min(deadline, time.monotonic() + 4))
         except Exception as exc:

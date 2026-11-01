@@ -10,6 +10,7 @@ class RunnerTest(unittest.TestCase):
     def setUp(self):
         self.binary = b"fake binary"
         self.digest = hashlib.sha256(self.binary).hexdigest()
+        self.channel = types.SimpleNamespace(send=lambda data, deadline: None)
         self.legacy = types.SimpleNamespace(
             usb_snapshot=lambda: {"status": "present"},
             request_ram_reboot=lambda channel, deadline: {"sent": True})
@@ -24,7 +25,7 @@ class RunnerTest(unittest.TestCase):
         with patch.object(runner, "BINARY_SHA", self.digest), \
              patch.object(runner.registration, "inventory", return_value=self.receipts), \
              patch.object(runner.watchdog_transfer, "upload") as upload:
-            result = runner.perform(object(), self.io, lambda: True, 9999999999, self.binary)
+            result = runner.perform(self.channel, self.io, lambda: True, 9999999999, self.binary)
         upload.assert_not_called()
         self.assertEqual(result["status"], "FAILED")
         self.assertTrue(result["fallback_reboot"]["sent"])
@@ -36,7 +37,7 @@ class RunnerTest(unittest.TestCase):
              patch.object(runner.watchdog_transfer, "send_batches", return_value={"acknowledged_batches": 1}), \
              patch.object(runner.watchdog_reset_capture, "capture", return_value={"outcome": "TIMED_DISCONNECT_ONLY"}):
             # fake probe marks the binding gone before the final recovery check
-            result = runner.perform(object(), self.io, lambda: False, 9999999999, self.binary)
+            result = runner.perform(self.channel, self.io, lambda: False, 9999999999, self.binary)
         self.assertEqual(result["status"], "PASS")
         self.assertFalse(result["watchdog_reset_verified"])
         self.assertFalse(result["suspend_verified"])
@@ -48,7 +49,7 @@ class RunnerTest(unittest.TestCase):
              patch.object(runner.watchdog_transfer, "upload", return_value={"path": "/run/wdt-" + "A" * 24}), \
              patch.object(runner.watchdog_transfer, "send_batches", side_effect=TimeoutError("upload")), \
              patch.object(runner.watchdog_reset_capture, "capture") as probe:
-            result = runner.perform(object(), self.io, lambda: True, 9999999999, self.binary)
+            result = runner.perform(self.channel, self.io, lambda: True, 9999999999, self.binary)
         probe.assert_not_called()
         self.assertEqual(result["status"], "FAILED")
         self.assertTrue(result["fallback_reboot"]["sent"])
@@ -59,12 +60,12 @@ class RunnerTest(unittest.TestCase):
              patch.object(runner.watchdog_transfer, "upload", return_value={"path": "/run/wdt-" + "A" * 24}), \
              patch.object(runner.watchdog_transfer, "send_batches", return_value={}), \
              patch.object(runner.watchdog_reset_capture, "capture", return_value={"outcome": "NO_RESET_OBSERVED"}):
-            result = runner.perform(object(), self.io, lambda: True, 9999999999, self.binary)
+            result = runner.perform(self.channel, self.io, lambda: True, 9999999999, self.binary)
         self.assertEqual(result["status"], "FAILED")
         self.assertTrue(result["fallback_reboot"]["sent"])
 
     def test_bad_local_hash_stops_before_any_send(self):
-        result = runner.perform(object(), self.io, lambda: True, 9999999999, self.binary)
+        result = runner.perform(self.channel, self.io, lambda: True, 9999999999, self.binary)
         self.assertIn("binary changed", result["error"])
         self.assertTrue(result["fallback_reboot"]["sent"])
 

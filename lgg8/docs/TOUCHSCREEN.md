@@ -416,3 +416,21 @@ do not assume the two event types are interchangeable.
 The redacted capability listing and result are in
 `out/lgg8-c235-android-touch-axes-20261101/`; result SHA-256:
 `106a6b3522ffb2dedf935dfb2ee941c8df013d6e444782b58465e7bdc1633b96`.
+
+A later awake-only RAM boot attempted to prepare a watchdog reset observation,
+not suspend. Watchdog registration and driver binding were read successfully,
+then the transfer's first long interactive shell line timed out. The probe was
+not executed and no watchdog reset was tested. The ordinary reboot command was
+not confirmed because the shell was left at a continuation prompt; Android
+subsequently returned, but the reset cause was not established. Slot `_b`, both boot partition
+hashes and passive USB monitoring were verified after recovery. Logs are in
+`out/lgg8-touch-candidate-20261101/watchdog-reset-20261101-101743-edd7702e/`.
+
+The same failure was reproduced locally with an interactive BusyBox PTY: four
+512-byte chunks joined into one command exceeded the line editor's capacity.
+The transfer now sends and acknowledges one chunk per line; a real PTY test
+also transfers more data than the actual probe while enforcing the existing
+1 MiB serial capture limit. On failure the runner attempts Ctrl-C before
+resynchronizing for reboot, but that is not guaranteed recovery. A matching
+PTY test exercises interruption of an unterminated command. These are local
+checks, not proof that a subsequent device transfer or watchdog reset works.

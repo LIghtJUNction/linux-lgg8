@@ -27,10 +27,11 @@ def upload(binary, nonce):
     digest = hashlib.sha256(binary).hexdigest()
     segments = [["umask 077", f"test ! -e {path}.b64", f"test ! -e {path}",
                  f": > {path}.b64"]]
-    # Four short shell input lines per acknowledged batch keeps each write
-    # below the tty input buffer, even if the target shell uses canonical mode.
-    for start in range(0, len(chunks), 4):
-        segments.append([f"printf %s '{part}' >> {path}.b64" for part in chunks[start:start + 4]])
+    # Each batch is one interactive shell line. Joining four chunks with &&
+    # exceeds BusyBox's line editor buffer even if the tty canonical limit is
+    # larger; truncation leaves an unterminated quote and prevents recovery.
+    for part in chunks:
+        segments.append([f"printf %s '{part}' >> {path}.b64"])
     segments.append([
         f"/bin/busybox base64 -d {path}.b64 | /bin/busybox gzip -d > {path}",
         f"printf '%s  %s\\n' '{digest}' '{path}' | /bin/busybox sha256sum -c -",

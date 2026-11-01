@@ -3,6 +3,10 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import pty
+import select
+import signal
+import time
 
 from watchdog_transfer import send_batches, upload
 
@@ -62,6 +66,61 @@ class TransferTest(unittest.TestCase):
         self.assertEqual(bad.sent, 2)
         with self.assertRaisesRegex(RuntimeError, "identity"):
             send_batches(Channel(), plan, lambda: False, 9999999999)
+
+    def test_interactive_busybox_pty_roundtrip(self):
+        # Unlike sh -c, an interactive line editor can impose a shorter limit
+        # and issue cursor-position queries. Exercise the actual input path.
+        # Match the real transfer's encoded volume and enforce the production
+        # reader's 1 MiB ceiling, not just the shell's line-length limit.
+        data = os.urandom(370000)
+        plan = upload(data, "C" * 24)
+        with tempfile.TemporaryDirectory(prefix="wdt-pty-", dir=Path(__file__).parent) as tmp:
+            destination = str(Path(tmp) / "probe")
+            for batch in plan["batches"]:
+                batch["command"] = batch["command"].replace(plan["path"].encode(), destination.encode())
+            pid, master = pty.fork()
+            if pid == 0:
+                env = {**os.environ, "TERM": "linux", "PS1": "lgg8# ", "PS2": "> "}
+                os.execve("/bin/busybox", ["/bin/busybox", "sh", "-i"], env)
+            class Channel:
+                def __init__(self):
+                    self.buffer = bytearray()
+                    self.replies = 0
+                def send(self, data, deadline):
+                    while data:
+                        if time.monotonic() >= deadline or not select.select([], [master], [], 0.1)[1]:
+                            raise TimeoutError("pty write")
+                        data = data[os.write(master, data):]
+                def until(self, predicate, deadline):
+                    while time.monotonic() < deadline:
+                        value = predicate(bytes(self.buffer))
+                        if value:
+                            return value
+                        if not select.select([master], [], [], 0.05)[0]:
+                            continue
+                        self.buffer.extend(os.read(master, 8192))
+                        if len(self.buffer) > 1024 * 1024:
+                            raise ValueError("ACM capture exceeds 1 MiB")
+                        pending = self.buffer.count(b"\x1b[6n") - self.replies
+                        if pending:
+                            self.send(b"\x1b[1;7R" * pending, deadline)
+                            self.replies += pending
+                    raise TimeoutError("pty receipt")
+            try:
+                channel = Channel()
+                channel.until(lambda buf: b"lgg8# " in buf, time.monotonic() + 3)
+                offset = len(channel.buffer)
+                channel.send(b"printf 'unterminated\n", time.monotonic() + 2)
+                channel.until(lambda buf: b"> " in buf[offset:], time.monotonic() + 3)
+                offset = len(channel.buffer)
+                channel.send(b"\x03\n", time.monotonic() + 2)
+                channel.until(lambda buf: b"lgg8# " in buf[offset:], time.monotonic() + 3)
+                send_batches(channel, plan, lambda: True, time.monotonic() + 15)
+                self.assertEqual(Path(destination).read_bytes(), data)
+            finally:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+                os.close(master)
 
     def test_bounds_and_nonce(self):
         for payload, nonce in ((b"", "A" * 24), (b"x", "../bad"), (b"x" * (1024 * 1024 + 1), "A" * 24)):

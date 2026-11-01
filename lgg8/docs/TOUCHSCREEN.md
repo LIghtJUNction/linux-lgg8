@@ -243,6 +243,26 @@ The image has not been run on the phone. Synthetic self-tests are not physical
 input evidence. Before using it, review and independently verify the USB
 observer, recovery deadline and before/after Android, slot and boot hashes.
 
+## RAM-only coordinate candidate touch capture
+
+On 2026-11-01 a RAM-only candidate with boot image SHA-256
+`d9ef349136a2440287757f1121e351bead48d545898f7a45fb9a655b78bf3431`
+was started on LM-G820 `alphalm_lao_com`. The run identified
+`LG SW42000 Touchscreen` on `/dev/input/event2` and reported EVIOCGABS
+ranges X `0..1439`, Y `0..3119`, followed by a contact and release at
+`(916, 2009)`. The event capture is unauthenticated and does not by itself
+prove its physical origin. Raw serial and structured receipts are retained in
+`out/lgg8-touch-candidate-20261101/touch-run-20261101-073639-11e85cb0/`.
+No suspend was requested or tested.
+
+The phone returned to Android with slot `_b` and `sys.boot_completed=1`.
+Before and after SHA-256 values were unchanged for `boot_a`
+(`a826651669b4e9c8e2835e315082cedb821585a683fea9afede3f23517cfe4e6`)
+and `boot_b`
+(`fec418e5227a31927af27daf71d2225246f5adcf8dda38b5856200760b5205cd`).
+Passive USB 1-2 monitor coverage and log integrity checks passed. These
+observations do not establish charging safety or a reliable suspend wake path.
+
 ## Android axis comparison (C235)
 
 On the running Android device, read-only `getevent -lp` reported `touch_dev`

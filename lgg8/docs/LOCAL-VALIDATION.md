@@ -198,3 +198,29 @@ RAM-only `fastboot boot` 返回 0。物理口 1-2 的 Fastboot 于 +0.001 秒出
 启动前、ADB 早期回连、Android 回收后 pstore 快照均为 `verified-empty`，目录清单与源文件哈希一致。由 iSerial 可确认 `/dev/pmsg0` open/write 成功；空 pstore 只说明 Android 回收路径没有读到记录，不能否定写入回执。屏幕未记录。运行器和原始证据位于 `out/lgg8-c197-usb-beacon-enabled-20261031/`。
 
 这轮通过的是物理 USB 枚举与描述符读取。ACM 字节往返、`ttyGS0` shell 和显示仍是独立验收项。
+
+## FG 变化通知的 QEMU 集成验证（2026-11-01）
+
+```sh
+python3 -B lgg8/tests/test_qemu_fg_irq.py
+```
+
+需要已构建并带 `build-provenance.json` 的 `out/lgg8/kernel`、Clang、
+`aarch64-linux-gnu-gcc` 和 `qemu-system-aarch64`。脚本验证并隔离内核、配置和
+FG 源码快照，在独立输出子目录临时构建测试模块与最小 initramfs；每次保留唯一的
+`result.json` 和 `qemu.log`，完成后删除临时文件。默认输出到
+`out/lgg8/qemu-fg-irq-test/`，可通过 `--output` 指定其他目录。
+
+QEMU 虚拟机使用与 C232 相同的 ARM64 Image 和配置。测试模块只接受
+`linux,dummy-virt` 虚拟机，分配软件 IRQ，并使用从真实源码原样提取的 FG
+中断回调，连接内核真实的 power-supply 工作队列。guest 订阅 netlink：
+不调用 FG 回调的负对照没有产生目标变化事件，调用回调的模拟 IRQ 产生了
+目标 `ACTION=change` 事件，随后模块成功卸载；接收端核对内核发送者、设备路径
+和消息完整性，日志中的内核告警或崩溃会使测试失败。第二次启动将虚拟设备树的根
+compatible 改为非 virt 值，确认模块拒绝加载。2026-11-01 的完整记录在
+`out/lgg8-c233-irq-delivery-20261101/run-20261101-033137-9bf501ab/`，
+结果 SHA-256 `f0cec396d4fc2a99f6284c11b0915a7f57c07d86e3f9fea5d7e8f9e661b059e1`。
+
+测试的电池属性和 IRQ 芯片是模拟的，不操作手机、不访问 PMIC，也不能证明
+真实 FG 硬件中断投递、真实属性读取成功或充电保护安全。即使 QEMU 测试通过，
+C232 真机观察窗口内三个中断的计数仍均为零。

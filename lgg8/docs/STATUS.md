@@ -28,7 +28,8 @@
 | 本仓新内核真机启动 | **完整默认参数已运行** | C160 与 C162–169 使用 GPIO 保护、启用 TLMM、默认无 blacklist；每轮均回收 Android 且 A/B boot 哈希不变 |
 | RAM 桌面用户态 | **C208-R3 用户观察到蓝底终端与极简桌面；同次 ACM 通过** | 显示＋ACM 里程碑 M1 通过；屏幕证据为用户观察，无录像 |
 | Linux USB 枚举和 shell | **RAM-only 路径通过** | C206 空 client 与 C208 有效 log client 均通过 `18d1:4ee7` ACM shell；C207 的 log client 未编译，C203 默认 fbdev 未到达 ACM |
-| SMB5 充电状态与 USB ADC | **C212 RAM-only 真机读取成功** | `present=1`、`online=1`；USB 输入 4.876 V，电流检测 ADC 64.489 mV（按 PM8150B buck 标定约 322 mA USB 输入）；不是电池充电电流，也未启用充电 |
+| SMB5 充电状态与 USB ADC | **C212 RAM-only 真机读取成功** | `present=1`、`online=1`；USB 输入 4.876 V，电流检测 ADC 64.489 mV（按 PM8150B buck 标定约 322 mA USB 输入）；不是电池充电电流，也不能证明当前是否充电 |
+| SMB5 充电配置只读 | **C228 RAM-only 真机交叉核对通过** | FCC 基准配置 2.6 A、浮充电压配置 4.43 V；非实际充电电流或生效后的限值，尚无 Linux 充电控制 |
 | FG 原始温度字节 | **C225 RAM-only 真机读到 `0x1f`** | 本轮还读到 therm config `0x02`、period `0x01`；尚未验证 Linux 下持续更新或可用于温度保护 |
 | 电池侧 ADC 遥测 | **C225 三轮真机读回，包含 EOC 检查修复** | VBAT 三轮均为 4.420782 V；30k/100k/400k 热敏上拉电压均读回，名义参数下约 48.55–50.02 kΩ；仍未接温度保护或充电控制 |
 | 电量百分比 | **C227 RAM-only 真机就绪状态有效，两次读回 100%** | 与启动前同一次 Android 的 `bms/real_capacity=100` 一致；低电量、冷启动和变化通知未验证，当前驱动未接变化中断 |
@@ -568,6 +569,29 @@ RAM-only `fastboot boot` 首次成功在物理 USB 1-2 枚举 Linux ACM `18d1:4e
 C208 修正了 C207 的无效对照：本次有效配置启用 `CONFIG_DRM_CLIENT_LOG=y`，保持默认 client 为 `fbdev`，仅用 `drm_client_lib.active=log` 选择 log client。RAM-only 启动镜像 SHA-256 为 `3ead08159f1f99d7582ad21dd3af45b69bd05fe4e1ea8a9d99ab6d4b9c767176`；kernel SHA-256 为 `2a9d1be7f2725cd2756a99a33248a9cd6beebbbcb40949abe3d8f358765c9dcc`。ACM shell 探针通过，读取 519 行、39,716 字节；启动参数含 `active=log`，没有 `Unknown DRM client log`，并记录到 DPU framebuffer 准备活动。Android 自动回收，`boot_completed=1`、slot `_b`、boot ID 轮转，boot_a/boot_b 哈希均与启动前一致。屏幕未获可靠观察，因此此结果证明有效 log-client 配置下 Linux/ACM 路径可用，不证明可见桌面正常。证据保存在 `out/lgg8-c208-drm-log-enabled/run-02/`。
 
 当前有效 Linux 版本标识为 `7.3.0-lgg8+`。C208-R3 已通过用户观察和同次 ACM 验收蓝底桌面；C210 用户确认触控有效。C212 已读到 SMB5 状态和 PM8150B USB ADC；尚未实现 Linux 充电控制或快充。
+
+### C228：充电器基准配置只读接口
+
+在 PM8150B SMB5 状态驱动中增加标准的只读
+`constant_charge_current` 和 `constant_charge_voltage` 属性，读取并换算
+FCC 与 FV 的编程基准；无 setter，未发起充电控制写入。超出固定下游
+PM8150B 参数表范围的编码返回 `-ENODATA`。本机使用实际 getter 覆盖两项
+全部 256 个编码、在线和离线状态、错误传播及输出不变，共 1,067 例；
+严格编译和 UBSan 均通过。
+
+`run-20261101-013047-c8a9e1ee` 使用 RAM-only 镜像
+`cbc533cb133852b6a7106f4fc2344dff8724aa3dca38e155452140f2bda67cf6`。
+Linux 中 FCC 两端原始读数均为 `0x34`，标准接口读出 2,600,000 µA；
+FV 两端原始读数均为 `0x53`，标准接口读出 4,430,000 µV。三次读取
+不是原子快照，但数值和固定下游编码一致。45 项回执均通过，约 87.3 秒后
+Android 恢复到 `_b`，`boot_completed=1`，boot ID 轮转，boot_a/boot_b
+哈希不变。物理 USB 1-2 监视覆盖和日志完整性检查通过；结果保存在
+`out/lgg8-c228-charger-setpoints-20261101/run-20261101-013047-c8a9e1ee/`，
+`result.json` SHA-256 为
+`79b27d756ae8b27f007790cb68d9bcfe771271e80ba091d01deabc0ee1f16e02`。
+
+以上是继承的编程基准，不是实测电池充电电流、JEITA 生效后的限值或快充
+能力证明；本次仍可能存在 USB 供电和原有充电状态，未证明充电已停止。
 
 ### C227：电量计就绪状态和百分比
 

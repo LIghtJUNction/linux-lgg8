@@ -131,7 +131,11 @@ defines 50,000 µA and 10,000 µV steps, with a 3,600,000 µV FV offset.
 Unsupported raw codes return `-ENODATA`. These base settings are not measured
 battery current or voltage, effective post-JEITA limits, or proof that charging
 is enabled or stopped. They can remain readable while USB is offline. This
-addition is covered offline and has not yet been tested on a device.
+addition passed offline getter tests and C228 RAM-only device observation:
+FCC raw `0x34` before and after matched 2,600,000 µA, and FV raw `0x53`
+before and after matched 4,430,000 µV. The separate reads are not an atomic
+snapshot. C228 recovered Android with both boot hashes unchanged. These are
+inherited settings, not measurements or validation of a Linux charge policy.
 
 C212 adds the PM8150B `ADC5_USB_IN_I` and `ADC5_USB_IN_V_16` IIO channels using
 the prescaling from LG's alpha-family device tree. The RAM-only ACM readback

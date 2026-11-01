@@ -119,6 +119,18 @@ so this source finding does not establish whether a watchdog was active or
 stopped in any particular boot. This is a separate device from the SMB5 charger
 watchdog. See [qcom-wdt](../../drivers/watchdog/qcom-wdt.c).
 
+The user has offered to attempt a manual wake. Static inspection of the
+RAM-only touch candidate's compiled `linux.dtb` shows `wakeup-source` on
+`/gpio-keys/key-vol-up` and `qcom,pm8941-pwrkey` on the PON power-key node;
+its kernel configuration enables `CONFIG_SUSPEND`, `CONFIG_PM_SLEEP`,
+`CONFIG_KEYBOARD_GPIO` and `CONFIG_INPUT_PM8941_PWRKEY`. The power-key driver
+defaults this compatible to wake-enabled and arms IRQ wake when allowed.
+These are candidate inputs, not evidence that either physical key can wake this
+phone or recover a hung PM callback. Manual wake cooperation does not replace
+an independently verified hang-recovery path. A real experiment still needs
+bounded capture, explicit stop conditions and before/after Android/slot/boot
+verification; do not equate screen-off with completed system suspend.
+
 A later
 read-only Android root snapshot identified `rtc0` as the PM8150 Qualcomm RTC;
 `/proc/driver/rtc` reported `alarm_IRQ: no` and `alrm_pending: no`, and

@@ -38,20 +38,34 @@ LineageOS `android_kernel_lge_sm8150` commit
 `drivers/input/touchscreen/lge/lgsic/sw42000/touch_sw42000.c` and
 `touch_sw42000.h`.
 
-The driver does not contain firmware upgrade, bus factory-test, gesture,
-vendor sysfs, suspend, or resume code. It does not read or write firmware
-files. Suspend/resume and Android EVIOCGABS coordinate comparison remain open.
+The driver now also has system suspend/resume callbacks: it synchronizes and
+disables the IRQ, releases active touches and stops scanning before suspend;
+on resume it checks firmware, restarts normal scanning and reenables the IRQ
+only after initialization succeeds. The callbacks retain the touch power
+rails and do not request gesture wake or clock-off mode. This path has local
+simulated fault and concurrency coverage but has **not** been tested on the
+phone. It cannot yet recover from lost controller power or clock state. If
+resume or recovery from an aborted suspend fails, the IRQ stays disabled; the
+driver does not automatically retry, and input remains unavailable until a
+later successful resume or rebind.
+
+The driver does not contain firmware upgrade, bus factory-test, gesture or
+vendor sysfs code. It does not read or write firmware files. Real-device
+suspend/resume and Android EVIOCGABS coordinate comparison remain open.
 
 ## Offline parser check
 
 ```sh
 python3 -m unittest lgg8.tests.test_sw42000_parser -v
+python3 -B lgg8/tests/test_sw42000_pm.py
 ```
 
-The C fixture is compiled into `out/lgg8/validation/` and removed after the
-test. It covers field decoding, two contacts, UP release, zero and oversized
-counts, truncated reports, duplicate IDs, non-touch interrupts, and palm
-cancellation.
+The parser fixture uses an isolated work directory under `out/lgg8/validation/`
+and removes it after the test. It covers field decoding, two contacts, UP
+release, zero and oversized counts, truncated reports, duplicate IDs,
+non-touch interrupts, and palm cancellation. The PM test compiles production
+functions against simulated I²C, input and IRQ APIs; it exercises 73 normal,
+fault and in-flight IRQ sequences. Neither test exercises real hardware.
 
 ## Build and device acceptance
 

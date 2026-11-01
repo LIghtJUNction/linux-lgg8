@@ -130,6 +130,16 @@ phone or recover a hung PM callback. Manual wake cooperation does not replace
 an independently verified hang-recovery path. A real experiment still needs
 bounded capture, explicit stop conditions and before/after Android/slot/boot
 verification; do not equate screen-off with completed system suspend.
+For interpreting a future `freeze` test, kernel source increments
+`/sys/power/suspend_stats/success` when `enter_state()` returns zero, but
+`s2idle_loop()` can exit on an already-pending wakeup before it waits in
+`s2idle_enter()`. A successful write or counter increment therefore does not
+alone prove a nonzero sleep interval. Capture the selected state, entry/exit,
+wakeup evidence and an independently meaningful interval as well as touch
+events after resume; if those observations are unavailable or ambiguous,
+report only the observed PM transition, not verified sleep duration. See
+[suspend core](../../kernel/power/suspend.c) and
+[suspend statistics](../../kernel/power/main.c).
 
 A later
 read-only Android root snapshot identified `rtc0` as the PM8150 Qualcomm RTC;

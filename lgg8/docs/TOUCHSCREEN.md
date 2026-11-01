@@ -97,3 +97,17 @@ returned to Android with both boot partitions unchanged. This run did not
 collect a touch gesture, test suspend/resume, or validate a wakeup path; it
 only confirms registration during this normal boot. The result is recorded in
 `out/lgg8-c234-integration-20261101/run-20261101-045735-f7dc0504/result.json`.
+
+Do not treat the current recovery timer as a tested wakeup mechanism. The
+C234 configuration lacks `CONFIG_PM_DEBUG` and has the PM8xxx RTC driver as
+a module not included in the initramfs. The user-space guardian can be frozen
+during system sleep, and the Qualcomm watchdog driver stops an active
+watchdog in its suspend callback. No automatic wake source or hard recovery
+deadline has been verified on this phone.
+
+A future diagnostic kernel can enable `CONFIG_PM_DEBUG` and select `devices`
+in `/sys/power/pm_test` to exercise device suspend/resume without entering
+platform sleep. First validate the PM flow locally and establish a practical
+recovery method: another driver's callback can still hang, and neither this
+test nor a returned USB connection proves real sleep, wakeup, or touch input
+after resume. Do not count injected input events as physical touch acceptance.

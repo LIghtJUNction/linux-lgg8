@@ -105,7 +105,11 @@ static int write_udc(const char *value)
 int main(int argc, char **argv)
 {
     if (argc != 1 && (argc != 2 || strcmp(argv[1], "--reconnect"))) return 2;
-    if (roundtrip("\025\nprintf '\\nLGG8_SHELL_FIRST\\n'\n", "\nLGG8_SHELL_FIRST\r\n")) return 1;
+    if (roundtrip("\025\n/bin/busybox setsid /bin/busybox sh -c "
+                  "'sleep 2; printf detached-ok > /run/reconnect-test' "
+                  "</dev/null >/run/reconnect-worker.log 2>&1 & "
+                  "printf '\\nLGG8_SHELL_FIRST\\n'\n",
+                  "\nLGG8_SHELL_FIRST\r\n")) return 1;
     if (argc == 1) return 0;
 
     /* This is QEMU dummy_hcd only: deliberately disconnect and reconnect its
@@ -118,10 +122,12 @@ int main(int argc, char **argv)
     if (n <= 0 || n >= (ssize_t)sizeof(udc) - 1) return 1;
     udc[n] = 0;
     if (write_udc("\n")) { puts("HOST_SHELL_PROBE unbind_failed"); return 1; }
-    usleep(1200000);
+    usleep(2500000);
     if (write_udc(udc)) { puts("HOST_SHELL_PROBE rebind_failed"); return 1; }
     puts("HOST_SHELL_PROBE REBOUND second_roundtrip_start=1");
-    if (roundtrip("\025\nprintf '\\nLGG8_SHELL_SECOND\\n'\n", "\nLGG8_SHELL_SECOND\r\n")) return 1;
+    if (roundtrip("\025\n[ \"$(cat /run/reconnect-test)\" = detached-ok ] && "
+                  "printf '\\nLGG8_SHELL_SECOND\\n'\n",
+                  "\nLGG8_SHELL_SECOND\r\n")) return 1;
     puts("HOST_SHELL_PROBE PASS reconnect_roundtrip=1");
     return 0;
 }

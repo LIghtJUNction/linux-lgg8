@@ -494,9 +494,14 @@ interrupted waits and fork failure, and the supervisor compiles for AArch64.
 In a local x86 QEMU dummy_hcd run, configfs UDC unbind caused the old shell to
 receive SIGHUP; the restarted shell completed a second command roundtrip after
 UDC rebind. The parent-commit negative control reached the same rebind but its
-second roundtrip timed out. Results are in
-`out/lgg8-qemu-pm-paired-20261101/observations/qemu-shell-reconnect-v2.stdout`
-and `out/lgg8-qemu-pm-paired-20261101/observations/qemu-shell-reconnect-negative.stdout`.
+second roundtrip timed out. A follow-up roundtrip also verified that a
+`setsid` worker launched before disconnect wrote a RAM-only result which the
+replacement shell read after reconnect. The old supervisor remained a failing
+negative control. Follow-up records are
+`out/lgg8-qemu-pm-paired-20261101/observations/qemu-shell-detached-reconnect.stdout`
+and `out/lgg8-qemu-pm-paired-20261101/observations/qemu-shell-detached-negative.stdout`;
+the first reconnect-only records are `qemu-shell-reconnect-v2.stdout` and
+`qemu-shell-reconnect-negative.stdout` in the same directory.
 The initial test version matched command echo, and the stricter version first
 failed due to terminal echo; the successful version clears the input line and
 requires a separate output line. This test disconnects a virtual gadget; it is

@@ -87,3 +87,13 @@ For repeat acceptance, confirm that `LG SW42000 Touchscreen` appears in
 C210 passed the user's tap/drag observation. Probe logs, Android
 EVIOCGABS-coordinate comparison, suspend/resume, and gesture support remain
 open; parser and build success do not establish those behaviors.
+
+C234 booted the newer touch driver from source revision
+`2cac5083555092d953d7ec439385a7ffd16d197f` and observed a single
+`LG SW42000 Touchscreen` input device with an `event2` handler and a GPIO 122
+IRQ whose counter was zero in both snapshots. The other boot inputs matched
+C232; the kernel included several later changes. The phone
+returned to Android with both boot partitions unchanged. This run did not
+collect a touch gesture, test suspend/resume, or validate a wakeup path; it
+only confirms registration during this normal boot. The result is recorded in
+`out/lgg8-c234-integration-20261101/run-20261101-045735-f7dc0504/result.json`.

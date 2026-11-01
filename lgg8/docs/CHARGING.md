@@ -994,3 +994,24 @@ handle read errors and stale data rather than assume every change generates a
 userspace event. This finding is not a validated charging or protection path.
 See [LOCAL-VALIDATION.md](LOCAL-VALIDATION.md) for the reproducible test and
 record.
+
+## MID_CHG provider guard on hardware (C234)
+
+The source revision `2cac5083555092d953d7ec439385a7ffd16d197f` was packaged
+using the accepted C232 boot inputs and booted once with `fastboot boot`.
+The guarded SMB5 observer registered and returned `VOLTAGE_NOW=4741734 µV`;
+the direct MID_CHG reads immediately before and after each returned
+`4735896 µV`. The values are sequential and uncalibrated. The positive test
+does not establish rejection of a bad provider on physical hardware, ADC
+freshness, VBUS negotiation, or a functioning temperature protection path.
+The Type-C node remained disabled. Simulated negative provider cases are
+described in [LOCAL-VALIDATION.md](LOCAL-VALIDATION.md).
+
+The same capture read charge-enable command `0x01` and USB-suspend command
+`0x00`. These are command bytes, not a measurement of battery current or
+proof of a safe power path. USB power and inherited charging remained possible;
+no charge current, voltage, or enable setting was changed for this test. ADC
+conversions and IRQ setup still require their own PMIC configuration writes.
+Android returned with both boot partitions unchanged. The full result is
+`out/lgg8-c234-integration-20261101/run-20261101-045735-f7dc0504/result.json`
+(SHA-256 `402d098597950888df02204dc952a9185999cc0034a69e332b11a68f99382f7c`).

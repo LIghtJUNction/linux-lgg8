@@ -8,10 +8,12 @@
  */
 
 #include <linux/bits.h>
+#include <linux/iio/consumer.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
 #include <soc/qcom/qcom-spmi-pmic.h>
@@ -31,9 +33,12 @@
 #define SMB5_FV_MIN_UV			3600000
 #define SMB5_FV_STEP_UV			10000
 #define SMB5_FV_MAX_RAW			119
+#define SMB5_MID_CHG_MIN_UV		1000000
 
 struct qcom_smb5 {
 	struct regmap *regmap;
+	struct iio_channel *mid_chg;
+	struct power_supply_desc desc;
 	u32 base;
 };
 
@@ -139,6 +144,8 @@ static enum power_supply_property qcom_smb5_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
+	/* Optional MID_CHG channel; keep last for descriptors without an ADC. */
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 };
 
 static int qcom_smb5_get_property(struct power_supply *psy,
@@ -148,7 +155,7 @@ static int qcom_smb5_get_property(struct power_supply *psy,
 	struct qcom_smb5 *smb5 = power_supply_get_drvdata(psy);
 	unsigned int status;
 	unsigned int reg;
-	int ret;
+	int ret, voltage_uv;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_PRESENT:
@@ -190,6 +197,27 @@ static int qcom_smb5_get_property(struct power_supply *psy,
 			return -ENODATA;
 
 		val->intval = SMB5_FV_MIN_UV + (int)status * SMB5_FV_STEP_UV;
+		return 0;
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		if (!smb5->mid_chg)
+			return -ENODATA;
+		reg = smb5->base + SMB5_USBIN_INT_RT_STS;
+		ret = regmap_read(smb5->regmap, reg, &status);
+		if (ret)
+			return ret;
+		if (!(status & SMB5_USBIN_PLUGIN_RT_STS_BIT))
+			return -ENODATA;
+		ret = iio_read_channel_processed(smb5->mid_chg, &voltage_uv);
+		if (ret)
+			return ret;
+		ret = regmap_read(smb5->regmap, reg, &status);
+		if (ret)
+			return ret;
+		/* The vendor driver considers MID_CHG below 1 V unreliable. */
+		if (!(status & SMB5_USBIN_PLUGIN_RT_STS_BIT) ||
+		    voltage_uv < SMB5_MID_CHG_MIN_UV)
+			return -ENODATA;
+		val->intval = voltage_uv;
 		return 0;
 	default:
 		return -EINVAL;
@@ -234,9 +262,19 @@ static int qcom_smb5_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, ret,
 				     "failed to read charger register base\n");
 
+	if (device_property_present(&pdev->dev, "io-channels")) {
+		smb5->mid_chg = devm_iio_channel_get(&pdev->dev, "mid-chg");
+		if (IS_ERR(smb5->mid_chg))
+			return dev_err_probe(&pdev->dev, PTR_ERR(smb5->mid_chg),
+					     "failed to get MID_CHG ADC channel\n");
+	}
+
+	smb5->desc = qcom_smb5_desc;
+	if (!smb5->mid_chg)
+		smb5->desc.num_properties--;
 	psy_cfg.drv_data = smb5;
 	psy_cfg.fwnode = dev_fwnode(&pdev->dev);
-	psy = devm_power_supply_register(&pdev->dev, &qcom_smb5_desc,
+	psy = devm_power_supply_register(&pdev->dev, &smb5->desc,
 					 &psy_cfg);
 	if (IS_ERR(psy))
 		return dev_err_probe(&pdev->dev, PTR_ERR(psy),
@@ -265,3 +303,4 @@ module_platform_driver(qcom_smb5_driver);
 
 MODULE_DESCRIPTION("Read-only status driver for Qualcomm PM8150B SMB5");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS("IIO_CONSUMER");

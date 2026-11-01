@@ -152,7 +152,8 @@ code converts the PM8150B current-sense voltage using 0.2 V/A in buck mode,
 which corresponds to about `322445 µA` of USB input current. This is not
 battery current. The test was powered from the host USB port while the phone
 was already full; the Android baseline reported a 500 mA USB input ceiling.
-So this validates measurement only, not battery charging, negotiated PD/QC,
+This exercises the ADC path at one USB voltage; it does not independently
+calibrate the readings or establish battery charging, negotiated PD/QC,
 or factory charging speed. The measurement data was captured, but the ACM
 probe did not capture its final marker; the run is therefore a partial
 telemetry capture. Android returned with `boot_completed=1`, slot `_b`, a
@@ -160,6 +161,19 @@ rotated boot ID, unchanged `boot_a`/`boot_b` hashes, and an empty pstore before
 and after. C211 and C212 artifacts are in
 `out/lgg8-c211-smb5-ro-20261031/` and
 `out/lgg8-c212-usb-adc-20261031/`.
+
+The fixed downstream PM8150B driver documents sporadic erroneous USBIN ADC
+readings at high voltages and reads `MID_CHG` when USB is present instead.
+The target Android DT identifies channel `0x1e` and 1:6 prescaling for MID_CHG.
+The board DT and status driver now provide this channel as an optional USB
+`VOLTAGE_NOW` source, with USB presence checked before and after the ADC read.
+Values below 1 V are returned as unavailable, following the downstream warning
+without borrowing its inferred adapter-voltage fallback. The new source path
+has passed offline probe/getter and binding tests; hardware validation is still
+pending. It requests ADC conversions and does not configure charge control.
+Neither this voltage nor the separate USBIN sample proves a negotiated contract,
+a physically safe input, or a confirmed shutdown.
+[PM8150B downstream voltage path](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c#L3245-L3343).
 
 C213 adds voltage-only IIO channels for the PM8150B battery thermistor at the
 factory's 30 kΩ, 100 kΩ, and 400 kΩ pull-ups, plus `VBAT_SNS`. On a RAM-only

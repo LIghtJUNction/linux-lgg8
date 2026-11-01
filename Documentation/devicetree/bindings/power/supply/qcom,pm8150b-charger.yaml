@@ -10,9 +10,9 @@ maintainers:
   - Casey Connolly <casey.connolly@linaro.org>
 
 description:
-  The PM8150B SMB5 charger function. The initial Linux driver reports USB
-  presence and whether USB input is selected by the power path. It does not
-  configure the charger or control charging.
+  The PM8150B SMB5 charger function. A status driver can report USB presence,
+  power-path selection and, when supplied, the MID_CHG ADC voltage. It does
+  not configure the charger or control charging.
 
 properties:
   compatible:
@@ -20,6 +20,14 @@ properties:
 
   reg:
     maxItems: 1
+
+  io-channels:
+    maxItems: 1
+    description: PM8150B MID_CHG voltage ADC channel.
+
+  io-channel-names:
+    items:
+      - const: mid-chg
 
   status:
     enum:
@@ -29,6 +37,10 @@ properties:
 required:
   - compatible
   - reg
+
+dependentRequired:
+  io-channels: [io-channel-names]
+  io-channel-names: [io-channels]
 
 additionalProperties: false
 

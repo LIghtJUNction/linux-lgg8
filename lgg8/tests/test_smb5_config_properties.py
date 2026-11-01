@@ -29,7 +29,8 @@ def production_definitions(source):
                 r"^struct qcom_smb5 \{.*?^\};",
                 r"^static enum power_supply_property qcom_smb5_properties\[\] = \{.*?^\};",
                 r"^static int qcom_smb5_get_property\(.*?^\}",
-                r"^static const struct power_supply_desc qcom_smb5_desc = \{.*?^\};"]
+                r"^static const struct power_supply_desc qcom_smb5_desc = \{.*?^\};",
+                r"^static int qcom_smb5_probe\(.*?^\}"]
     blocks = []
     for i, pattern in enumerate(patterns):
         matches = list(re.finditer(pattern, source, re.MULTILINE | re.DOTALL))
@@ -46,7 +47,11 @@ def run(compiler, sanitized):
     template = TEST.read_text()
     marker = "/* ACTUAL_DRIVER_DEFINITIONS */"
     assert template.count(marker) == 1
-    unit = template.replace(marker, production_definitions(SOURCE.read_text()))
+    pmic_header = (ROOT / "include/soc/qcom/qcom-spmi-pmic.h").read_text()
+    pmic_subtype = re.search(r"^#define PM8150B_SUBTYPE\s+(0x[0-9a-fA-F]+)",
+                             pmic_header, re.MULTILINE).group(1)
+    unit = f"#define PM8150B_SUBTYPE {pmic_subtype}\n" + template.replace(
+        marker, production_definitions(SOURCE.read_text()))
     flags = ["-pipe", "-std=gnu11", "-O2", "-Wall", "-Wextra", "-Werror",
              "-Wconversion", "-Wsign-conversion", "-fPIC"]
     if sanitized:

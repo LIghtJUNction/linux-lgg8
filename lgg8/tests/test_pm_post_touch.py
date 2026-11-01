@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import patch
 
-from run_pm_devices_ram_only import post_pm_capture
+from run_pm_devices_ram_only import post_pm_capture, reconnect_error_recovery
 
 
 class PostPmTouchTest(unittest.TestCase):
@@ -25,6 +25,27 @@ class PostPmTouchTest(unittest.TestCase):
                 post_pm_capture(None, '/dev/input/event2', 124, None, None,
                                 lambda *args: calls.append(args))
         self.assertEqual(calls, [])
+
+    def test_failure_requests_reboot_only_on_healthy_reconnected_channel(self):
+        class Legacy:
+            def __init__(self): self.calls = []
+            def request_ram_reboot(self, channel, deadline):
+                self.calls.append((channel, deadline))
+                return {'line_fully_sent': True}
+        legacy, channel = Legacy(), object()
+        with patch('run_pm_devices_ram_only.time.monotonic', return_value=100):
+            self.assertEqual(reconnect_error_recovery(None, lambda: True, legacy, channel, 110), {})
+            self.assertEqual(reconnect_error_recovery(object(), lambda: False, legacy, channel, 110), {})
+            self.assertEqual(reconnect_error_recovery(object(), lambda: True, legacy, channel, 103),
+                             {'capture_error_reboot': {'line_fully_sent': True}})
+        self.assertEqual(legacy.calls, [(channel, 103)])
+
+    def test_reboot_exception_is_recorded(self):
+        class Broken:
+            def request_ram_reboot(self, channel, deadline):
+                raise OSError('offline')
+        result = reconnect_error_recovery(object(), lambda: True, Broken(), object(), 1000)
+        self.assertIn('offline', result['capture_error_reboot_error'])
 
 
 if __name__ == '__main__':

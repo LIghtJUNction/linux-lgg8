@@ -52,6 +52,18 @@ def post_pm_capture(channel, event, deadline, healthy, notify_ready, capture=tou
     return capture(channel, event, min(deadline - 4, now + 23), healthy, notify_ready)
 
 
+def reconnect_error_recovery(new_channel, bound, legacy, guarded, deadline):
+    if new_channel is None:
+        return {}
+    try:
+        if bound():
+            return {'capture_error_reboot': legacy.request_ram_reboot(
+                guarded, min(deadline, time.monotonic() + 4))}
+    except Exception as exc:
+        return {'capture_error_reboot_error': repr(exc)}
+    return {}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--execute-ram-only', action='store_true')
@@ -141,6 +153,10 @@ def main():
                 result['error'] = repr(exc)
                 result['status'] = 'FAILED'
                 if touch_started:
+                    # The original ACM may have disappeared during PM. Request
+                    # recovery while the replacement channel is still open.
+                    result.update(reconnect_error_recovery(
+                        new_channel, bound, legacy, guarded, deadline))
                     break
                 time.sleep(0.2)
             finally:

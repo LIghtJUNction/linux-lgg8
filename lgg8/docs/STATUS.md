@@ -31,6 +31,7 @@
 | SMB5 充电状态与 USB ADC | **C212 RAM-only 真机读取成功** | `present=1`、`online=1`；USB 输入 4.876 V，电流检测 ADC 64.489 mV（按 PM8150B buck 标定约 322 mA USB 输入）；不是电池充电电流，也不能证明当前是否充电 |
 | SMB5 充电配置只读 | **C228 RAM-only 真机交叉核对通过** | FCC 基准配置 2.6 A、浮充电压配置 4.43 V；非实际充电电流或生效后的限值，尚无 Linux 充电控制 |
 | SMB5 输入电压 | **C230 RAM-only 真机通过** | 电源接口读出 MID_CHG 4.929366 V，与同次直接 ADC 前后读数相近；不证明 PD 合约或安全停电 |
+| PMIC 中断错误处理 | **C231 RAM-only 基线通过** | 57 项采样通过，内核保留日志中未发现中断事务错误；新 FG 通知中断在本次仍未启用 |
 | FG 原始温度字节 | **C225 RAM-only 真机读到 `0x1f`** | 本轮还读到 therm config `0x02`、period `0x01`；尚未验证 Linux 下持续更新或可用于温度保护 |
 | 电池侧 ADC 遥测 | **C225 三轮真机读回，包含 EOC 检查修复** | VBAT 三轮均为 4.420782 V；30k/100k/400k 热敏上拉电压均读回，名义参数下约 48.55–50.02 kΩ；仍未接温度保护或充电控制 |
 | 机身温度 ADC | **C229 RAM-only 真机三次读回 34.166°C** | PM8150 的机身通道；Android 启动前 33.569°C、返回后 36.362°C，非独立电芯温度校验 |
@@ -886,3 +887,11 @@ Android 温度参考：15:54:41–15:54:46（UTC+8）连续五组只读 BMS 与 
 Android 当前只读 profile 跟进：BMS 报告 `battery_type=LGE_BLT41_Tocad_3500mAh`、`resistance_id=91695` Ω、`debug_battery=0` 和 `voltage_max_design=4430000` µV；当前内核日志多次记录找到该 91 kΩ profile，并报告原有 profile 相同、未重载。本次筛选未见默认 profile 的日志，但不能据日志缺失证明未发生 fallback，亦不能独立证明实体电芯身份。`debug_battery=0` 不证明 LG fake temperature 被关闭；温度依然只能作为可能经过补偿的参考。证据在 `out/lgg8-c218-fg-series-20261031/android-profile-evidence.txt` 和 `android-profile-attributes.txt`。
 
 Android 原始温度路径检查：当前 BMS 节点及 `qpnp_fg_gen4` 模块参数中没有发现明确命名的原始电池温度只读属性；现有内核日志的温控相关行仅显示保护模块初始化和状态变化，未找到当前 raw temp。原厂代码说明 BMS 温度可能为 FG 温度加 LG 插值与电流补偿，并可能使用 fake 值。未读取 SRAM 或更改调试参数，现有数据仍不足以反推出完整 NTC 温度曲线；日志筛选证据在 `out/lgg8-c218-fg-series-20261031/android-battemp-log.txt`。
+
+### C231：PMIC 中断错误处理基线
+
+`spmi-pmic-arb` 的中断读取失败原来仅记日志，`unmask` 随后可能使用未初始化字节；中断域激活时两次写失败也可能被忽略。本仓修正为读取失败后停止、在有返回值的路径传播原始错误。成功路径的寄存器操作顺序不变。底层测试对真实回调注入 304 个场景，严格编译和 UBSan 均通过；这些模拟不代替硬件故障测试。
+
+C231 使用未启用 FG 新中断的 C230 设备树（SHA-256 `4100160e…`），镜像 SHA-256 `db8888568d6928d4c7aa67020e2ea4e82613942fa78dee63495b2d17e355d51b`。RAM-only 运行后 57/57 项采样通过，保留的内核日志中没有匹配到 IRQ 事务或 ownership 错误；USB 口 1-2 监视覆盖通过，Android 返回 `_b` 且 boot_a/boot_b 哈希未变。结果文件 SHA-256 `05db787274e88b93ea961fe898fa0a30ac26db2c0a3159802924352362076de2`。该测试没有触发新 FG 中断，也没有验证中断投递、充电安全或所有中断客户端。
+
+中断 `ack`、`mask` 与 `unmask` 的回调仍不能向通用 IRQ 核心返回写入错误；日志、单次正常启动及软件超时复位都不能证明硬件不会出现中断风暴，或保证严重风暴时能及时复位。读取 ADC 和注册既有中断仍会写入相应 PMIC 配置寄存器；本次未主动改写充电控制参数。

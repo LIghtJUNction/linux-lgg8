@@ -909,3 +909,16 @@ The experimental observer exposes the raw input-suspend command byte read-only;
 its value is not evidence of actual input current or a verified shutdown. Source:
 [downstream SMB5 register definitions](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-reg.h),
 [downstream command implementation](https://github.com/LineageOS/android_kernel_lge_sm8150/blob/d4f335e13d73c4aa2af85581a6ec11b670ee5b94/drivers/power/supply/qcom/smb5-lib.c).
+
+## PMIC IRQ baseline (C231)
+
+The SPMI irqchip now propagates read errors and the two IRQ-domain activation
+write errors where its API permits, and avoids using an uninitialized byte in
+`unmask`. Existing clients and charging control are not thereby proven safe.
+In C231 the FG notification IRQs remained disabled; a RAM-only boot returned to
+Android with both boot partition hashes unchanged, and the retained kernel log
+had no matching IRQ transaction/ownership errors. The leaf observer's local
+fault tests do not model PMIC IRQ register writes or real IRQ delivery. The
+void ack/mask/unmask callbacks still cannot propagate write failures, and the
+test does not establish storm protection, a fresh battery temperature, or a
+safe charge-control policy.

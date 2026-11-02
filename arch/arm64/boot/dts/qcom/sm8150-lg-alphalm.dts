@@ -653,6 +653,31 @@
 		bias-disable;
 	};
 
+	qup_uart13_default: qup-uart13-default-state {
+		pinmux {
+			pins = "gpio43", "gpio44", "gpio45", "gpio46";
+			function = "qup13";
+		};
+
+		pinconf-cts-rx {
+			pins = "gpio43", "gpio46";
+			drive-strength = <2>;
+			bias-disable;
+		};
+
+		pinconf-rts {
+			pins = "gpio44";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+
+		pinconf-tx {
+			pins = "gpio45";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
 	qup_uart13_sleep: qup-uart13-sleep {
 		pinmux {
 			pins = "gpio43", "gpio44",
@@ -710,14 +735,15 @@
 	status = "okay";
 
 	/delete-property/interrupts;
-	interrupts-extended = <&intc GIC_SPI 585 IRQ_TYPE_LEVEL_HIGH>,
-				<&tlmm 46 IRQ_TYPE_EDGE_FALLING>;
+	/* RX wake IRQ is deferred until its pinmux/PM interaction is fixed. */
+	interrupts-extended = <&intc GIC_SPI 585 IRQ_TYPE_LEVEL_HIGH>;
 
 	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&qup_uart13_default>;
 	pinctrl-1 = <&qup_uart13_sleep>;
 
 	bluetooth: bluetooth {
-		compatible = "qcom,wcn3991-bt";
+		compatible = "qcom,wcn3998-bt";
 		vddio-supply = <&vreg_l1a_0p75>;
 		vddxo-supply = <&vreg_l7a_1p8>;
 		vddrf-supply = <&vreg_l2c_1p3>;

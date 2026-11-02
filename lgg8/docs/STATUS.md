@@ -2,6 +2,15 @@
 
 更新：2026-11-02。本页分别记录源码、本地验证和手机功能的进展。
 
+## 2026-11-02 后续：蓝牙控制器已通过完整 RAM 回归
+
+补齐 UART13 工作引脚、暂去掉有 pinmux/PM 交互问题的 GPIO46 wake IRQ，并把型号
+从 WCN3991 改为与实际 Vendor Event 和 ROM 版本匹配的 WCN3998。
+原厂 `crbtfw21.tlv`/`crnv21.bin` 加载成功，唯一控制器上电、读取版本、关闭与八核执行
+全部通过；复测包含完整 USB 监控、Android 回收和两槽 boot 哈希，自动结果 `PASS`。
+本地 73 项测试通过。配对、传输、工厂地址来源和蓝牙休眠唤醒仍待验收。
+制品指纹、反例和当前入口见 [CONNECTIVITY.md](CONNECTIVITY.md)。
+
 ## 2026-11-02 后续：基带版本与 UIM 卡状态已通过
 
 在 MPSS 启动后发布 rmtfs，并提供已校验的私有 EFS shadow 副本，真机发现 47 个
@@ -12,7 +21,8 @@ shutdown ack 超时。详细对照、制品指纹及私有材料边界见 [MODEM
 
 同时已从干净源码 `487beacbf`、已验证配置加 `connectivity.config` 编译新的 Image、
 板 DTB 和完整匹配模块，加入蓝牙 HCI UART/QCA 及 ath10k SNOC 栈；这一新内核的
-手机验收单独进行，不能从上述旧 Image 的基带结果推导。
+手机验收单独进行，不能从上述旧 Image 的基带结果推导。现已在新内核上重复取得 DMS/UIM
+响应并完整回收 Android；蓝牙结果见上节。
 
 ## 2026-11-02：基带启动通过，DMS 控制服务仍待打通
 

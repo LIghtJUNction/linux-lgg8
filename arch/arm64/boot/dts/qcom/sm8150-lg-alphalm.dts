@@ -516,6 +516,11 @@
 	};
 };
 
+&remoteproc_mpss {
+	firmware-name = "qcom/lg/alphalm/modem.mdt";
+	status = "okay";
+};
+
 &tlmm {
 	sw43410_te_active: sw43410-te-active-state {
 		pins = "gpio8";

@@ -28,6 +28,9 @@ PROBE_OUTPUT = b''.join(f'CPU{cpu}_OK\n'.encode() for cpu in range(8))
 RECORD_PREFIX = 'multicore'
 SUCCESS_KEY = 'eight_cpu_execution_verified'
 REQUESTED_SCOPE = 'eight CPUs online and each executed a pinned process'
+CAPTURE_BUDGET_SECONDS = 20
+COMMAND_WAIT_SECONDS = 4
+TRANSFER_PROBE = True
 
 
 def digest(path):
@@ -39,7 +42,7 @@ def check():
     image, manifest = CANDIDATE / 'boot.img', CANDIDATE / 'manifest.json'
     if digest(manifest) != MANIFEST_SHA:
         raise ValueError('multicore manifest mismatch')
-    if digest(PROBE) != PROBE_SHA:
+    if TRANSFER_PROBE and digest(PROBE) != PROBE_SHA:
         raise ValueError('multicore probe mismatch')
     data = json.loads(manifest.read_bytes())
     if (data.get('schema') != 'lgg8-boot-image-v1' or
@@ -79,7 +82,7 @@ def capture_script(legacy, prefix, argv):
 
 
 def collect(channel, legacy, deadline, healthy, probe_path='/run/wdt-' + 'A' * 24, save=None):
-    stop = min(deadline - 5, time.monotonic() + 20)
+    stop = min(deadline - 5, time.monotonic() + CAPTURE_BUDGET_SECONDS)
     nonce = secrets.token_hex(12).upper()
     rows = []
     for index, (name, argv, expected) in enumerate(tasks(probe_path)):
@@ -88,7 +91,7 @@ def collect(channel, legacy, deadline, healthy, probe_path='/run/wdt-' + 'A' * 2
         prefix = f'C234_{nonce}_{index:02d}'
         channel.send(capture_script(legacy, prefix, argv), stop)
         frame = channel.until(lambda data: legacy.parse_frame(data, prefix),
-                              min(stop, time.monotonic() + 4))
+                              min(stop, time.monotonic() + COMMAND_WAIT_SECONDS))
         valid = (frame.get('payload_integrity_verified') is True and
                  frame['exit_code'] == 0 and not frame['stderr'] and
                  (expected is None or frame['stdout'] == expected))
@@ -130,14 +133,17 @@ def main():
     def capture(channel, event, deadline, healthy, notify_ready):
         del event, notify_ready
         try:
-            binary = PROBE.read_bytes()
-            if hashlib.sha256(binary).hexdigest() != PROBE_SHA:
-                raise ValueError('probe changed before transfer')
-            plan = watchdog_transfer.upload(binary, secrets.token_hex(12).upper())
-            transfer = watchdog_transfer.send_batches(channel, plan, healthy,
-                                                      min(deadline - 10, time.monotonic() + 10))
-            io.inner.save(RECORD_PREFIX + '-transfer', transfer)
-            report = collect(channel, io.legacy, deadline, healthy, plan['path'],
+            probe_path = '/run/wdt-' + 'A' * 24
+            if TRANSFER_PROBE:
+                binary = PROBE.read_bytes()
+                if hashlib.sha256(binary).hexdigest() != PROBE_SHA:
+                    raise ValueError('probe changed before transfer')
+                plan = watchdog_transfer.upload(binary, secrets.token_hex(12).upper())
+                transfer = watchdog_transfer.send_batches(channel, plan, healthy,
+                                                          min(deadline - 10, time.monotonic() + 10))
+                io.inner.save(RECORD_PREFIX + '-transfer', transfer)
+                probe_path = plan['path']
+            report = collect(channel, io.legacy, deadline, healthy, probe_path,
                              lambda value: io.inner.save(RECORD_PREFIX + '-capture', value))
         except Exception:
             if healthy():

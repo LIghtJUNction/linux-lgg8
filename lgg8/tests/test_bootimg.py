@@ -76,6 +76,18 @@ def template_image():
 
 
 class StructureTests(unittest.TestCase):
+    def test_xz_initramfs_bounds_checksum_and_single_stream(self):
+        raw = archive()
+        packed = b.lzma.compress(raw, check=b.lzma.CHECK_CRC32)
+        self.assertEqual(b.initramfs_cpio(packed), b.cpio(raw))
+        invalids = [packed[:-1], packed + b"extra", packed + packed,
+                    b.lzma.compress(raw, check=b.lzma.CHECK_CRC64)]
+        for invalid in invalids:
+            with self.subTest(data=invalid[-10:]), self.assertRaises(ValueError):
+                b.initramfs_cpio(invalid)
+        with patch.object(b, "MAX_RAW", len(raw) - 1), self.assertRaises(ValueError):
+            b.initramfs_cpio(packed)
+
     def test_compressed_initramfs_keeps_cpio_checks_and_rejects_extra_members(self):
         raw = archive()
         packed = b.gzip_member(raw, 0)
@@ -363,6 +375,21 @@ class BuildTests(unittest.TestCase):
         with patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "0"}):
             cls.manifest = b.build(cls.args)
         cls.blob = (cls.root / "build/boot.img").read_bytes()
+
+    def test_xz_initramfs_requires_decoder_and_independent_verify_passes(self):
+        args = copy.copy(self.args)
+        args.initramfs = self.root / "initramfs.cpio.xz"
+        args.initramfs.write_bytes(b.lzma.compress(archive(), check=b.lzma.CHECK_CRC32))
+        args.output = self.root / "xz-build"
+        with patch.object(b, "compile_shim") as compile_shim:
+            with self.assertRaisesRegex(ValueError, "CONFIG_RD_XZ=y"):
+                b.build(args)
+            compile_shim.assert_not_called()
+        args.config = self.root / "xz.config"
+        args.config.write_text("CONFIG_BLK_DEV_INITRD=y\nCONFIG_RD_XZ=y\n")
+        manifest = b.build(args)
+        b.verify_bytes((args.output / "boot.img").read_bytes(), manifest)
+        self.assertEqual(manifest["init"], self.manifest["init"])
 
     def test_compressed_initramfs_build_requires_decoder_and_verifies(self):
         args = copy.copy(self.args)

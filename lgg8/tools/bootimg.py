@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import lzma
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -294,10 +295,20 @@ def cpio(blob):
 
 
 def initramfs_cpio(blob):
-    """Accept raw newc or one bounded gzip member, with the same init checks."""
+    """Accept raw newc, bounded gzip, or bounded XZ with kernel CRC32 support."""
     if blob.startswith(b"\x1f\x8b"):
         blob, trailing = gunzip_member(blob)
         require(not trailing, "initramfs gzip trailing data or additional member")
+    elif blob.startswith(b"\xfd7zXZ\0"):
+        decoder = lzma.LZMADecompressor(format=lzma.FORMAT_XZ, memlimit=128 * 1024 * 1024)
+        try:
+            blob = decoder.decompress(blob, max_length=MAX_RAW + 1)
+        except lzma.LZMAError as error:
+            raise ValueError(f"invalid initramfs XZ: {error}") from error
+        require(len(blob) <= MAX_RAW, "XZ expansion exceeds safety limit")
+        require(decoder.eof, "truncated initramfs XZ stream")
+        require(not decoder.unused_data, "initramfs XZ trailing data or additional stream")
+        require(decoder.check == lzma.CHECK_CRC32, "initramfs XZ requires kernel-supported CRC32")
     return cpio(blob)
 
 
@@ -660,10 +671,12 @@ def build(args):
     cmdline_file = args.cmdline_file.read_bytes()
     bootargs = cmdline(cmdline_file)
     check_drm_client(bootargs, config_bytes)
-    if initrd.startswith(b"\x1f\x8b"):
-        require(config_bytes is not None and b"CONFIG_RD_GZIP=y" in config_bytes.splitlines() and
+    compression = ("GZIP" if initrd.startswith(b"\x1f\x8b") else
+                   "XZ" if initrd.startswith(b"\xfd7zXZ\0") else None)
+    if compression:
+        require(config_bytes is not None and f"CONFIG_RD_{compression}=y".encode() in config_bytes.splitlines() and
                 b"CONFIG_BLK_DEV_INITRD=y" in config_bytes.splitlines(),
-                "compressed initramfs requires CONFIG_BLK_DEV_INITRD=y and CONFIG_RD_GZIP=y")
+                f"compressed initramfs requires CONFIG_BLK_DEV_INITRD=y and CONFIG_RD_{compression}=y")
     init = check_init(initramfs_cpio(initrd), bootargs)
     tree = Fdt(source_dtb)
     initrd_offset = align(image_size, ALIGN)

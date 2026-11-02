@@ -27,6 +27,22 @@ class Legacy:
 
 
 class ModemTest(unittest.TestCase):
+    def test_uim_status_requires_every_card_and_service_and_is_opt_in(self):
+        data = GOOD + b'UIM_CARD_COUNT 1\nUIM_CARD 0 0\n'
+        report = modem.parse_control(data, with_uim=True)
+        self.assertEqual(report['card_states'], [0])
+        self.assertTrue(report['sim_status_queried'])
+        self.assertFalse(report['card_present_reported'])
+        self.assertFalse(report['sim_tested'])
+        for invalid in (data.replace(b'UIM_CARD 0 0\n', b''),
+                        data.replace(b'SERVICE 11 ', b'SERVICE 12 '),
+                        data.replace(b'UIM_CARD 0 0', b'UIM_CARD 0 3'),
+                        data + b'UIM_CARD 0 0\n'):
+            with self.subTest(payload=invalid), self.assertRaises(ValueError):
+                modem.parse_control(invalid, with_uim=True)
+        with self.assertRaises(ValueError):
+            modem.parse_control(data)
+
     def test_control_requires_matching_service_count_and_revision(self):
         self.assertEqual(modem.parse_control(GOOD)['firmware_revision'], 'HE.test')
         for invalid in (GOOD.replace(b'COUNT 2', b'COUNT 3'),

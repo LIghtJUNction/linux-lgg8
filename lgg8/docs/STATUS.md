@@ -2,6 +2,18 @@
 
 更新：2026-11-02。本页分别记录源码、本地验证和手机功能的进展。
 
+## 2026-11-02 后续：基带版本与 UIM 卡状态已通过
+
+在 MPSS 启动后发布 rmtfs，并提供已校验的私有 EFS shadow 副本，真机发现 47 个
+QRTR 服务，DMS Get Revision 成功。下一轮重复版本查询，并收到有效 UIM Get Card Status
+响应：一个卡条目，状态 2（卡错误）。实际插卡和入网仍待验收。
+两轮完整自动结果 `PASS`，均回收 Android、两槽 boot 哈希不变，保留日志没有此前的
+shutdown ack 超时。详细对照、制品指纹及私有材料边界见 [MODEM.md](MODEM.md)。
+
+同时已从干净源码 `487beacbf`、已验证配置加 `connectivity.config` 编译新的 Image、
+板 DTB 和完整匹配模块，加入蓝牙 HCI UART/QCA 及 ath10k SNOC 栈；这一新内核的
+手机验收单独进行，不能从上述旧 Image 的基带结果推导。
+
 ## 2026-11-02：基带启动通过，DMS 控制服务仍待打通
 
 启用 LG MPSS 节点，补齐同版本内核模块和本机原厂固件后，RAM 真机已经能够

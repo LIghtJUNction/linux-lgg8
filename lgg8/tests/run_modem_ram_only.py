@@ -91,8 +91,9 @@ def capture_script(legacy, prefix, argv):
     return result.replace(timeout, f'/bin/busybox timeout -s KILL {duration} '.encode())
 
 
-def parse_control(payload):
+def parse_control(payload, with_uim=False):
     services, count, revision = [], None, None
+    uim_count, uim_states = None, []
     for line in payload.decode('ascii').splitlines():
         match = re.fullmatch(r'SERVICE (\d+) (\d+) (\d+) (\d+)', line)
         if match and count is None:
@@ -106,12 +107,25 @@ def parse_control(payload):
             revision = line[len('DMS_REVISION '):]
             if not 1 <= len(revision) <= 255 or any(not 32 <= ord(c) <= 126 for c in revision):
                 raise ValueError('invalid revision')
+        elif with_uim and revision is not None and re.fullmatch(r'UIM_CARD_COUNT [0-8]', line) and uim_count is None:
+            uim_count = int(line.split()[1])
+        elif with_uim and uim_count is not None and re.fullmatch(r'UIM_CARD [0-7] [0-2]', line):
+            _, index, state = line.split()
+            if int(index) != len(uim_states) or len(uim_states) >= uim_count:
+                raise ValueError('duplicate or unordered UIM card entry')
+            uim_states.append(int(state))
         else:
             raise ValueError('invalid or incomplete control record')
     if count != len(services) or revision is None or not any(s['service'] == 2 for s in services):
         raise ValueError('missing DMS service or revision response')
-    return {'services': services, 'firmware_revision': revision,
-            'sim_tested': False, 'mobile_data_tested': False}
+    report = {'services': services, 'firmware_revision': revision,
+              'sim_tested': False, 'mobile_data_tested': False}
+    if with_uim:
+        if uim_count is None or uim_count != len(uim_states) or not any(s['service'] == 11 for s in services):
+            raise ValueError('missing UIM service or incomplete card status')
+        report.update(sim_status_queried=True, card_states=uim_states,
+                      card_present_reported=1 in uim_states)
+    return report
 
 
 def collect(channel, legacy, deadline, healthy, probe_path=None, save=None):

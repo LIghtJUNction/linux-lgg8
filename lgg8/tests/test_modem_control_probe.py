@@ -27,6 +27,21 @@ int main(void) {
         assert(revision_reply(bad, sizeof(bad), revision, sizeof(revision)));
     }
     assert(revision_reply(good, sizeof(good), revision, 2));
+    unsigned char uim[] = {2,2,0,0x2f,0,25,0, 2,4,0,0,0,0,0, 0x10,15,0,
+                           255,255,255,255,255,255,255,255,1,0,0,0,0,0,0};
+    unsigned char states[8]; unsigned int count;
+    assert(!uim_reply(uim, sizeof(uim), states, &count));
+    assert(count == 1 && states[0] == 0);
+    for (size_t n=0; n<sizeof(uim); n++)
+        assert(uim_reply(uim, n, states, &count));
+    uim[sizeof(uim)-1] = 1;
+    assert(uim_reply(uim, sizeof(uim), states, &count));
+    unsigned char app[31] = {0};
+    app[8] = 1; app[9] = 1; app[14] = 1; app[21] = 2;
+    assert(!card_status(app, sizeof(app), states, &count));
+    assert(states[0] == 1);
+    app[21] = 255;
+    assert(card_status(app, sizeof(app), states, &count));
     return 0;
 }
 '''.replace('SOURCE', str(source))

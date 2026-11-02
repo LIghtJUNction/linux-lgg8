@@ -1,10 +1,62 @@
 # LG G8 基带启动与下一步断点
 
-更新：2026-11-02。**MPSS 启动、QRTR 基础服务枚举、回到 offline 已有真机证据；
-DMS 固件版本查询未通过，SIM、入网、数据、短信、通话均未验证。**
-完整实验的自动结果仍为 `FAILED`，没有把部分成功改写为整体通过。
+更新：2026-11-02。**DMS 固件版本与 UIM 卡状态查询已通过真机验证。**
+基带报告一个卡条目，状态 `2`（卡错误）；插卡识别、注册网络、数据、短信和通话待验收。
+下面保留首轮失败记录；最新成功结果与运行入口见下节。
 
-## 本轮实现
+## 后续：rmtfs 启动顺序、版本查询和 UIM 已通过
+
+补入上游 `linux-msm/rmtfs` 的只读 shadow 模式，使用独立私有副本提供 EFS 数据。
+源提交 `b30a3eb38f9af283f18dbd3c7755653efc52c094`，libqrtr 为
+`29e36ae164389580a0f8ea7a7fdb728140ae978d`。静态 ARM64 构建使用上游直接
+访问 Linux `/sys/class/rmtfs` 的后端；没有 libudev 运行依赖，也没有 `/dev/mem` 回退。
+构建入口为 `lgg8/tools/build_rmtfs.py`，不修改上游 checkout。
+
+四个 EFS 分区只读复制到 `/home/lightjunction/Backups/linux-lgg8-20261102/` 下的
+私有目录，共 6,422,528 字节，复制前、复制后与本地 SHA-256 相符。
+测试镜像包含这些私有副本，放在 `out/lgg8-rmtfs-20261102/private/`，目录权限 0700；
+**不得把该目录的镜像、归档或 EFS 数据发布或提交到 Git。**
+rmtfs 使用 `-r -o /opt/lgg8-rmtfs-input`，运行中的修改留在 heap shadow，且输入归档本身也在 RAM。
+本机和 ARM64 QEMU 已实际测试 shadow 修改、重新打开恢复原值、源文件内容不变。
+
+| 运行（UTC） | 证据 |
+| --- | --- |
+| `run-20261102-051739-2c4e96b0` | 空目录对照：收到 `/boot/modem_fs1` 请求，文件缺失后基带 fatal；确认文件服务确实被使用。 |
+| `private/run-20261102-053004-cf6eed25`、`private/run-20261102-053710-b3c37bee` | 带配置的 gzip 镜像，两次均在 ACM 前停留 fastboot，未执行基带测试，随后回收 Android。 |
+| `private/run-20261102-054425-48e2ef90` | 同一 raw CPIO 换 XZ 后启动；rmtfs 先于 MPSS 发布，没有文件请求，DMS 仍缺失。 |
+| `private/run-20261102-054942-39669e3f` | 只改变发布顺序，MPSS running 后启动 rmtfs；收到三个 EFS open、多次实际读写，发现 47 个服务，DMS Get Revision 成功，关闭通过。完整自动结果 `PASS`。 |
+| `private/run-20261102-060355-9cbb9021` | 新探针重复 DMS 查询并执行 UIM Get Card Status，47 个服务；`UIM_CARD_COUNT 1`、`UIM_CARD 0 2`，完整自动结果 `PASS`。 |
+
+两次成功均完整回收 Android、A/B boot 哈希保持，内核保留日志没有此前的 shutdown ack 超时。
+版本响应为 `MPSS.HE.1.0.c4-00116-SM8150_GEN_PACK-1.430468.2.433546.3`，
+构建时间字符串为 `Sep 02 2021 01:00:00`。
+这证明版本与卡状态的控制交换；卡错误的具体原因及实际插卡工作仍需对照。
+
+带配置 gzip 制品的压缩段为 72,986,921 字节，XZ 制品为 64,804,127 字节。
+前者失败、后者成功，与 64 MiB 附近的装载限制相符，但尚未用 ABL 源码或边界实验确认限制本身。
+XZ 采用内核已编入的 `CONFIG_RD_XZ=y`、CRC32 校验及 8 MiB 字典。
+打包器限制单流、展开大小与解码内存，拒绝 CRC64、附加流和未编译的解码器。
+
+| 成功制品 | boot.img SHA-256 | manifest SHA-256 |
+| --- | --- | --- |
+| 延后发布 rmtfs，DMS | `293eac6dd6b48ef89be032b60ec7809d4e9e72cc3f7544edd0aa9b551e3fda78` | `43d1f8c094835403c875cec538bbdf85356c6499252b283252f0efd2357cd975` |
+| DMS + UIM | `4008a255e307bbb0f03e4342fe83ec26f11444355f3fd65f310b009e5fe9d5c1` | `d27589cddc760cfac2e169622f557b1f0575596b33dcdf271a386ea9d0265a07` |
+
+当前复核入口（默认只核对本地文件，不控制手机）：
+
+```sh
+python3 -B lgg8/tests/run_uim_ram_only.py
+```
+
+明确执行时使用 `--execute-ram-only --serial SERIAL`，继续复用固定哈希的 C234 传输和
+Android 回收链路。私有归档由 `modem_nv_snapshot.py` 与 `modem_nv_initramfs.py`
+校验并重建；固件复制、rmtfs 构建和归档输入的收据均在本地保留。
+读回卡状态不查询 IMEI、IMSI、ICCID，不进行 PIN 尝试、拨号、发短信或注册网络的控制请求。
+
+这些成功仍复用下文列出的已验证 Image。包含蓝牙/Wi-Fi 驱动的全新内核另在
+`out/lgg8-connectivity-20261102/` 构建和验收，不能混用两组模块。
+
+## 首轮实现
 
 - 板级 DTS 启用 `remoteproc_mpss`，指定 `qcom/lg/alphalm/modem.mdt`。
   当前 PAS 驱动的 MPSS 描述符 `auto_boot=false`，测试控制台接通后才显式启动一次。
@@ -113,20 +165,20 @@ python3 -B lgg8/tools/modem_initramfs.py \
 包含真实 LLVM 封装、原生与 ARM64 QEMU 的 QMI 解析器检查、归档设备记录保留、
 损坏/缺失响应拒绝和真实 framing helper 的命令/超时检查；不以这些代替手机入网验收。
 
-## 下次从这里开始
+## 首轮续接计划与当前剩余项
 
 1. 先核对手机、Android 回收条件、制品指纹及以上源码状态。不要重做已通过的触摸和
    用户配合 freeze 测试；本轮没有插 SIM，用户已说明识卡测试下次再做。
-2. 优先验证 **rmtfs 文件服务**。当前内核已有 `CONFIG_QCOM_RMTFS_MEM=y` 和板级
+2. **rmtfs 文件服务和 DMS 已按上节通过**。内核已有 `CONFIG_QCOM_RMTFS_MEM=y` 和板级
    rmtfs 保留区，但 RAM 用户态没有该 daemon。上游
    [rmtfs 服务实现](https://github.com/linux-msm/rmtfs/blob/master/rmtfs.c)
    发布 QMI service 14；[存储实现](https://github.com/linux-msm/rmtfs/blob/master/storage.c)
    处理 modem_fs1/fs2/fsg 等请求，并提供内存 shadow 模式。
-   这是根据缺失组件确定的下一项假设，**尚未用服务请求或对照实验证明它导致 DMS 缺失**。
+   后续对照已经收到文件请求，并在修正发布顺序后取得 DMS 响应。
 3. 先检查设备节点和服务请求，再设计仅使用私有备份或 RAM 副本的文件服务对照。
-   本轮没有读取/修改 modemst、fsg、fsc 或其他 NV/校准分区；不要把固件文件复制工具
+   首轮没有读取 NV；后续使用专用只读快照工具复制了上述四个分区。不要把固件文件复制工具
    当作这些可变数据的一致性备份工具。NV 不进入公开源码、日志或发布制品。
-4. 在收到有效 DMS 版本响应后再测 UIM/SIM；识卡、PIN、运营商注册分开验收。
+4. DMS 与 UIM 状态查询已通过；后续识卡、PIN、运营商注册分开验收。
    SIM 缺席不能把本轮缺失 DMS 的问题解释成识卡失败。
 5. 移动数据还缺独立的 IPA 路径：当前 `drivers/net/ipa` 和绑定没有 SM8150 匹配项。
    QRTR 控制成功不代表数据网络、短信、通话已经可用。关机 ack 超时与偶发未到 ACM
@@ -138,7 +190,7 @@ python3 -B lgg8/tools/modem_initramfs.py \
 
 | 组 | 尚未完成的主要验收 |
 | --- | --- |
-| 蜂窝通信 | DMS/UIM、SIM、注册网络、IPA 数据、短信、通话及音频路由 |
+| 蜂窝通信 | DMS/UIM 查询已通过；SIM、注册网络、IPA 数据、短信、通话及音频路由待测 |
 | Wi-Fi / 蓝牙 | 固件、稳定连接、断连恢复及共存 |
 | 音频 | 扬声器、听筒、麦克风、耳机及路由 |
 | GPU / 显示 | 硬件加速、花屏/启动稳定性、实际显示模式 |

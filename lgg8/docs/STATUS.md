@@ -2,6 +2,20 @@
 
 更新：2026-11-02。本页分别记录源码、本地验证和手机功能的进展。
 
+## 2026-11-02 后续：WLAN 固件与网卡注册通过
+
+TFTP 已处理基带真实请求，写入限定在 8 MiB tmpfs，rmtfs 继续使用私有 EFS heap shadow。
+A/B/A 确认预先注册的 PD mapper 公告在本机 HELLO 前被拒绝而丢失；
+QRTR 名字服务现对 `-EAGAIN` 延后重试。带日志的修复命中并恢复同一竞态，
+无 QRTR/PD 临时日志的独立运行也通过 DMS、WLAN 请求、WLFW、PHY 及网卡注册，
+USB 采样、Android 回收和两槽 boot 哈希均通过；另保留了一轮 USB 采样不可读的失败结果。
+本地相关 83 项测试通过，无跳过。扫描、热点连接、数据、工厂地址与长期稳定性尚未验收，
+默认 DTS 的 Wi-Fi 仍禁用，启用只在实验覆盖中。完整指纹、入口和反例见 [TFTP.md](TFTP.md)。
+
+后续用户空间目标为 OmaMobile；共享 Arch rootfs 与 Hyprland 尚未真机启动。
+当前 SW43410 只提供 1440×3120@60 Hz，动态刷新率切换未适配，详情见
+[CONNECTIVITY.md](CONNECTIVITY.md#最终用户空间与显示模式)。
+
 ## 2026-11-02 后续：蓝牙控制器已通过完整 RAM 回归
 
 补齐 UART13 工作引脚、暂去掉有 pinmux/PM 交互问题的 GPIO46 wake IRQ，并把型号

@@ -1,7 +1,8 @@
 # LG G8：连接驱动与新内核验收
 
 更新：2026-11-02。新内核的八核执行、DMS 版本和 UIM 卡状态查询已有真机证据。
-蓝牙原厂固件加载、控制器上电/版本/关闭与八核执行已完整通过；Wi-Fi 尚未进入识别网卡和连接测试。
+蓝牙原厂固件加载、控制器上电/版本/关闭与八核执行已完整通过。
+Wi-Fi 实验已到 WLFW、MSA、板数据及 firmware ready，但启动不稳定，网卡注册与连接尚未通过。
 
 ## 制品与模块来源
 
@@ -84,10 +85,33 @@ Android 回收和两槽 boot 哈希核对。控制器验收须同时满足唯一
 
 ## 后续硬件入口
 
-Wi-Fi 的 ath10k SNOC 模块及依赖已编译，板级 Wi-Fi 仍 disabled。
+Wi-Fi 的 ath10k SNOC 模块及依赖已编译，默认板级 Wi-Fi 仍 disabled，
+实验配置在 `lgg8/experiments/wifi/wifi-override.dtsi`。
 原厂 ICNSS 的供电为 L1A 0.752 V、L7A 1.8 V、L2C 1.304 V、L11C 3.104–3.312 V；
 板数据有多个 `bdwlan.*`，必须取得固件报告的 board ID 后选择对应数据。
-新内核的基带服务清单尚未发现 WLFW 服务 69，后续需要核对无线子系统启动条件。
+后续 TFTP 对照已在部分启动中发现 WLFW 服务 69。读取到芯片 `0x30224`、
+family `0x4001`、board `0xff`、SoC `0x40060000`；固件版本 `0x300e00b4`，
+构建标识 `WLAN.HL.3.0.c4-00180-QCAHLSWMTPLZ-1`。
+原厂日志确认选用 bdwlan.bin，校验后原样提供给主线 board.bin，BDF/cal 与 firmware ready 已出现。
+加入上游 60 字节能力描述及签名 regdb 后，A/B/A 确认 QRTR HELLO 与服务 64 公告竞态。
+公告重试补丁的首轮真机测试通过：同一处 `-EAGAIN` 后补公告成功，PD 查询、
+WLAN 请求、WLFW 69、ath10k API 5、PHY 1 与网卡 1 均出现，完整运行 `PASS`。
+无 QRTR/PD 临时日志的同一修复已独立回归通过。热点连接、扫描、实际数据及长期稳定性未验收；
+当前 ath10k 还报告工厂 MAC 无效并使用随机地址，地址来源仍需适配。
+regdb 的签名接受也不能仅从文件已打包推断。完整对照、指纹和边界见 [TFTP.md](TFTP.md)。
+
+## 最终用户空间与显示模式
+
+用户指定后续运行 OmaMobile（Arch Linux ARM、Hyprland、Omarchy），
+源码在同级 `omarchy-mobile`。已开始独立的 alphalm 设备接入分支，
+尚未启动该项目的共享 rootfs，也没有持久安装。
+
+SW43410 驱动当前只有 1440×3120、60 Hz 固定模式：
+`320280000 / (1700 × 3140) = 60`。本轮原厂 Android 的 supportedModes
+也只有约 60 Hz，alternativeRefreshRates 为空。该查询没有切换显示模式。
+真实 scanout 帧率、动态切换和降刷新率省电未验收；不能承诺 90/120 Hz。
+
+## 音频库存
 
 音频库存已确认 I²C `0x890000` 下有 ES9218（地址 `0x48`）与 NXP TFA98xx（`0x34`），
 并有 Qualcomm SLIMbus 音频 codec 节点。库存不是声卡或播放验收；ES9218 驱动、

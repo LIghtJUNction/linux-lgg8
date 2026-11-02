@@ -76,6 +76,18 @@ def template_image():
 
 
 class StructureTests(unittest.TestCase):
+    def test_compressed_initramfs_keeps_cpio_checks_and_rejects_extra_members(self):
+        raw = archive()
+        packed = b.gzip_member(raw, 0)
+        self.assertEqual(b.initramfs_cpio(packed), b.cpio(raw))
+        for invalid in (packed[:-1], packed + b"extra", packed + packed):
+            with self.subTest(data=invalid[-10:]), self.assertRaises(ValueError):
+                b.initramfs_cpio(invalid)
+        with patch.object(b, "MAX_RAW", len(raw) - 1), self.assertRaises(ValueError):
+            b.initramfs_cpio(packed)
+        with self.assertRaises(ValueError):
+            b.initramfs_cpio(b.gzip_member(b"not a cpio", 0))
+
     def test_newc_minimal_init_and_arbitrary_inventory(self):
         entries = b.cpio(archive())
         self.assertEqual(len(entries), 3)
@@ -351,6 +363,22 @@ class BuildTests(unittest.TestCase):
         with patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "0"}):
             cls.manifest = b.build(cls.args)
         cls.blob = (cls.root / "build/boot.img").read_bytes()
+
+    def test_compressed_initramfs_build_requires_decoder_and_verifies(self):
+        args = copy.copy(self.args)
+        args.initramfs = self.root / "compressed.cpio.gz"
+        args.initramfs.write_bytes(b.gzip_member(archive(), 0))
+        args.output = self.root / "compressed-build"
+        with patch.object(b, "compile_shim") as compile_shim:
+            with self.assertRaisesRegex(ValueError, "CONFIG_RD_GZIP=y"):
+                b.build(args)
+            compile_shim.assert_not_called()
+        args.config = self.root / "compressed.config"
+        args.config.write_text("CONFIG_BLK_DEV_INITRD=y\nCONFIG_RD_GZIP=y\n")
+        manifest = b.build(args)
+        b.verify_bytes((args.output / "boot.img").read_bytes(), manifest)
+        self.assertEqual(manifest["init"], self.manifest["init"])
+        self.assertEqual(manifest["components"]["initramfs"], b.describe(args.initramfs.read_bytes()))
 
     def test_real_llvm_build_and_independent_cli_verification(self):
         result = subprocess.run([sys.executable, "-B", str(Path(b.__file__)), "verify", "--image", str(self.root / "build/boot.img"),

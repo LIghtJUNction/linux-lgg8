@@ -293,6 +293,14 @@ def cpio(blob):
         cursor = align(data_end, 4)
 
 
+def initramfs_cpio(blob):
+    """Accept raw newc or one bounded gzip member, with the same init checks."""
+    if blob.startswith(b"\x1f\x8b"):
+        blob, trailing = gunzip_member(blob)
+        require(not trailing, "initramfs gzip trailing data or additional member")
+    return cpio(blob)
+
+
 def check_init(entries, bootargs):
     def resolve(path):
         require(path.startswith("/") and ".." not in path.split("/"), "unsafe init/interpreter path")
@@ -652,7 +660,11 @@ def build(args):
     cmdline_file = args.cmdline_file.read_bytes()
     bootargs = cmdline(cmdline_file)
     check_drm_client(bootargs, config_bytes)
-    init = check_init(cpio(initrd), bootargs)
+    if initrd.startswith(b"\x1f\x8b"):
+        require(config_bytes is not None and b"CONFIG_RD_GZIP=y" in config_bytes.splitlines() and
+                b"CONFIG_BLK_DEV_INITRD=y" in config_bytes.splitlines(),
+                "compressed initramfs requires CONFIG_BLK_DEV_INITRD=y and CONFIG_RD_GZIP=y")
+    init = check_init(initramfs_cpio(initrd), bootargs)
     tree = Fdt(source_dtb)
     initrd_offset = align(image_size, ALIGN)
     dtb_offset = align(initrd_offset + len(initrd), ALIGN)
@@ -754,7 +766,7 @@ def verify_bytes(blob, manifest):
             chosen.get("linux,initrd-end") == struct.pack(">Q", LOAD + initrd_offset + initrd_size), "chosen bootargs/initrd addresses")
     memory = tree.memory_contract(LOAD, LOAD + len(payload))
     require(json_bytes(memory) == json_bytes(manifest["memory"]), "manifest RAM contract")
-    require(check_init(cpio(initrd), bootargs) == manifest["init"], "manifest init execution chain")
+    require(check_init(initramfs_cpio(initrd), bootargs) == manifest["init"], "manifest init execution chain")
     return {"status": "PASSED", "image_sha256": sha(blob), "image_size": len(blob), "partition_size": manifest["partition_size"],
             "stock_dtb_count": len(info["stock_dtb_sha256"]), "device_acceptance": "NOT_TESTED"}
 

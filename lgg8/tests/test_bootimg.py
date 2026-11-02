@@ -43,6 +43,22 @@ def archive(records=None):
     return bytes(result)
 
 
+def static_pie(dependency=None):
+    data = bytearray(0x100c)
+    data[:16] = b"\x7fELF\x02\x01\x01" + bytes(9)
+    struct.pack_into("<HHIQQQIHHHHHH", data, 16, 3, 183, 1, 0x1000, 64, 0, 0, 64, 56, 2, 0, 0, 0)
+    struct.pack_into("<IIQQQQQQ", data, 64, 1, 5, 0, 0, 0, len(data), len(data), 4096)
+    tags = [(0x6ffffffb, 0x08000000)]
+    if dependency is not None:
+        tags.append((dependency, 0))
+    tags.append((0, 0))
+    struct.pack_into("<IIQQQQQQ", data, 120, 2, 4, 0x200, 0x200, 0x200, len(tags) * 16, len(tags) * 16, 8)
+    for i, pair in enumerate(tags):
+        struct.pack_into("<qQ", data, 0x200 + 16 * i, *pair)
+    data[0x1000:] = bytes.fromhex("000080d2a80b80d2010000d4")  # exit(0)
+    return bytes(data)
+
+
 def tree():
     result = b.Fdt.__new__(b.Fdt)
     result.boot_cpu, result.reserves = 0, []
@@ -161,6 +177,35 @@ class StructureTests(unittest.TestCase):
         entries["start"] = (stat.S_IFREG | 0o755, b'#!"/bin/sh"\ntrue\n')
         with self.assertRaises(ValueError):
             b.check_init(entries, "rdinit=/start")
+
+    def test_static_pie_init_accepts_only_self_contained_metadata(self):
+        def check(data):
+            return b.check_init({"init": (stat.S_IFREG | 0o755, data)}, "rdinit=/init")
+        self.assertEqual(check(static_pie())["elf_type"], "static-pie")
+        for tag in (1, 15, 29, 0x6ffffefb, 0x6ffffefc, 0x6ffffffe, 0x6fffffff, 0x7ffffffd, 0x7fffffff):
+            with self.subTest(dependency=tag), self.assertRaises(ValueError):
+                check(static_pie(tag))
+        bad = []
+        for offset, fmt, value in ((120, '<I', 3), (56, '<H', 1), (136, '<Q', 0x201),
+                                   (152, '<Q', 17), (0x208, '<Q', 0), (0x210, '<q', 30)):
+            data = bytearray(static_pie())
+            struct.pack_into(fmt, data, offset, value)
+            bad.append(data)
+        data = bytearray(static_pie())
+        struct.pack_into('<H', data, 56, 3)
+        data[176:232] = data[120:176]
+        bad.append(data)
+        for data in bad:
+            with self.subTest(corrupt=True), self.assertRaises(ValueError):
+                check(data)
+
+    @unittest.skipUnless(shutil.which('qemu-aarch64'), 'requires ARM64 userspace emulator')
+    def test_static_pie_fixture_executes_as_aarch64(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'init'
+            path.write_bytes(static_pie())
+            path.chmod(0o755)
+            subprocess.run(['qemu-aarch64', str(path)], timeout=5, check=True, capture_output=True)
 
     def test_fdt_roundtrip_and_stock_trailer(self):
         blob = tree().encode()

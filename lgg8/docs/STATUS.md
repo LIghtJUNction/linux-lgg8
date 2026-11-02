@@ -2,6 +2,14 @@
 
 更新：2026-11-02。本页分别记录源码、本地验证和手机功能的进展。
 
+## 2026-11-02 后续：OmaMobile 共享 initramfs 真机通过
+
+共享 `/init` 已作为 PID 1 在 LG G8 内存启动，USB 串口和两次独立 SSH 连接通过，
+随后自动返回 Android；USB 监控、恢复槽及两槽 boot 哈希核对通过。
+本地相关 63 项测试通过。Arch 根系统、Hyprland、该用户空间下的实际显示与触摸
+尚未验收；本轮 SCSI 关闭，没有真实 UFS 枚举。反例、指纹及下一步见
+[OMAMOBILE.md](OMAMOBILE.md)。
+
 ## 2026-11-02 后续：WLAN 固件与网卡注册通过
 
 TFTP 已处理基带真实请求，写入限定在 8 MiB tmpfs，rmtfs 继续使用私有 EFS heap shadow。

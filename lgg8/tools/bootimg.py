@@ -356,18 +356,44 @@ def check_init(entries, bootargs):
     require(len(data) >= 64 and data[:7] == b"\x7fELF\x02\x01\x01", "init requires static little-endian AArch64 ELF (or script with static interpreter)")
     kind, machine, version, entry, phoff = struct.unpack_from("<HHIQQ", data, 16)
     ehsize, phsize, phnum = struct.unpack_from("<HHH", data, 52)
-    require((kind, machine, version, ehsize, phsize) == (2, 183, 1, 64, 56) and
+    require(kind in (2, 3) and (machine, version, ehsize, phsize) == (183, 1, 64, 56) and
             phnum and 64 <= phoff <= len(data) and phnum * phsize <= len(data) - phoff, "invalid static init ELF header/program bounds")
     executable = False
+    dynamic, loads = None, []
     for index in range(phnum):
         ptype, flags, offset, virtual, _, filesz, memsz, _ = struct.unpack_from("<IIQQQQQQ", data, phoff + index * phsize)
-        require(ptype not in (2, 3), "dynamic init/interpreter is unsupported")
+        require(ptype != 3, "dynamic init/interpreter is unsupported")
         require(offset <= len(data) and filesz <= len(data) - offset, "init ELF segment bounds")
+        if ptype == 2:
+            require(kind == 3 and dynamic is None, "unexpected or duplicate init dynamic segment")
+            require(0 < filesz <= 65536 and filesz % 16 == 0 and filesz <= memsz, "invalid PIE dynamic table size")
+            dynamic = (offset, virtual, filesz)
         if ptype == 1:
             require(filesz <= memsz and virtual + memsz <= 1 << 64, "init ELF load segment size")
             executable |= bool(flags & 1 and virtual <= entry < virtual + filesz)
+            loads.append((offset, virtual, filesz))
     require(executable, "init ELF entry outside executable segment")
-    return {"entry": initial, "resolved_elf": "/" + path, "elf_sha256": sha(data)}
+    result = {"entry": initial, "resolved_elf": "/" + path, "elf_sha256": sha(data)}
+    if kind == 3:
+        require(dynamic is not None, "PIE init needs self-contained dynamic metadata")
+        offset, virtual, size = dynamic
+        require(any(lo <= offset and offset + size <= lo + length and virtual == va + offset - lo
+                    for lo, va, length in loads), "PIE dynamic table is outside its file-backed load segment")
+        # DT_NEEDED, search paths, audit/version dependencies, AUXILIARY/FILTER.
+        dependencies = {1, 15, 29, 0x6ffffefb, 0x6ffffefc, 0x6ffffffe,
+                        0x6fffffff, 0x7ffffffd, 0x7fffffff}
+        terminated = pie = False
+        for cursor in range(offset, offset + size, 16):
+            tag, value = struct.unpack_from("<qQ", data, cursor)
+            if tag == 0:
+                terminated = True
+                break
+            require(tag not in dependencies, "PIE init has an external loader/library dependency")
+            if tag == 0x6ffffffb:  # DT_FLAGS_1, DF_1_PIE
+                pie |= bool(value & 0x08000000)
+        require(terminated and pie, "PIE init needs a terminated table and DF_1_PIE")
+        result["elf_type"] = "static-pie"
+    return result
 
 
 def kernel_header(kernel):

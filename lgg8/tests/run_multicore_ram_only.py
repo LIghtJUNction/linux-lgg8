@@ -25,6 +25,9 @@ MANIFEST_SHA = '396c9e088cbf62645b6e684780c8d4af14ddb20b08ea223d9539a473c4e61b7f
 PROBE = ROOT / 'out/lgg8-multicore-20261102/cpu-probe'
 PROBE_SHA = '2fb29cb5db468cc4688fd231746fb12cc683487a078662563ad8bcd5f4aac4b8'
 PROBE_OUTPUT = b''.join(f'CPU{cpu}_OK\n'.encode() for cpu in range(8))
+RECORD_PREFIX = 'multicore'
+SUCCESS_KEY = 'eight_cpu_execution_verified'
+REQUESTED_SCOPE = 'eight CPUs online and each executed a pinned process'
 
 
 def digest(path):
@@ -133,14 +136,14 @@ def main():
             plan = watchdog_transfer.upload(binary, secrets.token_hex(12).upper())
             transfer = watchdog_transfer.send_batches(channel, plan, healthy,
                                                       min(deadline - 10, time.monotonic() + 10))
-            io.inner.save('multicore-transfer', transfer)
+            io.inner.save(RECORD_PREFIX + '-transfer', transfer)
             report = collect(channel, io.legacy, deadline, healthy, plan['path'],
-                             lambda value: io.inner.save('multicore-capture', value))
+                             lambda value: io.inner.save(RECORD_PREFIX + '-capture', value))
         except Exception:
             if healthy():
                 io.legacy.request_ram_reboot(channel, min(deadline, time.monotonic() + 4))
             raise
-        io.inner.save('multicore-capture', report)
+        io.inner.save(RECORD_PREFIX + '-capture', report)
         return report
 
     touch_capture_adapter.capture = capture
@@ -156,11 +159,11 @@ def main():
     try:
         result = run_session(io)
         result.update(image_sha256=IMAGE_SHA,
-                      eight_cpu_execution_verified=result.get('capture') == 'PASS',
-                      requested_scope='eight CPUs online and each executed a pinned process',
+                      requested_scope=REQUESTED_SCOPE,
                       long_term_stability_verified=False, charging_safety_verified=False)
-        io.inner.save('multicore-signals', signals)
-        io.inner.save('multicore-result', result)
+        result[SUCCESS_KEY] = result.get('capture') == 'PASS'
+        io.inner.save(RECORD_PREFIX + '-signals', signals)
+        io.inner.save(RECORD_PREFIX + '-result', result)
         try:
             (output / 'tmp').rmdir()
         except OSError:
